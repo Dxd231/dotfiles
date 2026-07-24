@@ -13,8 +13,8 @@
 
 | Tool | Description | Configuration Path |
 | :--- | :--- | :--- |
-| **Shell** | Bash / Zsh configs & custom aliases | `~/.bashrc`, `~/.zshrc` |
-| **Terminal** | Alacritty terminal emulator themes & keybinds | `~/.config/alacritty/` |
+| **Shell** | Zsh configs & custom aliases | `~/.zshrc` |
+| **Terminal** | Kitty terminal emulator themes & keybinds | `~/.config/kitty/` |
 | **Editor** | Neovim plugins, keymaps, and LSP settings | `~/.config/nvim/` |
 | **Git** | Global git settings & custom command shortcuts | `~/.gitconfig` |
 
