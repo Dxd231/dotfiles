@@ -10,7 +10,7 @@
 
 ---
 
-<img src="./git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg" width="400">
+<img src="git_images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg" width="400">
 
 ## Keeping Track Of:
 
