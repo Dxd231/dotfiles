@@ -9,7 +9,7 @@
 ![Neovim](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim&logoColor=white)
 ---
 
-## 🧰 Key Components
+## Keeping Track Of:
 
 | Tool | Description | Configuration Path |
 | :--- | :--- | :--- |
@@ -20,7 +20,7 @@
 
 ---
 
-## 🚀 Quick Setup on a New Machine
+## Syncing
 
 Clone and apply these dotfiles on a fresh machine:
 
