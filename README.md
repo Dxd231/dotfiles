@@ -9,6 +9,8 @@
 ![Neovim](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim&logoColor=white)
 ---
 
+![](./git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg)
+
 ## Keeping Track Of:
 
 | Tool | Description | Configuration Path |
@@ -40,4 +42,4 @@ config checkout
 # 5. Hide untracked files from git status
 config config --local status.showUntrackedFiles no
 ````
-![](./git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg)
+
