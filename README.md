@@ -7,6 +7,7 @@
 ![Quickshell](https://img.shields.io/badge/Shell%20UI-Quickshell-8A2BE2?style=flat-square&logo=qt&logoColor=white)
 ![Zsh](https://img.shields.io/badge/Shell-Zsh-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)
 ![Neovim](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim&logoColor=white)
+
 ---
 
 ![](./git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg)
@@ -41,5 +42,4 @@ config checkout
 
 # 5. Hide untracked files from git status
 config config --local status.showUntrackedFiles no
-````
 
