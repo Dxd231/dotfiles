@@ -1,0 +1,5 @@
+2026-06-07T00:05:44.849585Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:347:33
+
+Backtrace:
+disabled backtrace
+2026-06-07T08:06:24.528212Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(5): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.

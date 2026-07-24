@@ -1,0 +1,12 @@
+2026-03-30T01:50:47.102525Z ERROR mpv_websocket: SERVER PANIC: is mpv running with `--input-ipc-server=/tmp/mpv-socket`: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } at src/mpv.rs:326:27
+
+Backtrace:
+disabled backtrace
+2026-03-30T05:24:27.761551Z ERROR mpv_websocket: SERVER PANIC: is mpv running with `--input-ipc-server=/tmp/mpv-socket`: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } at src/mpv.rs:326:27
+
+Backtrace:
+disabled backtrace
+2026-03-30T13:51:15.464718Z ERROR mpv_websocket: SERVER PANIC: is mpv running with `--input-ipc-server=/tmp/mpv-socket`: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } at src/mpv.rs:326:27
+
+Backtrace:
+disabled backtrace
