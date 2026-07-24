@@ -39,3 +39,5 @@ config checkout
 
 # 5. Hide untracked files from git status
 config config --local status.showUntrackedFiles no
+````
+![sakurako](./git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg)
