@@ -2,10 +2,11 @@
 
 > A very personal configuration files repo.
 
-![OS](https://img.shields.io/badge/OS-Arch-Linux%20-informational?style=flat-square&logo=linux)
-![Shell](https://img.shields.io/badge/Shell-Bash%20%2F%20Zsh-4EAA25?style=flat-square&logo=gnu-bash)
-![Editor](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim)
-
+![Arch Linux](https://img.shields.io/badge/OS-Arch%20Linux-1793D1?style=flat-square&logo=arch-linux&logoColor=white)
+![Hyprland](https://img.shields.io/badge/WM-Hyprland-555555?style=flat-square&logo=hyprland&logoColor=00f0ff)
+![Quickshell](https://img.shields.io/badge/Shell%20UI-Quickshell-8A2BE2?style=flat-square&logo=qt&logoColor=white)
+![Zsh](https://img.shields.io/badge/Shell-Zsh-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)
+![Neovim](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim&logoColor=white)
 ---
 
 ## 🧰 Key Components
