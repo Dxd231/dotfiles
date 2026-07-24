@@ -5,7 +5,6 @@
 ![Arch Linux](https://img.shields.io/badge/OS-Arch%20Linux-1793D1?style=flat-square&logo=arch-linux&logoColor=white)
 ![Hyprland](https://img.shields.io/badge/WM-Hyprland-555555?style=flat-square&logo=hyprland&logoColor=00f0ff)
 ![Quickshell](https://img.shields.io/badge/Shell%20UI-Quickshell-8A2BE2?style=flat-square&logo=qt&logoColor=white)
-![Zsh](https://img.shields.io/badge/Shell-Zsh-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)
 ![Neovim](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim&logoColor=white)
 
 ---
@@ -17,7 +16,8 @@
 | Tool | Description | Configuration Path |
 | :--- | :--- | :--- |
 | **Shell** | Zsh configs & custom aliases | `~/.zshrc` |
-| **Terminal** | Kitty terminal emulator themes & keybinds | `~/.config/kitty/` |
+| **hyprland config** | the config files for hyprland | `~/.config/hypr` |
+| **quickshell config** | dotfiles for a quickshell bar | `~/.config/quickshell` |
 | **Editor** | Neovim plugins, keymaps, and LSP settings | `~/.config/nvim/` |
 | **Git** | Global git settings & custom command shortcuts | `~/.gitconfig` |
 
