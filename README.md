@@ -10,7 +10,7 @@
 
 ---
 
-![](https://raw.githubusercontent.com/Dxd231/dotfiles/main/git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg)
+<img src="./git-images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg width="400">
 
 ## Keeping Track Of:
 
