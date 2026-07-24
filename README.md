@@ -2,7 +2,7 @@
 
 > A very personal configuration files repo.
 
-![OS](https://img.shields.io/badge/OS-Arch-Linux-informational?style=flat-square&logo=linux)
+![OS](https://img.shields.io/badge/OS-Arch-Linux%20-informational?style=flat-square&logo=linux)
 ![Shell](https://img.shields.io/badge/Shell-Bash%20%2F%20Zsh-4EAA25?style=flat-square&logo=gnu-bash)
 ![Editor](https://img.shields.io/badge/Editor-Neovim-57A143?style=flat-square&logo=neovim)
 
