@@ -1,0 +1,7 @@
+2026-08-10T03:55:09.997384Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-10T03:55:11.071013Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(3): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-10T16:57:14.248675Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-10T18:01:02.054133Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:347:33
+
+Backtrace:
+disabled backtrace

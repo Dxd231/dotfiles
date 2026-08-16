@@ -16,35 +16,37 @@ hl.bind(mod ..  "+ ALT + S",        hl.dsp.exec_cmd("~/.local/bin/save-clipboard
 hl.bind(mod ..  "+ P",              hl.dsp.window.pin())
 hl.bind(mod ..  "+ O",              hl.dsp.window.set_prop({prop = "opaque", value = "toggle"}))
 hl.bind(mod ..  "+ T",              hl.dsp.exec_cmd("kitty"))
-hl.bind(mod ..  "+ space",          hl.dsp.exec_cmd("fuzzel || pkill fuzzel"))
+hl.bind(mod ..  "+ space",          hl.dsp.exec_cmd("qs ipc call launcher toggle"))
 hl.bind(mod ..  "+ period",         hl.dsp.exec_cmd("pidof fuzzel && pkill fuzzel || BEMOJI_PICKER_CMD='fuzzel --dmenu' bemoji"))
 hl.bind(mod ..  "+ SHIFT + R",      hl.dsp.exec_cmd("~/appkill.sh"))
-hl.bind("SUPER + W",                hl.dsp.exec_cmd("killall -s SIGUSR1 waifuland"))
-hl.bind(mod ..  "+ C",              hl.dsp.exec_cmd("qs -c noctalia-shell ipc call controlCenter toggle"))
-hl.bind(mod ..  "+ comma",          hl.dsp.exec_cmd("qs -c noctalia-shell ipc call settings toggle"))
-hl.bind(mod ..  "+ N",              hl.dsp.exec_cmd("swaync-client --toggle-panel"))
+hl.bind(mod ..  " + H",             hl.dsp.exec_cmd("killall -s SIGUSR1 waifuland"))
+hl.bind(mod ..  "+ W",              hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call wallpaper toggle"))
+hl.bind(mod ..  "+ C",              hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call notifications toggle"))
 hl.bind(mod ..  "+ SHIFT + N",      hl.dsp.exec_cmd("kitty nvim"))
-hl.bind("ALT + Tab",                hl.dsp.exec_cmd("snappy-switcher next"))
-hl.bind("ALT + SHIFT + Tab",        hl.dsp.exec_cmd("snappy-switcher prev"))
---bind = $mod, D, exec, pidof fuzzel && pkill fuzzel || ~/search.sh
+hl.bind(mod ..  " + Tab",           hl.dsp.exec_cmd("snappy-switcher next"))
+hl.bind(mod ..  " + SHIFT + Tab",   hl.dsp.exec_cmd("snappy-switcher prev"))
 hl.bind("CTRL + ALT + Delete",      hl.dsp.exec_cmd("pkill wlogout || wlogout"))
-hl.bind(mod .. " + E",              hl.dsp.exec_cmd('nemo'))
+hl.bind(mod .. " + E", hl.dsp.exec_cmd('kitty sh -c \'tmp="$(mktemp -t yazi-cwd.XXXXXX)"; yazi --cwd-file="$tmp"; if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ]; then cd -- "$cwd"; fi; rm -f -- "$tmp"; exec zsh\''))
 hl.bind(mod .. " + G",              hl.dsp.exec_cmd("hyprpicker -a -l"))
-hl.bind(mod .. "+ V",               hl.dsp.exec_cmd("pidof fuzzel && pkill fuzzel || cliphist list | fuzzel --dmenu --with-nth 2 | cliphist decode | wl-copy"))
+hl.bind(mod .. "+ V",               hl.dsp.exec_cmd("qs ipc call clipboard toggle"))
 hl.bind(mod .. "+ SHIFT + V",       hl.dsp.exec_cmd("pidof clipse && pkill clipse || kitty --class clipse -e clipse"))
 hl.bind(mod .. "+ SHIFT + F11",     hl.dsp.exec_cmd("killall hyprsunset || hyprsunset &"))
-hl.bind(mod .. "+ SHIFT + K",       hl.dsp.exec_cmd("~/wifimenu.sh"))
---bind = CTRL, M, exec, quickshell ipc -n call music toggle
---bind = $mod SHIFT, O, exec, /mnt/GAME_DISK/config_changer.sh
 hl.bind(mod .. "+ SHIFT + X",       hl.dsp.exec_cmd("wl-freeze -a"))
-hl.bind(mod .. " + A",              hl.dsp.exec_cmd("~/scripts/manga-ocr.sh"))
-hl.bind(mod .. " + D",              hl.dsp.exec_cmd("nerd-dictation begin || nerd-dictation end"))
+hl.bind(mod .. " + A",              hl.dsp.exec_cmd("~/scripts/manga-ocr.sh && ~/.local/bin/paddle-ocr"))
 
--- === Workspaces Overview ===
+local autoscroll_shortcut = "SUPER + H"
+
+hl.bind(autoscroll_shortcut, function()
+  if hl.plugin.hypr_autoscroll then
+    hl.plugin.hypr_autoscroll.middle_mode("toggle")
+  end
+end, {
+  description = "Toggle middle-button autoscroll",
+})
 
 -- === Audio Controls ===
-hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("swayosd-client --output-volume 5"),             { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("swayosd-client --output-volume -5"),            { locked = true, repeating = true })
+hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"),             { locked = true, repeating = true })
+hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),            { locked = true, repeating = true })
 hl.bind("XF86AudioMute",            hl.dsp.exec_cmd("swayosd-client --output-volume mute-toggle"),   { locked = true })
 hl.bind(mod .. " + CTRL + M",       hl.dsp.exec_cmd("swayosd-client --input-volume mute-toggle"),    { locked = true })
 hl.bind("XF86AudioStop",            hl.dsp.exec_cmd("playerctl -p spotify play-pause"))
@@ -55,7 +57,7 @@ hl.bind("XF86Tools",                hl.dsp.exec_cmd("playerctl -p spotify loop t
 
 -- === Window Management ===
 hl.bind(mod .. " + Delete",         hl.dsp.window.close())
-hl.bind(mod .. " + F",              hl.dsp.window.fullscreen({ mode = "maximized" }))   -- 1 = maximized
+hl.bind(mod .. " + F",              hl.dsp.window.fullscreen({ mode = "maximized", layout_aware = true }))   -- 1 = maximized
 hl.bind(mod .. " + SHIFT + F",      hl.dsp.window.fullscreen({ mode = "fullscreen" })) -- 0 = real fullscreen
 hl.bind(mod .. " + SHIFT + T",      hl.dsp.window.float({ action = "toggle" }))
 --hl.bind("ALT + left",               hl.dsp.group.active({ direction = "b" }))
@@ -67,20 +69,20 @@ hl.bind(mod .. " + U",              hl.dsp.focus({ window = "floating" }))
 -- Focus Navigation
 -- =============================================================================
 
-hl.bind(mod .. " + left",           hl.dsp.focus({ direction = "left"}))
+hl.bind(mod .. " + left",           hl.dsp.layout("move -col"))
 hl.bind(mod .. " + down",           hl.dsp.focus({ direction = "down"}))
 hl.bind(mod .. " + up",             hl.dsp.focus({ direction = "up"}))
-hl.bind(mod .. " + right",          hl.dsp.focus({ direction = "right"}))
+hl.bind(mod .. " + right",          hl.dsp.layout("move +col"))
 
 hl.bind(mod .. " + ALT + right",    hl.dsp.layout("cyclenext"))
 hl.bind(mod .. " + ALT + left",     hl.dsp.layout("cycleprev"))
  
-hl.bind(mod .. " + SHIFT + mouse_down", hl.dsp.layout("move -col"))
-hl.bind(mod .. " + SHIFT + mouse_up",   hl.dsp.layout("move +col"))
+hl.bind(mod .. " + SHIFT + mouse_down", hl.dsp.layout("move +col"))
+hl.bind(mod .. " + SHIFT + mouse_up",   hl.dsp.layout("move -col"))
 hl.bind(mod .. " + SHIFT + period",     hl.dsp.layout("move +col"))
 hl.bind(mod .. " + SHIFT + comma",      hl.dsp.layout("move -col"))
 
-hl.bind(mod .. " + D",                  hl.dsp.layout("fit_into_view"))
+-- hl.bind(mod .. " + D",                  hl.dsp.layout("fit_into_view"))
  
 -- =============================================================================
 -- Window Movement
@@ -137,7 +139,7 @@ end)
 for i = 1, 10 do
     local key = (i == 10) and "0" or tostring(i)
     hl.bind(mod .. " + " .. key,         hl.dsp.focus({ workspace = i }))
-    hl.bind(mod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i }))
+    hl.bind(mod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i, follow = false }))
 end
 
 -- === Mouse Wheel Navigation ===
@@ -162,18 +164,9 @@ end)
 
 -- === Sizing & Layout ===
 hl.bind(mod .. " + R", hl.dsp.layout("promote"))
-hl.bind("CTRL + 1",  hl.dsp.layout("orientationleft"))
 
 hl.bind(mod .. " + R",              hl.dsp.layout("promote"))
-hl.bind(mod .. " + M",              hl.dsp.layout("addmaster"))
--- NOTE: mod+D conflicts with the exec bind above (same as original)
--- hl.bind(mod .. " + D",              hl.dsp.layout("removemaster"))
- 
-hl.bind("CTRL + 1",                 hl.dsp.layout("orientationleft"))
-hl.bind("CTRL + 2",                 hl.dsp.layout("orientationright"))
-hl.bind("CTRL + 3",                 hl.dsp.layout("orientationtop"))
-hl.bind("CTRL + 4",                 hl.dsp.layout("orientationbottom"))
- 
+
 -- =============================================================================
 -- Resize
 -- =============================================================================
@@ -239,7 +232,7 @@ hl.bind(mod .. " + X", function()
     if ws == nil then return end
 
     local current = ws.tiled_layout
-    local next_layout = current == "master" and "scrolling" or "master"
+    local next_layout = current == "dwindle" and "scrolling" or "dwindle"
 
     hl.workspace_rule({
         workspace = tostring(ws.id),
@@ -249,6 +242,6 @@ hl.bind(mod .. " + X", function()
 end)
 
 -- hyprland.lua
-hl.bind("SUPER + Tab", function()
-    hl.plugin.scrolloverview.overview("toggle")
-end)
+-- hl.bind("SUPER + D", function()
+--     hl.plugin.scrolloverview.overview("toggle")
+-- end)

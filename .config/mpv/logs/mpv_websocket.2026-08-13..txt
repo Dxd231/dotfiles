@@ -1,0 +1,6 @@
+2026-08-13T04:27:31.599407Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-13T04:27:34.326347Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(3): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-13T05:32:19.908213Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-13T05:32:22.937279Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(3): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-13T11:07:38.146322Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-13T11:07:43.210224Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(3): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.

@@ -1,0 +1,32 @@
+2026-08-05T01:38:47.344279Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T01:38:54.780387Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(3): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T03:29:00.699097Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(3): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T03:29:07.155379Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(4): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:47:42.128085Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:347:33
+
+Backtrace:
+disabled backtrace
+2026-08-05T04:49:41.001557Z ERROR mpv_websocket: SERVER PANIC: failed printing to stderr: Broken pipe (os error 32) at std/src/io/stdio.rs:1123:9
+
+Backtrace:
+disabled backtrace
+2026-08-05T04:52:29.755446Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:52:58.585673Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:55:26.875008Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:55:39.047017Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(4): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:55:51.357661Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(6): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:55:59.359765Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(8): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:56:28.169854Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T04:56:28.827617Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(4): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T05:03:51.023185Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:347:33
+
+Backtrace:
+disabled backtrace
+2026-08-05T05:03:56.451870Z ERROR mpv_websocket: SERVER PANIC: failed printing to stderr: Broken pipe (os error 32) at std/src/io/stdio.rs:1123:9
+
+Backtrace:
+disabled backtrace
+2026-08-05T05:04:31.339180Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(2): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T05:04:36.016775Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(4): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T05:05:04.426679Z  WARN mpv_websocket::websocket: failed to upgrade tcp stream to WebSocket for token Token(6): Handshake(HandshakeError::Failure(Protocol(HandshakeIncomplete))). Connection closed.
+2026-08-05T18:08:12.637204Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:

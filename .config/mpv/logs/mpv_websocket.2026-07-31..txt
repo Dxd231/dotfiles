@@ -1,0 +1,8 @@
+2026-07-31T02:26:04.724211Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:347:33
+
+Backtrace:
+disabled backtrace
+2026-07-31T02:36:58.116709Z ERROR mpv_websocket: SERVER PANIC: failed to bind address `0.0.0.0:6677`: Os { code: 98, kind: AddrInUse, message: "Address in use" } at src/websocket.rs:347:33
+
+Backtrace:
+disabled backtrace

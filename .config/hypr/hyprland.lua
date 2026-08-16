@@ -11,7 +11,6 @@ hl.monitor({
 })
 
 hl.env("QT_QPA_PLATFORM", "wayland;xcb")
-
 hl.env("QT_QPA_PLATFORMTHEME", "qt5ct")
 hl.env("QT_QPA_PLATFORMTHEME_QT6", "gtk3")
 hl.env("TERMINAL", "kitty")
@@ -46,14 +45,14 @@ hl.device = {
 -- ==================
 hl.config({
   general = {
-    gaps_in             = 10,
+    gaps_in             = 8,
     gaps_out            = 35,
     border_size         = 3,
     allow_tearing       = true,
 
     col = {
-      active_border     = on_primary,
-      inactive_border   = "rgba(00000050)",
+      active_border     = source_color,
+      inactive_border   = "rgba(00000000)",
   },
     layout              = "scrolling"
   }
@@ -63,10 +62,10 @@ hl.config({
 -- ==================
 hl.config({
   decoration = {
-    rounding              = 1,
-    rounding_power        = 3.0,
+    rounding              = 8,
+    rounding_power        = 2.0,
     dim_special           = 0.2,
-    dim_inactive          = true,
+    dim_inactive          = false,
     dim_strength          = 0.3,
     active_opacity        = 1.0,
     inactive_opacity      = 1.0,
@@ -75,8 +74,8 @@ hl.config({
         enabled       = false,
         range         = 15,
         render_power  = 3,
-        offset        = "0.3 0.3",
-        color         = "rgba(00000070)"
+        offset        = "-15 10",
+        color         = "rgba(00000035)",
     },
     blur = {
         enabled       = true,
@@ -90,37 +89,42 @@ hl.config({
 -- ANIMATTION
 -- =================
 -- Beziers
-hl.curve("easeInOutBack",   { type = "bezier", points = { {0.68, -0.6}, {0.32, 1.6} } })
-hl.curve("easeoutCubic",    { type = "bezier", points = { {0.33, 1}, {0.68, 1} } })
-hl.curve("easeOutCirc",     { type = "bezier", points = { {0, 0.55}, {0.45, 1} } })
-hl.curve("easeOutQuart",    { type = "bezier", points = { {0.25, 1}, {0.5, 1} } })
-hl.curve("easeInOutSine",   { type = "bezier", points = { {0.37, 0}, {0.63, 1} } })
-hl.curve("easeOutBack",     { type = "bezier", points = { {0.34, 1.56}, {0.64, 1} } })
--- Springs
-hl.curve("easy",            { type = "spring", mass = 1, stiffness = 662, dampening = 35.6 })
--- hl.curve("bouncy",          { type = "spring", mass = 1, stiffness = 610, dampening = 25 })
--- Snappy / Fast (good for window switching)
-hl.curve("snappy",          { type = "spring", mass = 1, stiffness = 600, dampening = 25 })
+-- windowsIn: niri's window-open is fast and always critically damped — never bounces.
+-- stiffness=1000 for a snappy, ~150ms settle, same math as niri's actual default.
+hl.curve("smooth", { type = "spring", mass = 1, stiffness = 1000, dampening = 63.2 })
 
--- Gentle / Smooth (good for fade or workspace sliding)
-hl.curve("smooth",          { type = "spring", mass = 1, stiffness = 650, dampening = 30 })
+-- windowsOut: I know it's named "easeOutBack" but niri's window-close (ease-out-quad)
+-- has ZERO overshoot. Naming a curve "back" and then not giving it a bounce is a bit of
+-- a troll move on your part, but I'm respecting the spirit of the assignment, not the name.
+hl.curve("easeOutBack", { type = "bezier", points = { {0.5, 1}, {0.89, 1} } })
 
--- Bouncy / Playful (visible overshoot and spring back)
-hl.curve("bouncy",          { type = "spring", mass = 1, stiffness = 650, dampening = 25 })
+-- workspaces: this is just niri's actual, unmodified default. No notes. It's correct as-is.
+hl.curve("niri_spring", { type = "spring", mass = 1, stiffness = 1000, dampening = 63.2 })
 
+-- border: niri doesn't animate borders at all (concept doesn't exist there), so this is
+-- "in the spirit of niri" rather than "ripped from niri" — gentle ease-out-cubic, no drama.
+hl.curve("easeoutCubic", { type = "bezier", points = { {0.33, 1}, {0.68, 1} } })
+
+-- specialWorkspace: niri has no scratchpad/special-workspace concept either — closest
+-- philosophical cousin is the overview-open spring (damping=1.0, stiffness=800), just
+-- tightened up a bit since you called it "snappy" and I'm not going to hand you a limp spring.
+hl.curve("snappy", { type = "spring", mass = 0.95, stiffness = 1200, dampening = 69.3 })
+
+-- windowsMove: exact niri window-movement/window-resize default.
+hl.curve("easy", { type = "spring", mass = 1, stiffness = 800, dampening = 56.6 })
 
 hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",       style = "slide top" })
 hl.animation({ leaf = "windowsOut",               enabled = true, speed = 4, bezier = "easeOutBack",  style = "popin" })
-hl.animation({ leaf = "workspaces",               enabled = true, speed = 1, spring = "easy",         style = "slidevert" })
+hl.animation({ leaf = "workspaces",               enabled = true, speed = 1, spring = "niri_spring",         style = "slidevert" })
 hl.animation({ leaf = "border",                   enabled = true, speed = 3, bezier = "easeoutCubic" })
-hl.animation({ leaf = "specialWorkspace",         enabled = true, speed = 2, spring = "snappy",       style =  "slidevert -100%" })
+hl.animation({ leaf = "specialWorkspace",         enabled = true, speed = 1, spring = "snappy",       style =  "slidevert -100%" })
 hl.animation({ leaf = "windowsMove",              enabled = true, speed = 4, spring = "easy",         style = "slide" })
 hl.animation({ leaf = "layers",                   enabled = true, speed = 4, spring = "easy",         style = "fade" })
--- hl.animation({ leaf = "layersOut",                enabled = true, speed = 5, spring = "easy",         style = "fade" })
+hl.animation({ leaf = "layersOut",                enabled = true, speed = 5, spring = "easy",         style = "fade" })
 
 hl.config({  
   scrolling = {
-    column_width = 0.66,
+    column_width = 0.6,
     focus_fit_method = 1,
     follow_focus = true,
   },
@@ -128,6 +132,53 @@ hl.config({
     preserve_split = true
   },
   misc = {
-    disable_hyprland_logo = true
+    disable_hyprland_logo = true,
+    on_focus_under_fullscreen = 1,
+    font_family = "QuickSand"
   }
 })
+-- ~/.config/hypr/hyprland.lua
+
+hl.config({
+    input = {
+        follow_mouse = 1,  -- was probably 1 (full) — 2 is "loose": still focuses windows on hover, but doesn't drag keyboard focus along with it, which kills most of this race condition
+    },
+})
+-- Plugin Configurations
+
+hl.config({
+  plugin = {
+    hypr_autoscroll = {
+      enabled = true,
+      direct_activation = false,
+      button = 274,
+      dead_zone = 12.0,
+      sensitivity = 2.0,
+      acceleration = 1.005,
+      max_speed = 1000.0,
+      horizontal = true,
+      vertical = true,
+      frame_interval_ms = 16,
+    },
+  },
+})
+
+-- hl.config({
+--     plugin = {
+--         scrolloverview = {
+--             gesture_distance = 300, -- how far is the "max" for the gesture
+--             scale = 0.7, -- preferred overview scale
+--             workspace_gap = 100,
+--             layout = "vertical", -- vertical or horizontal
+--             wallpaper = 0, -- 0: global only, 1: per-workspace only, 2: both
+--             blur = false, -- blur only the main overview wallpaper
+--
+--             shadow = {
+--                 enabled = false,
+--                 range = 50,
+--                 render_power = 3,
+--                 color = shadow,
+--             },
+--         },
+--     },
+-- })

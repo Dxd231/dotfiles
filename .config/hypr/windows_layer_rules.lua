@@ -11,17 +11,17 @@
 -- =============================================================================
 
 -- Float various utility apps
-hl.window_rule({ match = { class = "org%.wezfurlong%.wezterm" },  float = true })
-hl.window_rule({ match = { class = "org.pulseaudio.pavucontrol" }, float = true })
-hl.window_rule({ match = { class = "nm-connection-editor" },       float = true })
-hl.window_rule({ match = { class = "blueman-manager" },            float = true })
-hl.window_rule({ match = { class = "steam" },                      float = true })
-hl.window_rule({ match = { class = "xdg-desktop-portal" },         float = true })
-hl.window_rule({ match = { class = "xdg-desktop-portal-gtk" },     float = true })
-hl.window_rule({ match = { class = "zoom" },                       float = true })
-hl.window_rule({ match = { class = "waypaper" },                   float = true })
-hl.window_rule({ match = { class = "Waydroid" },                   float = true })
-hl.window_rule({ match = { class = "zalo.exe" },                   float = true })
+hl.window_rule({ match = { class = "org%.wezfurlong%.wezterm" },    float = true })
+hl.window_rule({ match = { class = "org.pulseaudio.pavucontrol" },  float = true })
+hl.window_rule({ match = { class = "nm-connection-editor" },        float = true })
+hl.window_rule({ match = { class = "blueman-manager" },             float = true })
+hl.window_rule({ match = { class = "steam" },                       float = true })
+hl.window_rule({ match = { class = "xdg-desktop-portal" },          float = true })
+hl.window_rule({ match = { class = "xdg-desktop-portal-gtk" },      float = true })
+hl.window_rule({ match = { class = "zoom" },                        float = true })
+hl.window_rule({ match = { class = "waypaper" },                    float = true })
+hl.window_rule({ match = { class = "Waydroid" },                    float = true })
+hl.window_rule({ match = { class = "zalo" },                        float = true })
 -- hl.window_rule({ match = { class = "org.kde.dolphin" },            opacity = "0.7 override 0.7 override 0.7 override" })
 
 -- clipse floating clipboard
@@ -52,7 +52,6 @@ hl.window_rule({ match = { float = true }, rounding = 2 })
 
 -- Fullscreen apps
 hl.window_rule({ match = { class = "org.vinegarhq.Sober" },   fullscreen = true })
-hl.window_rule({ match = { class = "東方紅魔郷.exe" },          fullscreen = true })
 hl.window_rule({ match = { class = "com.mojang.minecraft" },  fullscreen = true })
 
 -- Desktop gremlins overlay: no decoration
@@ -89,17 +88,21 @@ hl.workspace_rule({ workspace = "10", monitor = "DP-3", persistent = true })
 
 -- Special workspace 1: dwindle with large outer gaps
 hl.workspace_rule({ workspace = "s[1]",
-    layout   = "dwindle",
+    layout   = "scrolling",
     gaps_out = 70,
 })
+
+-- hl.workspace_rule({ workspace = "1",
+--     layout   = "dwindle",
+-- })
 
 
 hl.window_rule({
     float = true,
     center = true,
-    size = "1000 650",
+    size = "500 500",
     match = {
-        class = "file_chooser"
+        class = "hyprland-share-picker"
     }
 })
 -- =============================================================================
@@ -124,7 +127,6 @@ hl.layer_rule({ match = { namespace = "snappy-switcher" },
     animation = "slide"
 })
 
-
 -- rofi: no animation, blur, semi-transparent
 hl.layer_rule({ match = { namespace = "rofi" },
     no_anim     = true,
@@ -141,9 +143,16 @@ hl.layer_rule({ match = { namespace = "launcher" },
 
 hl.layer_rule({ match = { namespace = "quickshell:thebar" },
     blur        = true,
+    ignore_alpha = 0.5,
+    blur_popups = true,
+})
+
+hl.layer_rule({ match = { namespace = "quickshell:wallpaperswitcher" },
+    blur        = true,
     ignore_alpha = 0.3,
     blur_popups = true,
 })
+
 
 hl.layer_rule({
     match = { namespace = "quickshell:mypopup" },
@@ -151,11 +160,43 @@ hl.layer_rule({
     ignore_alpha = 0.3,
 })
 
--- waybar: blur, fully visible
-hl.layer_rule({ match = { namespace = "waybar" },
-    blur        = true,
-    ignore_alpha = 0,
+hl.layer_rule({
+    match = { namespace = "quickshell:popup" },
+    blur = true,
+    ignore_alpha = 0.3,
 })
 
--- Apply opacity only to kitty (Active override, Inactive override)
+hl.layer_rule({
+    match = { namespace = "quickshell:applauncher" },
+    blur = true,
+    ignore_alpha = 0.3,
+    animation = "slidefade"
+})
 
+hl.layer_rule({
+    match = { namespace = "quickshell:wallpaperswitcher" },
+    blur = true,
+    ignore_alpha = 0.3,
+    animation = "slide bottom"
+})
+
+hl.layer_rule({
+    match = { namespace = "quickshell:osd" },
+    blur = true,
+    ignore_alpha = 0.3,
+    animation = "fade"
+})
+
+hl.layer_rule({
+    match = { namespace = "quickshell:clipboardmanager" },
+    blur = true,
+    ignore_alpha = 0.3,
+    animation = "slidefade top"
+})
+
+hl.layer_rule({
+    match = { namespace = "quickshell:center" },
+    blur = true,
+    ignore_alpha = 0.3,
+    animation = "slidefade left"
+})

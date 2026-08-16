@@ -1,105 +1,110 @@
 import QtQuick
 
 QtObject {
+    property string fontdefault: "Space Grotesk"
 
-    readonly property string background: "#0f1416"
+    property string fontjp: "Zen Maru Gothic Medium"
+    
+    property int fontsize: 12
+
+    readonly property string background: "#10140f"
 
     readonly property string error: "#ffb4ab"
 
     readonly property string error_container: "#93000a"
 
-    readonly property string inverse_on_surface: "#2c3134"
+    readonly property string inverse_on_surface: "#2d322c"
 
-    readonly property string inverse_primary: "#06677f"
+    readonly property string inverse_primary: "#39693b"
 
-    readonly property string inverse_surface: "#dee3e6"
+    readonly property string inverse_surface: "#e0e4db"
 
-    readonly property string on_background: "#dee3e6"
+    readonly property string on_background: "#e0e4db"
 
     readonly property string on_error: "#690005"
 
     readonly property string on_error_container: "#ffdad6"
 
-    readonly property string on_primary: "#003543"
+    readonly property string on_primary: "#053911"
 
-    readonly property string on_primary_container: "#b7eaff"
+    readonly property string on_primary_container: "#baf0b6"
 
-    readonly property string on_primary_fixed: "#001f28"
+    readonly property string on_primary_fixed: "#002106"
 
-    readonly property string on_primary_fixed_variant: "#004e60"
+    readonly property string on_primary_fixed_variant: "#215026"
 
-    readonly property string on_secondary: "#1e333b"
+    readonly property string on_secondary: "#243424"
 
-    readonly property string on_secondary_container: "#cfe6f1"
+    readonly property string on_secondary_container: "#d5e8d0"
 
-    readonly property string on_secondary_fixed: "#071e26"
+    readonly property string on_secondary_fixed: "#101f10"
 
-    readonly property string on_secondary_fixed_variant: "#344a52"
+    readonly property string on_secondary_fixed_variant: "#3b4b39"
 
-    readonly property string on_surface: "#dee3e6"
+    readonly property string on_surface: "#e0e4db"
 
-    readonly property string on_surface_variant: "#bfc8cc"
+    readonly property string on_surface_variant: "#c2c9bd"
 
-    readonly property string on_tertiary: "#2c2e4d"
+    readonly property string on_tertiary: "#00363c"
 
-    readonly property string on_tertiary_container: "#e0e0ff"
+    readonly property string on_tertiary_container: "#bcebf2"
 
-    readonly property string on_tertiary_fixed: "#171937"
+    readonly property string on_tertiary_fixed: "#001f23"
 
-    readonly property string on_tertiary_fixed_variant: "#424465"
+    readonly property string on_tertiary_fixed_variant: "#1f4d53"
 
-    readonly property string outline: "#8a9296"
+    readonly property string outline: "#8c9388"
 
-    readonly property string outline_variant: "#40484c"
+    readonly property string outline_variant: "#424940"
 
-    readonly property string primary: "#88d1ec"
+    readonly property string primary: "#9fd49c"
 
-    readonly property string primary_container: "#004e60"
+    readonly property string primary_container: "#215026"
 
-    readonly property string primary_fixed: "#b7eaff"
+    readonly property string primary_fixed: "#baf0b6"
 
-    readonly property string primary_fixed_dim: "#88d1ec"
+    readonly property string primary_fixed_dim: "#9fd49c"
 
     readonly property string scrim: "#000000"
 
-    readonly property string secondary: "#b3cad4"
+    readonly property string secondary: "#b9ccb4"
 
-    readonly property string secondary_container: "#344a52"
+    readonly property string secondary_container: "#3b4b39"
 
-    readonly property string secondary_fixed: "#cfe6f1"
+    readonly property string secondary_fixed: "#d5e8d0"
 
-    readonly property string secondary_fixed_dim: "#b3cad4"
+    readonly property string secondary_fixed_dim: "#b9ccb4"
 
     readonly property string shadow: "#000000"
 
-    readonly property string source_color: "#01d1ff"
+    readonly property string source_color: "#70a06f"
 
-    readonly property string surface: "#0f1416"
+    readonly property string surface: "#10140f"
 
-    readonly property string surface_bright: "#353a3c"
+    readonly property string surface_bright: "#363a34"
 
-    readonly property string surface_container: "#1b2023"
+    readonly property string surface_container: "#1c211b"
 
-    readonly property string surface_container_high: "#252b2d"
+    readonly property string surface_container_high: "#272b26"
 
-    readonly property string surface_container_highest: "#303638"
+    readonly property string surface_container_highest: "#313630"
 
-    readonly property string surface_container_low: "#171c1f"
+    readonly property string surface_container_low: "#181d17"
 
-    readonly property string surface_container_lowest: "#0a0f11"
+    readonly property string surface_container_lowest: "#0b0f0a"
 
-    readonly property string surface_dim: "#0f1416"
+    readonly property string surface_dim: "#10140f"
 
-    readonly property string surface_tint: "#88d1ec"
+    readonly property string surface_tint: "#9fd49c"
 
-    readonly property string surface_variant: "#40484c"
+    readonly property string surface_variant: "#424940"
 
-    readonly property string tertiary: "#c3c3eb"
+    readonly property string tertiary: "#a1ced5"
 
-    readonly property string tertiary_container: "#424465"
+    readonly property string tertiary_container: "#1f4d53"
 
-    readonly property string tertiary_fixed: "#e0e0ff"
+    readonly property string tertiary_fixed: "#bcebf2"
 
-    readonly property string tertiary_fixed_dim: "#c3c3eb"
+    readonly property string tertiary_fixed_dim: "#a1ced5"
 
 }

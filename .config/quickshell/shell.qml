@@ -6,14 +6,49 @@ import QtQuick
 import Quickshell.Io
 import Quickshell.Services.Mpris
 import Quickshell.Services.SystemTray
+import Quickshell.DBusMenu
 import Quickshell.Widgets
 import QtQuick.Layouts
 import Quickshell.Wayland
+import QtQuick.Effects
 import "Colors.qml"
-import "Color2.qml"
+import "Notifications.qml"
 
 ShellRoot {
     id: shell
+    Notifications {
+        id: notifications
+        theme: shell.theme
+        calendarOpen: shell.calendarOpen
+        shellRoot: shell
+    }
+
+    WallpaperSwitcher {
+        id: wallpaperSwitcher
+        theme: shell.theme
+        fontdefault: shell.fontdefault
+    }
+
+    AppLauncher {
+        id: appLauncher
+        theme: shell.theme
+        fontdefault: shell.fontdefault
+        global_radius: shell.global_radius
+    }
+
+    OnScreenDisplay {
+        id: osd
+        theme: shell.theme
+    }
+
+    ClipboardManager {
+        id: clipboardManager
+        theme: shell.theme
+        fontdefault: shell.fontdefault
+        global_radius: shell.global_radius
+    }
+
+    ActiveArch {}
     readonly property var activePlayer: {
         var players = Mpris.players.values || []; // Ensure players is an array, even if Mpris.players is undefined
         var foundPlayer = null;
@@ -33,76 +68,94 @@ ShellRoot {
     readonly property bool hasPlayer: activePlayer !== null && activePlayer !== undefined
     property var theme: Colors {}
     property string thumbpath: "file:///run/user/1000/mpv_thumbnail.png"
-    property var theme2: Color2 {}
     // Setting Variables
     property int global_radius: 10
     // A list of Kanji numerals from 1 to 10
     readonly property var kanjiNumbers: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+    // Clock (system sync)
+    readonly property string time: {
+        // The passed format string matches the default output of
+        // the `date` command.
+        Qt.formatDateTime(clock.date, "hh:mm");
+    }
+    readonly property string dateString: Qt.formatDateTime(clock.date, "ddd dd MMM")
 
+    SystemClock {
+        id: clock
+        precision: SystemClock.Minutes
+    }
+
+    // ---- calendar popup state ----
+    property bool calendarOpen: false
+    property var viewDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    property var highlightedDays: []   // array of "yyyy-M-d" keys, persists across popup toggles
+    property var gridCells: shell.buildCalendarGrid()
+
+    function dateKey(d) {
+        return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+    }
+    function isHighlighted(d) {
+        return shell.highlightedDays.indexOf(shell.dateKey(d)) !== -1;
+    }
+    function isToday(d) {
+        const t = new Date();
+        return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+    }
+    function toggleDay(d) {
+        const key = shell.dateKey(d);
+        const idx = shell.highlightedDays.indexOf(key);
+        const arr = shell.highlightedDays.slice();
+        if (idx === -1)
+            arr.push(key);
+        else
+            arr.splice(idx, 1);
+        shell.highlightedDays = arr;
+    }
+    function shiftMonth(delta) {
+        shell.viewDate = new Date(shell.viewDate.getFullYear(), shell.viewDate.getMonth() + delta, 1);
+    }
+    function buildCalendarGrid() {
+        const year = shell.viewDate.getFullYear();
+        const month = shell.viewDate.getMonth();
+        const startWeekday = new Date(year, month, 1).getDay();
+        const daysInThisMonth = new Date(year, month + 1, 0).getDate();
+        var cells = [];
+        for (var i = startWeekday; i > 0; i--)
+            cells.push({
+                "date": new Date(year, month, 1 - i),
+                "inMonth": false
+            });
+        for (var d = 1; d <= daysInThisMonth; d++)
+            cells.push({
+                "date": new Date(year, month, d),
+                "inMonth": true
+            });
+        var next = 1;
+        while (cells.length < 42) {
+            cells.push({
+                "date": new Date(year, month + 1, next),
+                "inMonth": false
+            });
+            next++;
+        }
+        return cells;
+    }
+    onViewDateChanged: shell.gridCells = shell.buildCalendarGrid()
     QtObject {
         id: root
         property string preferredPlayer: "spotify"
-        property string cpuUsage: "0%"
+
         property string memoryUsage: "0%"
         property string memformat: ""
+        property string memCount: ""
         property bool memPercent: false
+        property string calendar: ""
         property string networkInfo: "Disconnected"
         property string networkType: "disconnected"
-        property int batteryLevelRaw: 0
-        property string batteryLevel: "0%"
-        property string batteryIcon: "󰂎"
-        property bool batteryCharging: false
-        property string temperature: "0°C"
         property string time: "--:--"
         property string playing: "No Media"
-        property string calendar: "what day is this?"
-        property int netStr: 0
     }
 
-    Process {
-        id: netProc
-        command: ["sh", "-c", "eth=$(nmcli -t -f type,state dev 2>/dev/null | grep '^ethernet:connected'); if [ -n \"$eth\" ]; then echo 'ethernet:Ethernet'; else wifi=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes' | cut -d: -f2); if [ -n \"$wifi\" ]; then echo \"wifi:$wifi\"; else echo 'disconnected:'; fi; fi"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const result = text.trim();
-                const colonIdx = result.indexOf(':');
-                const type = result.substring(0, colonIdx);
-                const info = result.substring(colonIdx + 1);
-                root.networkType = type;
-                root.networkInfo = info || "Disconnected";
-            }
-        }
-    }
-    Process {
-        id: swaync
-        command: ["sh", "-c", "swaync-client --toggle-panel"]
-        running: false
-    }
-    Process {
-        id: netStrength
-        command: ["sh", "-c", "nmcli -t -f active,ssid,signal dev wifi | grep '^yes' | cut -d: -f3"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.netStr = text.trim();
-            }
-        }
-    }
-    // CPU Usage
-    Process {
-        id: cpuProc
-        command: ["sh", "-c", "top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{printf \"%.0f%%\\n\", 100 - $1}'"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.cpuUsage = text.trim();
-            }
-        }
-    }
     //Memory
     Process {
         id: memUsage
@@ -126,125 +179,56 @@ ShellRoot {
             }
         }
     }
-    //Clock
+
     Process {
-        id: timeClock
-        command: ["date", "+%H:%M"]
+        id: memUsageCount
+        command: ["sh", "-c", "free -m | awk '/Mem:/{print $3}'"]
         running: true
 
         stdout: StdioCollector {
             onStreamFinished: {
-                root.time = text.trim();
-            }
-        }
-    }
-    Process {
-        id: calendar
-        command: ["sh", "-c", "date '+%A, %d %B'"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.calendar = text.trim();
+                root.memCount = parseInt(this.text.trim()) || 0;
             }
         }
     }
 
-    //Mpris
     property var player: Timer {
         interval: 3000
         running: true
         repeat: true
         onTriggered: {
-            cpuProc.running = true;
             memUsage.running = true;
-            calendar.running = true;
-            netProc.running = true;
-            netStrength.running = true;
             memUsagePercent.running = true;
-            mpvthumb.running = true;
+            memUsageCount.running = true;
         }
     }
-    Timer {
-        interval: 60000
-        running: true
-        repeat: true
-        onTriggered: {
-            timeClock.running = true;
-        }
-    }
+
     //Actual Bar
     PanelWindow {
-        WlrLayershell.namespace: "quickshell:thebar"
         id: panelbar
+        WlrLayershell.namespace: "quickshell:thebar"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
         anchors.top: true
         anchors.left: true
         anchors.right: true
-        implicitHeight: 38
+        implicitHeight: 36
         color: "transparent"
-        margins.right: 12
-        margins.left: 12
-        margins.top: 12
+        margins.right: 20
+        margins.left: 20
+        margins.top: 10
+        margins.bottom: -15
 
         Rectangle {
+            id: realbar
             anchors.fill: parent
             radius: 8
-            bottomLeftRadius: 18
-            bottomRightRadius: 18
-            border.width: 1
+            bottomLeftRadius: panelbar.implicitHeight / 2
+            bottomRightRadius: panelbar.implicitHeight / 2
+            border.width: 0
             border.color: shell.theme.surface_bright
-            color: Qt.alpha(shell.theme2.bg_color, 0.9)
-            Rectangle {
-                anchors.left: cpu.left
-                anchors.right: netModule.right
-                anchors.verticalCenter: parent.verticalCenter
-                implicitHeight: 34
-                implicitWidth: 24
-                anchors.leftMargin: -2
-                anchors.rightMargin: -2
+            color: Qt.alpha(shell.theme.background, 0.80)
 
-                radius: shell.global_radius
-                color: "transparent"
-
-                z: 0
-            }
-            //Cpu Module
-            Rectangle {
-                id: cpu
-                height: 24
-                width: cpuContent.width + 20
-                radius: shell.global_radius
-                anchors.left: parent.left
-                anchors.leftMargin: 30
-                anchors.verticalCenter: parent.verticalCenter
-                color: "transparent"
-                Accessible.role: Accessible.StaticText
-                Accessible.name: "CPU: " + root.cpuUsage
-
-                Row {
-                    id: cpuContent
-                    anchors.centerIn: parent
-                    spacing: 6
-
-                    Image {
-                        anchors.verticalCenter: parent.verticalCenter
-                        source: "./assets/cpu.svg"
-                        width: 20
-                        height: 20
-                        sourceSize.width: 22
-                        sourceSize.height: 22
-                        fillMode: Image.PreserveAspectFit
-                    }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.cpuUsage
-                        color: shell.theme.on_background
-                        font.pixelSize: 14
-                        font.family: shell.fontdefault
-                        font.bold: true
-                    }
-                }
-            }
             //Time Module
             Rectangle {
                 id: clockmodule
@@ -253,15 +237,28 @@ ShellRoot {
                 radius: shell.global_radius
                 anchors.rightMargin: 0
                 color: "transparent"
-                anchors.left: calendarmodule.right // Snaps to the exact horizontal center
-                anchors.verticalCenter: parent.verticalCenter     // Centers it vertic
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.leftMargin: 0
+                anchors.verticalCenter: parent.verticalCenter
 
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "時"
+                    color: Qt.alpha(shell.theme.on_background, 0.6)
+                    rightPadding: 100
+                    font.pixelSize: 18
+                    font.family: shell.fontjp
+                    font.bold: true
+                    /* renderType: Text.NativeRendering
+                        font.hintingPreference: Font.PreferVerticalHinting */
+                }
                 Row {
                     id: timerContent
                     anchors.centerIn: parent
                     spacing: 6
 
-                    Image {
+                    /* Image {
                         anchors.verticalCenter: parent.verticalCenter
                         source: "./assets/clock.svg"
                         width: 20
@@ -269,48 +266,272 @@ ShellRoot {
                         sourceSize.width: 22
                         sourceSize.height: 22
                         fillMode: Image.PreserveAspectFit
-                    }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.time
-                        color: shell.theme.on_background
-                        font.pixelSize: 14
-                        font.family: shell.fontdefault
-                        font.bold: true
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: shell.theme.source_color   // any matugen color
+                        }
+                    } */
+
+                    ColumnLayout {
+                        spacing: 0
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: shell.time
+                            color: shell.theme.on_background
+                            font.pixelSize: 16
+                            font.family: shell.fontdefault
+                            font.bold: true
+                            /* renderType: Text.NativeRendering
+                            font.hintingPreference: Font.PreferVerticalHinting */
+                        }
+                        Text {
+                            text: shell.dateString
+                            color: Qt.alpha(shell.theme.on_background, 0.6)
+                            font.pixelSize: 12
+                            font.family: shell.fontdefault
+                            font.bold: true
+                            renderType: Text.NativeRendering
+                            font.hintingPreference: Font.PreferVerticalHinting
+                        }
                     }
                 }
+                MouseArea {
+                    cursorShape: Qt.PointingHandCursor
+                    anchors.fill: parent
+                    onClicked: shell.calendarOpen = !shell.calendarOpen
+                }
             }
-            // CALENDAR //
-            Rectangle {
-                id: calendarmodule
-                height: 24
-                width: calendarContent.width + 30
-                radius: shell.global_radius
-                anchors.leftMargin: 60
-                color: "transparent"
-                anchors.left: netModule.left // Snaps to the exact horizontal center
-                anchors.verticalCenter: parent.verticalCenter     // Centers it vertic
+            // Calendar popup, anchored under the time module
+            PopupWindow {
+                id: calendarPopup
 
-                Row {
-                    id: calendarContent
-                    anchors.centerIn: parent
-                    spacing: 6
+                width: 300
+                height: 350
+                color: "transparent"
+                visible: shell.calendarOpen || calendarPanel.opacity > 0
+
+                anchor {
+                    window: clockmodule.QsWindow.window
+                    adjustment: PopupAdjustment.None
+                    onAnchoring: {
+                        const window = clockmodule.QsWindow.window;
+                        // when the notification center is open, drop the calendar below it instead of overlapping
+                        const dodgeOffset = notifications.centerOpen ? 0 : 0;
+                        const widgetRect = window.contentItem.mapFromItem(clockmodule, clockmodule.width / 2 - calendarPopup.width / 2, clockmodule.height + 5 + dodgeOffset);
+                        calendarPopup.anchor.rect.x = widgetRect.x - 2;
+                        calendarPopup.anchor.rect.y = widgetRect.y + 1;
+                    }
+                }
+
+                Item {
+                    anchors.fill: parent
+                    focus: true
+                    Keys.enabled: true
+                    Keys.onEscapePressed: { shell.calendarOpen = !shell.calendarOpen; }
+                } 
+
+                // re-run the anchoring above if the notification center opens/closes
+                // while the calendar is already sitting open, so it doesn't get stuck overlapping
+                /* Connections {
+                    target: notifications
+                    function onCenterOpenChanged() {
+                        if (shell.calendarOpen)
+                            calendarPopup.anchor.updateAnchor();
+                    }
+                } */
+
+                Rectangle {
+                    id: calendarPanel
+                    width: calendarPopup.width
+                    height: calendarPopup.height
+                    x: 0
+                    radius: 8
+                    border.width: 0
+                    border.color: shell.theme.surface_bright
+                    color: Qt.alpha(shell.theme.background, 0.8)
+                    transformOrigin: Item.Top
+                    opacity: 0
+                    y: -270
 
                     Image {
+                        anchors.fill: parent
+                        source: "./assets/reimu.png"
+                        opacity: 0.2
+                        sourceSize.width: 350
+                        sourceSize.height: 350
+                        Layout.preferredWidth: 350
+                        Layout.preferredHeight: 350
+                        anchors.horizontalCenter: parent.horizontalCenter
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "./assets/calendar.svg"
-                        width: 20
-                        height: 20
-                        sourceSize.width: 22
-                        sourceSize.height: 22
+                        fillMode: Image.PreserveAspectFit
                     }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.calendar
-                        color: shell.theme.on_background
-                        font.pixelSize: 14
-                        font.family: shell.fontdefault
-                        font.bold: true
+
+                    states: [
+                        State {
+                            name: "open"
+                            when: shell.calendarOpen
+                            PropertyChanges {
+                                target: calendarPanel
+                                y: 0
+                                opacity: 1
+                            }
+                        },
+                        State {
+                            name: "closed"
+                            when: !shell.calendarOpen
+                            PropertyChanges {
+                                target: calendarPanel
+                                y: -270
+                                opacity: 0
+                            }
+                        }
+                    ]
+
+                    transitions: [
+                        Transition {
+                            from: "closed"
+                            to: "open"
+                            NumberAnimation {
+                                properties: "y,opacity"
+                                duration: 280
+                                easing.type: Easing.OutCubic
+                            }
+                        },
+                        Transition {
+                            from: "open"
+                            to: "closed"
+                            NumberAnimation {
+                                properties: "y,opacity"
+                                duration: 240
+                                easing.type: Easing.InCubic
+                            }
+                        }
+                    ]
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 10
+
+                        // month navigation
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "‹"
+                                color: shell.theme.on_background
+                                font.pixelSize: 18
+                                font.bold: true
+                                font.family: shell.fontdefault
+                                renderType: Text.NativeRendering
+                                font.hintingPreference: Font.PreferVerticalHinting
+                                MouseArea {
+                                    cursorShape: Qt.PointingHandCursor
+                                    anchors.fill: parent
+                                    anchors.margins: -6
+                                    onClicked: shell.shiftMonth(-1)
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: Qt.formatDate(shell.viewDate, "MMMM yyyy")
+                                color: shell.theme.on_background
+                                font.pixelSize: 15
+                                font.bold: true
+                                font.family: shell.fontdefault
+                                renderType: Text.NativeRendering
+                                font.hintingPreference: Font.PreferVerticalHinting
+                            }
+                            Text {
+                                text: "›"
+                                color: shell.theme.on_background
+                                font.pixelSize: 18
+                                font.bold: true
+                                font.family: shell.fontdefault
+                                renderType: Text.NativeRendering
+                                font.hintingPreference: Font.PreferVerticalHinting
+                                MouseArea {
+                                    cursorShape: Qt.PointingHandCursor
+                                    anchors.fill: parent
+                                    anchors.margins: -6
+                                    onClicked: shell.shiftMonth(1)
+                                }
+                            }
+                        }
+
+                        // weekday labels
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+
+                            Repeater {
+                                model: ["S", "M", "T", "W", "T", "F", "S"]
+                                delegate: Text {
+                                    required property string modelData
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: modelData
+                                    color: shell.theme.on_background
+                                    opacity: 0.5
+                                    font.pixelSize: 11
+                                    font.family: shell.fontdefault
+                                    renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferVerticalHinting
+                                    font.bold: true
+                                }
+                            }
+                        }
+
+                        // day grid
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 7
+                            rowSpacing: 4
+                            columnSpacing: 4
+
+                            Repeater {
+                                model: shell.gridCells
+
+                                delegate: Rectangle {
+                                    id: dayCell
+                                    required property var modelData
+
+                                    Layout.preferredWidth: 34
+                                    Layout.preferredHeight: 34
+                                    radius: 17
+                                    opacity: modelData.inMonth ? 1.0 : 0.35
+                                    color: shell.isHighlighted(modelData.date) || (shell.isToday(modelData.date)) ? shell.theme.source_color : "transparent"
+                                    border.width: (shell.isToday(modelData.date) && !shell.isHighlighted(modelData.date)) ? 0 : 0
+                                    border.color: shell.theme.source_color
+
+                                    Behavior on color {
+                                        ColorAnimation {
+                                            duration: 120
+                                        }
+                                    }
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: dayCell.modelData.date.getDate()
+                                        color: (shell.isHighlighted(dayCell.modelData.date) || !shell.isToday(dayCell.modelData.date)) ? Qt.alpha(shell.theme.on_background, 0.8) : shell.theme.background
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        font.family: shell.fontdefault
+                                        /* renderType: Text.NativeRendering
+                                        font.hintingPreference: Font.PreferVerticalHinting */
+                                    }
+
+                                    MouseArea {
+                                        cursorShape: Qt.PointingHandCursor
+                                        anchors.fill: parent
+                                        enabled: dayCell.modelData.inMonth
+                                        onClicked: shell.toggleDay(dayCell.modelData.date)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -318,11 +539,13 @@ ShellRoot {
             //Memory Module
             Rectangle {
                 id: memModule
+                visible: true
                 height: 24
                 width: memContent.width + 10
                 radius: 12
                 color: "transparent"
-                anchors.left: cpu.right
+                anchors.right: tray_module.left
+                anchors.rightMargin: 5
                 anchors.verticalCenter: parent.verticalCenter
 
                 Behavior on width {
@@ -344,17 +567,25 @@ ShellRoot {
                         sourceSize.width: 22
                         sourceSize.height: 22
                         fillMode: Image.PreserveAspectFit
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: shell.theme.source_color   // any matugen color
+                        }
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: root.memPercent ? root.memoryUsage : root.memformat
-                        color: shell.theme.on_background
+                        text: root.memPercent ? "Mem: " + root.memoryUsage : root.memformat
+                        color: root.memCount > 12000 ? shell.theme.source_color : shell.theme.on_background
                         font.pixelSize: 14
                         font.family: shell.fontdefault
                         font.bold: true
+                        /* renderType: Text.NativeRendering
+                        font.hintingPreference: Font.PreferVerticalHinting */
                     }
                 }
                 MouseArea {
+                    cursorShape: Qt.PointingHandCursor
                     anchors.fill: parent
                     onClicked: {
                         root.memPercent = !root.memPercent;
@@ -365,73 +596,228 @@ ShellRoot {
             Rectangle {
                 id: mprisModule
                 height: 30
-                width: mprisContent.width + 30
+                width: mprisContent.width + 24
                 radius: shell.global_radius
                 color: "transparent"
-                border.color: shell.theme.on_primary
+                border.color: shell.theme.source_color
                 border.width: 0
                 anchors.right: parent.right
+                anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
-                Behavior on width {
-                    NumberAnimation {
-                        duration: 100
-                        easing.type: Easing.InOutQuad
-                    }
-                }
+
                 Row {
                     id: mprisContent
                     anchors.centerIn: parent
-                    spacing: 6
+                    spacing: 8
 
-                    Text {
-                        elide: Text.ElideRight
-                        width: Math.min(implicitWidth, 500)
+                    // ---- tiny equalizer visualizer ----
+                    Row {
+                        id: visualizer
                         anchors.verticalCenter: parent.verticalCenter
-                        text: {
-                            if (!shell.activePlayer)
-                                return "No Media";
-                            const artist = shell.activePlayer.trackArtist || "";
-                            const title = shell.activePlayer.trackTitle || "";
-                            return artist ? title : title;
+                        spacing: 2
+                        height: 14
+
+                        property bool playing: shell.hasPlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
+
+                        Repeater {
+                            model: 3
+                            delegate: Rectangle {
+                                id: bar
+                                required property int index
+                                width: 3
+                                radius: 1.5
+                                color: shell.theme.source_color
+                                anchors.bottom: parent.bottom
+                                height: 4
+
+                                SequentialAnimation {
+                                    id: barAnim
+                                    loops: Animation.Infinite
+                                    running: visualizer.playing
+                                    onRunningChanged: if (!running)
+                                        bar.height = 4   // snap back to baseline instead of freezing mid-bounce
+                                    NumberAnimation {
+                                        target: bar
+                                        property: "height"
+                                        to: [10, 14, 8][bar.index]
+                                        duration: 280 + bar.index * 60
+                                        easing.type: Easing.InOutSine
+                                    }
+                                    NumberAnimation {
+                                        target: bar
+                                        property: "height"
+                                        to: 4
+                                        duration: 280 + bar.index * 60
+                                        easing.type: Easing.InOutSine
+                                    }
+                                }
+                                Behavior on height {
+                                    enabled: !barAnim.running
+                                    NumberAnimation {
+                                        duration: 200
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                            }
                         }
-                        color: shell.theme.on_background
-                        font.pixelSize: 16
-                        font.family: shell.fontjp
-                        font.bold: false
-                        renderType: Text.NativeRendering
+                    }
+
+                    // ---- scrolling title, fixed-width instead of growing/eliding ----
+                    Item {
+                        id: marqueeClip
+                        width: 120
+                        height: 18
+                        clip: true
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        property int marqueeThreshold: 5
+                        readonly property real overflow: Math.max(0, marqueeText.implicitWidth - width)
+                        readonly property bool shouldScroll: overflow > marqueeThreshold
+
+                        Text {
+                            id: marqueeText
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: 0
+                            text: {
+                                if (!shell.activePlayer)
+                                    return "No Media";
+                                return shell.activePlayer.trackTitle || "";
+                            }
+                            color: shell.theme.on_background
+                            font.pixelSize: 12
+                            font.family: shell.fontjp
+                            font.bold: shell.activePlayer && shell.activePlayer.loopState === MprisLoopState.Track ? true : false
+                            /* renderType: Text.NativeRendering
+                            font.hintingPreference: Font.PreferVerticalHinting */
+
+                            onTextChanged: {
+                                marqueeAnim.stop();
+                                x = 0;
+                                if (marqueeClip.shouldScroll) {
+                                    marqueeAnim.restart();
+                                }
+                            }
+
+                            SequentialAnimation {
+                                id: marqueeAnim
+                                loops: Animation.Infinite
+                                running: marqueeClip.shouldScroll && shell.hasPlayer
+
+                                onRunningChanged: {
+                                    if (!running) {
+                                        marqueeText.x = 0;
+                                    }
+                                }
+
+                                PauseAnimation {
+                                    duration: 1800
+                                }
+                                NumberAnimation {
+                                    target: marqueeText
+                                    property: "x"
+                                    to: -marqueeClip.overflow
+                                    duration: Math.max(2000, marqueeClip.overflow * 32)
+                                    easing.type: Easing.Linear
+                                }
+                                PauseAnimation {
+                                    duration: 1400
+                                }
+                                NumberAnimation {
+                                    target: marqueeText
+                                    property: "x"
+                                    to: 0
+                                    duration: 600
+                                    easing.type: Easing.InOutCubic
+                                }
+                                PauseAnimation {
+                                    duration: 500
+                                }
+                            }
+                        }
                     }
                 }
+
+                function toggleLoop() {
+                    if (!shell.activePlayer || !shell.activePlayer.loopSupported || !shell.activePlayer.canControl)
+                        return;
+                    switch (shell.activePlayer.loopState) {
+                    case MprisLoopState.Playlist:
+                        shell.activePlayer.loopState = MprisLoopState.Track;
+                        break;
+                    case MprisLoopState.Track:
+                        shell.activePlayer.loopState = MprisLoopState.Playlist;
+                        break;
+                    }
+                }
+
                 MouseArea {
+                    cursorShape: Qt.PointingHandCursor
                     anchors.fill: parent
-                    onClicked: albumPopup.isOpen = !albumPopup.isOpen
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                    onWheel: event => {
+                        const step = 0.05;   // 5% per scroll step
+                        const delta = event.angleDelta.y > 0 ? step : -step;
+
+                        shell.activePlayer.volume = Math.max(0, Math.min(1, shell.activePlayer.volume + delta));
+
+                        event.accepted = true;
+                    }
+                    onClicked: mouse => {
+                        if (mouse.button === Qt.LeftButton) {
+                            albumPopup.isOpen = !albumPopup.isOpen;
+                        }
+                        if (mouse.button === Qt.RightButton) {
+                            mprisModule.toggleLoop();
+                        } else if (mouse.button === Qt.MiddleButton) {
+                            shell.activePlayer.togglePlaying();
+                        }
+                    }
                 }
             }
             PopupWindow {
                 id: albumPopup
+
                 property string thumbnailPath: ""
                 property bool isOpen: false
                 property int refreshTrigger: 0
+
                 width: 330
-                height: 426
+                height: 510
                 color: "transparent"
                 visible: isOpen && shell.hasPlayer || mprispopup.opacity > 0 && shell.hasPlayer
+
+                Item {
+                    anchors.fill: parent
+                    focus: true
+                    Keys.enabled: true
+                    Keys.onEscapePressed: { albumPopup.isOpen = !albumPopup.isOpen; }
+                } 
+
                 anchor {
-                    item: mprisModule
-                    edges: Edges.Bottom | Edges.Right
+                    window: mprisModule.QsWindow.window
+                    adjustment: PopupAdjustment.None
+                    onAnchoring: {
+                        const window = mprisModule.QsWindow.window;
+                        const widgetRect = window.contentItem.mapFromItem(mprisModule, mprisModule.width - albumPopup.width - 2  // horizontal offset, tweak the "+10"
+                        , mprisModule.height + 5                      // vertical gap below the bar
+                        );
+                        albumPopup.anchor.rect.x = widgetRect.x;
+                        albumPopup.anchor.rect.y = widgetRect.y - 6;
+                    }
                 }
 
                 Rectangle {
                     id: mprispopup
                     width: 330
-                    height: 420
+                    height: 470
                     x: 0
-                    color: Qt.alpha(shell.theme.background, 0.6)
+                    color: shell.theme.background
                     radius: 12
-                    border.color: "transparent"
-                    border.width: 2
+                    border.color: shell.theme.surface_bright
+                    border.width: 1
                     transformOrigin: Item.Top
-                    opacity: albumPopup.isOpen ? 1.0 : 0.0
-                    y: albumPopup.isOpen ? 4 : -270
+                    opacity: 0
+                    y: -270
 
                     states: [
                         State {
@@ -461,8 +847,8 @@ ShellRoot {
 
                             NumberAnimation {
                                 properties: "y,opacity"
-                                duration: 190
-                                /* easing.type: Easing.InBackd */
+                                duration: 280
+                                easing.type: Easing.OutCubic
                             }
                         },
                         Transition {
@@ -471,7 +857,8 @@ ShellRoot {
 
                             NumberAnimation {
                                 properties: "y,opacity"
-                                duration: 200
+                                duration: 240
+                                easing.type: Easing.InCubic
                             }
                         }
                     ]
@@ -480,6 +867,8 @@ ShellRoot {
                         id: image
                         width: 294
                         height: 294
+                        sourceSize.width: 294
+                        sourceSize.height: 294
                         anchors.top: parent.top
                         anchors.topMargin: 12
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -499,51 +888,260 @@ ShellRoot {
                         layer.enabled: true
                         layer.effect: ShaderEffect {}
                     }
+
+                    // Track info
+                    Column {
+                        id: infoColumn
+                        anchors.top: image.bottom
+                        anchors.topMargin: 14
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: 280
+                        spacing: 4
+
+                        // ---- title, marquee if it overflows ----
+                        Item {
+                            id: titleClip
+                            width: parent.width
+                            height: 20
+                            clip: true
+
+                            property int marqueeThreshold: 10
+                            readonly property real overflow: Math.max(0, titleText.implicitWidth - width)
+                            readonly property bool shouldScroll: overflow > marqueeThreshold
+
+                            Text {
+                                id: titleText
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: titleClip.shouldScroll ? 0 : Math.max(0, (titleClip.width - implicitWidth) / 2)
+
+                                text: shell.activePlayer && shell.activePlayer.trackTitle ? shell.activePlayer.trackTitle : "No Media"
+                                color: shell.theme.on_background
+                                font.family: shell.fontjp
+                                font.pixelSize: 15
+                                font.bold: false
+                                /* renderType: Text.NativeRendering
+                                font.hintingPreference: Font.PreferFullHinting */
+
+                                transform: Translate {
+                                    id: titleTrans
+                                    x: 0
+                                }
+
+                                onTextChanged: {
+                                    titleMarqueeAnim.stop();
+                                    titleTrans.x = 0;
+                                    if (titleClip.shouldScroll) {
+                                        titleMarqueeAnim.restart();
+                                    }
+                                }
+
+                                SequentialAnimation {
+                                    id: titleMarqueeAnim
+                                    loops: Animation.Infinite
+                                    running: titleClip.shouldScroll && !!shell.activePlayer
+
+                                    onRunningChanged: {
+                                        if (!running) {
+                                            titleTrans.x = 0;
+                                        }
+                                    }
+
+                                    PauseAnimation {
+                                        duration: 1800
+                                    }
+                                    NumberAnimation {
+                                        target: titleTrans
+                                        property: "x"
+                                        to: -titleClip.overflow
+                                        duration: Math.max(2000, titleClip.overflow * 32)
+                                        easing.type: Easing.Linear
+                                    }
+                                    PauseAnimation {
+                                        duration: 1400
+                                    }
+                                    NumberAnimation {
+                                        target: titleTrans
+                                        property: "x"
+                                        to: 0
+                                        duration: 600
+                                        easing.type: Easing.InOutCubic
+                                    }
+                                    PauseAnimation {
+                                        duration: 500
+                                    }
+                                }
+                            }
+                        }
+
+                        // ---- artist, marquee if it overflows ----
+                        Item {
+                            id: artistClip
+                            width: parent.width
+                            height: 16
+                            clip: true
+                            visible: !!(shell.activePlayer && shell.activePlayer.trackArtist)
+
+                            property int marqueeThreshold: 10
+                            readonly property real overflow: Math.max(0, artistText.implicitWidth - width)
+                            readonly property bool shouldScroll: overflow > marqueeThreshold
+
+                            Text {
+                                id: artistText
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: artistClip.shouldScroll ? 0 : Math.max(0, (artistClip.width - implicitWidth) / 2)
+
+                                text: shell.activePlayer ? (shell.activePlayer.trackArtist || "") : ""
+                                color: shell.theme.on_background
+                                opacity: 0.6
+                                font.family: shell.fontjp
+                                font.pixelSize: 12
+                                /* renderType: Text.NativeRendering
+                                font.hintingPreference: Font.PreferFullHinting */
+
+                                transform: Translate {
+                                    id: artistTrans
+                                    x: 0
+                                }
+
+                                onTextChanged: {
+                                    artistMarqueeAnim.stop();
+                                    artistTrans.x = 0;
+                                    if (artistClip.shouldScroll) {
+                                        artistMarqueeAnim.restart();
+                                    }
+                                }
+
+                                SequentialAnimation {
+                                    id: artistMarqueeAnim
+                                    loops: Animation.Infinite
+                                    running: artistClip.shouldScroll && !!shell.activePlayer
+
+                                    onRunningChanged: {
+                                        if (!running) {
+                                            artistTrans.x = 0;
+                                        }
+                                    }
+
+                                    PauseAnimation {
+                                        duration: 1800
+                                    }
+                                    NumberAnimation {
+                                        target: artistTrans
+                                        property: "x"
+                                        to: -artistClip.overflow
+                                        duration: Math.max(2000, artistClip.overflow * 32)
+                                        easing.type: Easing.Linear
+                                    }
+                                    PauseAnimation {
+                                        duration: 1400
+                                    }
+                                    NumberAnimation {
+                                        target: artistTrans
+                                        property: "x"
+                                        to: 0
+                                        duration: 600
+                                        easing.type: Easing.InOutCubic
+                                    }
+                                    PauseAnimation {
+                                        duration: 500
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Seek Bar
                     Rectangle {
                         id: seekBar
-                        anchors.bottom: image.bottom
-                        anchors.bottomMargin: -25
+                        anchors.top: infoColumn.bottom
+                        anchors.topMargin: 14
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: 260
-                        height: 6
+                        height: 7
                         radius: 2
 
                         color: Qt.alpha(shell.theme.source_color, 0.2)
 
                         Rectangle {
-                            y: bar.height - 8
-                            x: bar.width
-                            width: 10
-                            height: 10
-                            radius: 10
+                            y: progress_bar.height - 9
+                            x: progress_bar.width - 2
+                            width: 11
+                            height: 11
+                            radius: 11
+                            color: shell.theme.source_color
                         }
 
                         Rectangle {
-                            id: bar
-                            width: shell.hasPlayer && shell.activePlayer.length > 0 ? parent.width * (shell.activePlayer.position / shell.activePlayer.length) : 0
+                            id: progress_bar
+                            width: {
+                                if (!shell.hasPlayer || shell.activePlayer.length <= 0)
+                                    return 0;
+                                if (seekMouseArea.pressed) {
+                                    return Math.max(0, Math.min(seekBar.width, seekMouseArea.mouseX));
+                                }
+                                return Math.min(seekBar.width, seekBar.width * (shell.activePlayer.position / shell.activePlayer.length));
+                            }
                             height: parent.height
                             radius: parent.radius
 
                             color: shell.theme.source_color
 
                             Behavior on width {
+                                enabled: !seekMouseArea.pressed
                                 NumberAnimation {
                                     duration: 80
-                                    easing.type: Easing.OutElastic
+                                    easing.type: Easing.OutBack
                                 }
                             }
                         }
+
                         MouseArea {
+                            id: seekMouseArea
                             anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+
+                            property bool savedPlayingState: false
+
+                            function updateSeekPosition(mouse) {
+                                if (shell.hasPlayer && shell.activePlayer.length > 0) {
+                                    const clampedX = Math.max(0, Math.min(mouse.x, seekBar.width));
+                                    shell.activePlayer.position = shell.activePlayer.length * (clampedX / seekBar.width);
+                                }
+                            }
 
                             onPressed: mouse => {
-                                const pos = mouse.x / seekBar.width;
-                                shell.activePlayer.position = shell.activePlayer.length * pos;
+                                if (shell.hasPlayer) {
+                                    savedPlayingState = (shell.activePlayer.playbackState === MprisPlaybackState.Playing);
+                                    if (savedPlayingState && shell.activePlayer.canPause) {
+                                        shell.activePlayer.pause();
+                                    }
+                                }
+                                updateSeekPosition(mouse);
+                            }
+
+                            onPositionChanged: mouse => {
+                                if (pressed)
+                                    updateSeekPosition(mouse);
+                            }
+
+                            onReleased: mouse => {
+                                updateSeekPosition(mouse);
+                                if (shell.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                    shell.activePlayer.play();
+                                }
+                                savedPlayingState = false;
+                            }
+
+                            onCanceled: {
+                                if (shell.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                    shell.activePlayer.play();
+                                }
+                                savedPlayingState = false;
                             }
                         }
+
                         Timer {
-                            running: shell.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing
+                            running: shell.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed
                             interval: 1000
                             repeat: true
 
@@ -555,9 +1153,9 @@ ShellRoot {
                     //Control Dock
                     Item {
                         id: controlDock
-                        anchors.top: image.bottom
+                        anchors.top: infoColumn.bottom
                         anchors.bottom: parent.bottom
-                        anchors.bottomMargin: -20
+                        anchors.bottomMargin: -10
                         anchors.left: parent.left
                         anchors.leftMargin: 30
                         anchors.right: parent.right
@@ -579,6 +1177,11 @@ ShellRoot {
                                 sourceSize.width: 22
                                 sourceSize.height: 22
                                 fillMode: Image.PreserveAspectFit
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: shell.theme.on_background   // any matugen color
+                                }
                                 source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
                                 property real rotAngle: playButtonContainer.pressed ? 10 : 0
                                 rotation: rotAngle
@@ -602,6 +1205,7 @@ ShellRoot {
                             }
 
                             MouseArea {
+                                cursorShape: Qt.PointingHandCursor
                                 anchors.fill: parent
                                 onPressed: playButtonContainer.pressed = true
                                 onReleased: playButtonContainer.pressed = false
@@ -629,11 +1233,17 @@ ShellRoot {
                                 sourceSize.height: 22
                                 fillMode: Image.PreserveAspectFit
                                 anchors.centerIn: parent
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: shell.theme.on_background   // any matugen color
+                                }
                                 // Nudges the play triangle slightly right so it centers perfectly by eye
                                 // anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
                             }
 
                             MouseArea {
+                                cursorShape: Qt.PointingHandCursor
                                 anchors.fill: parent
                                 onClicked: if (shell.activePlayer)
                                     shell.activePlayer.next()
@@ -658,11 +1268,17 @@ ShellRoot {
                                 sourceSize.height: 22
                                 fillMode: Image.PreserveAspectFit
                                 anchors.centerIn: parent
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: shell.theme.on_background   // any matugen color
+                                }
                                 // Nudges the play triangle slightly right so it centers perfectly by eye
                                 // anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
                             }
 
                             MouseArea {
+                                cursorShape: Qt.PointingHandCursor
                                 anchors.fill: parent
                                 onClicked: if (shell.activePlayer)
                                     shell.activePlayer.previous()
@@ -673,157 +1289,145 @@ ShellRoot {
             }
 
             // WORKSPACE //
-            Row {
+            Item {
                 id: workspacemodule
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.leftMargin: 0
-                leftPadding: 0
+                anchors.left: shell_center.right
+                anchors.leftMargin: 20
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 10
-                Repeater {
-                    model: Hyprland.workspaces
+                width: dotsRow.width
+                height: parent.height
 
-                    Rectangle {
-                        id: rect
-                        required property var modelData
-                        visible: modelData.id > 0
-                        width: 30
-                        height: 30
-                        radius: 30
-                        property bool occupied: modelData.lastIpcObject.windows > 0
-                        property bool isCurrent: rect.modelData.active || (rect.modelData.id < 0 && rect.modelData.visible)
+                property bool pillInitialized: false
 
-                        states: [
-                            State {
-                                name: "active"
-                                when: rect.modelData.active
-                                PropertyChanges {
-                                    target: rect
-                                    color: rect.modelData.id < 0 ? shell.theme.secondary : shell.theme.source_color
-                                    height: 30
-                                }
-                            },
-                            State {
-                                name: "inactive"
-                                when: !rect.modelData.active
-                                PropertyChanges {
-                                    target: rect
-                                    color: "transparent"
-                                    height: 30
-                                }
-                            }
-                        ]
+                // the one true pill — slides/resizes/recolors instead of each dot
+                // cross-fading with its neighbor in place
+                Rectangle {
+                    id: activePill
+                    y: Math.round((workspacemodule.height - height) / 2)
+                    height: 28
+                    radius: 30
+                    z: 0
 
-                        // Define the entry animation for the active state
-                        transitions: [
-                            Transition {
-                                from: "inactive"
-                                to: "active"
-
-                                // Color fades smoothly in parallel with the bounce
-                                ParallelAnimation {
-                                    ColorAnimation {
-                                        duration: 400
-                                        easing.type: Easing.OutCirc
-                                    }
-
-                                    // This handles the temporary height stretch and return
-                                    /* SequentialAnimation {
-                                    NumberAnimation {
-                                        target: rect
-                                        property: "opacity"
-                                        to: 0 // Temporary height expansion peak
-                                        duration: 1200
-                                        easing.type: Easing.OutQuad
-                                    }
-                                    NumberAnimation {
-                                        target: rect
-                                        property: "opacity"
-                                        to: 1 // Return to base height
-                                        duration: 1800
-                                        easing.type: Easing.OutBack // Gives a slight snappy elastic settle
-                                    }
-                                } */
-                                }
-                            },
-                            Transition {
-                                from: "active"
-                                to: "inactive"
-                                // Smooth exit transition when moving away from a workspace
-                                ParallelAnimation {
-                                    ColorAnimation {
-                                        duration: 200
-                                    }
-                                    /* NumberAnimation { target: rect; property: "opacity"; to: 1; duration: 2000; easing.type: Easing.OutCubic }
-                                NumberAnimation { target: rect; property: "opacity"; to: 0; duration: 2000; easing.type: Easing.OutCubic } */
-                                }
-                            }
-                        ]
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: {
-                                if (rect.modelData.id < 0) {
-                                    return "特別"; // This will override "-98" with the custom glyph cleanly
-                                }
-                                if (rect.modelData.id < 9) {
-                                    return shell.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
-                                }
-                            }
-                            color: rect.modelData.active ? shell.theme.background : rect.occupied ? shell.theme.source_color : shell.theme.on_surface
-                            font.family: shell.fontjp
-                            font.pixelSize: 16
-                            font.bold: true
-                            renderType: Text.NativeRendering
+                    Behavior on x {
+                        enabled: workspacemodule.pillInitialized
+                        NumberAnimation {
+                            duration: 280
+                            easing.type: Easing.OutCubic
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: rect.modelData.activate()
+                    }
+                    Behavior on width {
+                        NumberAnimation {
+                            duration: 280
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: 280
                         }
                     }
                 }
-            }
 
-            Rectangle {
-                id: netModule
-                height: 24
-                width: netContent.width + 12
-                radius: shell.global_radius
-                color: "transparent"
-                anchors.left: memModule.right
-                anchors.leftMargin: 15
-                anchors.verticalCenter: parent.verticalCenter
                 Row {
-                    id: netContent
-                    spacing: 6
+                    id: dotsRow
                     anchors.verticalCenter: parent.verticalCenter
-                    Image {
-                        anchors.centerIn: parent
-                        anchors.verticalCenter: parent.verticalCenter
-                        source: {
-                            if (root.networkType === "ethernet")
-                                return "./assets/network-bold.svg";
-                            if (root.networkType === "wifi" && root.netStr >= 50)
-                                return "./assets/wifi-high.svg";
-                            if (root.networkType === "wifi" && root.netStr < 50)
-                                return "./assets/wifi-medium.svg";
-                            return "./assets/wifi-x.svg";
-                        }
-                        width: 20
-                        height: 20
-                        sourceSize.width: 22
-                        sourceSize.height: 22
-                        fillMode: Image.PreserveAspectFit
-                    }
+                    spacing: 5
+                    z: 1
 
-                    Text {
-                        leftPadding: 18
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.netStr + "%"
-                        color: shell.theme.on_background
-                        font.pixelSize: 14
-                        font.family: shell.fontdefault
-                        font.bold: true
+                    Repeater {
+                        id: wsRepeater
+                        model: Hyprland.workspaces
+                        onCountChanged: Qt.callLater(workspacemodule.updatePill)
+
+                        Rectangle {
+                            id: rect
+                            required property var modelData
+                            // only show workspaces 1-8, and any negative-id special workspace
+                            visible: modelData.id > 0 && modelData.id <= 8
+                            width: 30
+                            height: 30
+                            radius: 30
+                            color: "transparent"   // activePill behind supplies the fill now
+
+                            property bool occupied: modelData.lastIpcObject ? modelData.lastIpcObject.windows > 0 : false
+                            property bool isCurrent: rect.modelData.active || (rect.modelData.id < 0 && rect.modelData.visible)
+
+                            onIsCurrentChanged: if (isCurrent)
+                                Qt.callLater(workspacemodule.updatePill)
+                            Component.onCompleted: if (isCurrent)
+                                Qt.callLater(workspacemodule.updatePill)
+
+                            Text {
+                                id: label
+                                anchors.centerIn: parent
+                                text: {
+                                    if (rect.modelData.id < 0)
+                                        return "特別"; // custom glyph overriding "-98"
+                                    if (rect.modelData.id < 9)
+                                        return shell.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
+                                    return String(rect.modelData.id); // fallback, unreachable now that 9/10 are hidden
+                                }
+                                color: rect.isCurrent ? shell.theme.background : rect.occupied ? shell.theme.source_color : shell.theme.on_surface
+                                font.family: shell.fontjp
+                                font.pixelSize: 18            // fixed — no longer animated, avoids hinting jitter
+                                font.bold: true
+                                renderType: Text.QtRendering
+                                renderTypeQuality: Text.HighRenderTypeQuality
+
+                                scale: rect.isCurrent ? 1.0 : 14 / 18   // handles the size change instead
+                                transformOrigin: Item.Center
+
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: 280
+                                    }
+                                }
+                                Behavior on scale {
+                                    NumberAnimation {
+                                        duration: 280
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                cursorShape: Qt.PointingHandCursor
+                                anchors.fill: parent
+                                onClicked: rect.modelData.activate()
+                            }
+                        }
+                    }
+                }
+
+                function updatePill() {
+                    for (var i = 0; i < wsRepeater.count; i++) {
+                        var item = wsRepeater.itemAt(i);
+                        if (item && item.visible && item.isCurrent) {
+                            activePill.color = item.modelData.id < 0 ? shell.theme.secondary : shell.theme.source_color;
+                            activePill.width = 35;
+                            activePill.x = item.x - (activePill.width - item.width) / 2;
+                            workspacemodule.pillInitialized = true;
+                            return;
+                        }
+                    }
+                }
+
+                // safety net: the pill's first position gets computed before Hyprland's
+                // active-workspace data and the row's layout are both guaranteed settled.
+                // A single fixed delay was an unreliable guess at "surely it's ready by now,"
+                // so instead keep re-syncing for the first second after launch, then stop.
+                // Cheap and idempotent — harmless once it's already correct.
+                Timer {
+                    id: pillSyncTimer
+                    interval: 100
+                    running: true
+                    repeat: true
+                    property int ticks: 0
+                    onTriggered: {
+                        workspacemodule.updatePill();
+                        ticks++;
+                        if (ticks >= 10)
+                            running = false;
                     }
                 }
             }
@@ -831,62 +1435,191 @@ ShellRoot {
             Rectangle {
                 id: tray_module
                 implicitHeight: 24
-                implicitWidth: trayIcons.implicitWidth + 4
+                implicitWidth: rowlayout.implicitWidth + 4
                 radius: shell.global_radius
                 color: transparentColor
                 anchors.right: mprisModule.left
                 anchors.rightMargin: 5
                 anchors.verticalCenter: parent.verticalCenter
                 property color transparentColor: Qt.alpha(shell.theme.source_color, 0)
+
                 RowLayout {
-                    id: trayIcons
-                    anchors.centerIn: parent
-                    spacing: 2
+                    id: rowlayout
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: 8
+                    spacing: 6
 
                     Repeater {
+                        id: repeater
                         model: SystemTray.items
 
-                        MouseArea {
-                            id: trayDelegate
+                        delegate: Item {
+                            id: trayIcon
                             required property SystemTrayItem modelData
+                            implicitWidth: 20
+                            implicitHeight: 20
 
-                            Accessible.role: Accessible.Button
-                            Accessible.name: modelData.tooltipTitle || modelData.title || "System tray item"
+                            Image {
+                                anchors.fill: parent
+                                source: trayIcon.modelData.icon
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                            }
 
-                            Layout.preferredWidth: 24
-                            Layout.preferredHeight: 24
-
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-
-                            onClicked: mouse => {
-                                if (mouse.button === Qt.LeftButton) {
-                                    modelData.activate();
-                                } else if (mouse.button === Qt.RightButton) {
-                                    if (modelData.hasMenu) {
-                                        menuAnchor.open();
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton && trayIcon.modelData.hasMenu) {
+                                        if (menuWindow.visible && menuWindow.forItem === trayIcon.modelData) {
+                                            menuWindow.visible = false;
+                                        } else {
+                                            menuWindow.forItem = trayIcon.modelData;
+                                            menuWindow.anchorItem = trayIcon;
+                                            menuWindow.anchor.updateAnchor();
+                                            menuWindow.visible = true;
+                                        }
+                                    } else {
+                                        trayIcon.modelData.activate();
                                     }
-                                } else if (mouse.button === Qt.MiddleButton) {
-                                    modelData.secondaryActivate();
                                 }
                             }
+                        }
+                    }
+                }
+            }
 
-                            IconImage {
-                                anchors.centerIn: parent
-                                source: trayDelegate.modelData.icon
-                                implicitSize: 20
+            // ---- top-level context menu ----
+            PopupWindow {
+                id: menuWindow
+                visible: false
+
+                property SystemTrayItem forItem: null
+                property Item anchorItem: null
+
+                anchor.window: panelbar
+                anchor.onAnchoring: {
+                    if (!anchorItem)
+                        return;
+                    const pos = anchorItem.mapToItem(null, anchorItem.width / 2, anchorItem.height);
+                    anchor.rect.x = pos.x - implicitWidth / 2;
+                    anchor.rect.y = pos.y + 6;
+                }
+
+                implicitWidth: 200
+                implicitHeight: menuColumn.implicitHeight
+                color: "transparent"
+
+                onVisibleChanged: if (!visible)
+                    submenuWindow.visible = false
+
+                // close on outside click
+                PanelWindow {
+                    id: dismissLayer
+                    visible: menuWindow.visible || submenuWindow.visible
+
+                    WlrLayershell.layer: WlrLayer.Overlay
+                    WlrLayershell.exclusiveZone: -1
+                    WlrLayershell.namespace: "trayctxmenu-dismiss"
+                    color: "transparent"
+
+                    anchors {
+                        top: true
+                        left: true
+                        right: true
+                        bottom: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: {
+                            menuWindow.visible = false;
+                            submenuWindow.visible = false;
+                        }
+                    }
+                }
+
+                Item {
+                    anchors.fill: parent
+                    focus: true
+                    Keys.onEscapePressed: {
+                        menuWindow.visible = false;
+                        submenuWindow.visible = false;
+                    }
+                }
+
+                QsMenuOpener {
+                    id: opener
+                    menu: menuWindow.forItem ? menuWindow.forItem.menu : null
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: shell.theme.background
+                    radius: 8
+                    border.color: shell.theme.surface_bright
+                    border.width: 1
+
+                    Column {
+                        id: menuColumn
+                        width: parent.width
+                        padding: 4
+
+                        Repeater {
+                            model: opener.children
+                            delegate: MenuEntryDelegate {
+                                ownerWindow: menuWindow
                             }
+                        }
+                    }
+                }
+            }
 
-                            QsMenuAnchor {
-                                id: menuAnchor
-                                menu: trayDelegate.modelData.menu
+            // ---- submenu (one level of nesting) ----
+            PopupWindow {
+                id: submenuWindow
+                visible: false
 
-                                anchor.window: trayDelegate.QsWindow.window
-                                anchor.adjustment: PopupAdjustment.Flip
-                                anchor.onAnchoring: {
-                                    const window = trayDelegate.QsWindow.window;
-                                    const widgetRect = window.contentItem.mapFromItem(trayDelegate, 0, trayDelegate.height, trayDelegate.width, trayDelegate.height);
-                                    menuAnchor.anchor.rect = widgetRect;
-                                }
+                property QsMenuEntry forEntry: null
+                property Item anchorItem: null
+
+                anchor.window: menuWindow   // <-- same bar id as above
+                anchor.onAnchoring: {
+                    if (!anchorItem)
+                        return;
+                    // anchor to the right edge of the hovered entry, vertically aligned
+                    const pos = anchorItem.mapToItem(null, anchorItem.width, 0);
+                    anchor.rect.x = pos.x + 5;
+                    anchor.rect.y = pos.y;
+                }
+
+                implicitWidth: 200
+                implicitHeight: submenuColumn.implicitHeight
+                color: "transparent"
+
+                QsMenuOpener {
+                    id: subOpener
+                    menu: submenuWindow.forEntry
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: shell.theme.background
+                    radius: 8
+                    border.color: shell.theme.surface_bright
+                    border.width: 1
+
+                    Column {
+                        id: submenuColumn
+                        width: parent.width
+                        padding: 4
+
+                        Repeater {
+                            model: subOpener.children
+                            delegate: MenuEntryDelegate {
+                                ownerWindow: submenuWindow
                             }
                         }
                     }
@@ -894,21 +1627,39 @@ ShellRoot {
             }
             ///////
             Rectangle {
+                id: shell_center
                 implicitWidth: 24
                 implicitHeight: 24
                 anchors.left: parent.left
-                anchors.leftMargin: 5
+                anchors.leftMargin: 15
                 anchors.verticalCenter: parent.verticalCenter
                 radius: 12
                 color: "transparent"
 
                 MouseArea {
+                    cursorShape: Qt.PointingHandCursor
                     anchors.fill: parent
-                    onClicked: swaync.running = true
+                    onClicked: notifications.centerOpen = !notifications.centerOpen
+
+                    Process {
+                        id: toggleProc
+                        command: ["sh", "-c", "qs -p ~/.config/quickshell/Notifications.qml ipc call notifications toggle"]
+                    }
+                }
+
+                Rectangle {
+                    id: new_notification
+                    implicitHeight: 8
+                    implicitWidth: 8
+                    radius: 8
+                    anchors.left: tux_image.right
+                    color: notifications.hasNotifications === true ? shell.theme.source_color : "transparent"
+                    visible: notifications.hasNotifications === true
                 }
 
                 Image {
-                    source: "./assets/bell.svg"
+                    id: tux_image
+                    source: notifications.hasNotifications ? "./assets/bell.svg" : "./assets/linux-logo-bold.svg"
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 20
@@ -916,6 +1667,41 @@ ShellRoot {
                     sourceSize.width: 22
                     sourceSize.height: 22
                     fillMode: Image.PreserveAspectFit
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: shell.theme.source_color
+                    }
+
+                    Behavior on source {
+                        SequentialAnimation {
+                            id: blinkAnimationtux
+                            NumberAnimation {
+                                target: tuxScale
+                                property: "yScale"
+                                to: 0.05
+                                duration: 90
+                                easing.type: Easing.InQuad
+                            }
+
+                            PropertyAction {}
+
+                            NumberAnimation {
+                                target: tuxScale
+                                property: "yScale"
+                                to: 1.0
+                                duration: 160
+                                easing.type: Easing.OutBack
+                            }
+                        }
+                    }
+
+                    transform: Scale {
+                        id: tuxScale
+                        origin.x: tux_image.width / 2
+                        origin.y: tux_image.height / 2
+                        yScale: 1.0
+                    }
                 }
             }
             IdleInhibitor {
@@ -925,10 +1711,11 @@ ShellRoot {
             }
 
             Rectangle {
-                width: 30
-                height: 30
+                id: inhibit_module
+                width: 24
+                height: 24
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.right: tray_module.left
+                anchors.right: memModule.left
                 anchors.rightMargin: 10
                 color: "transparent"
                 radius: 6
@@ -936,82 +1723,120 @@ ShellRoot {
                 Image {
                     id: inhibit_image
                     anchors.centerIn: parent
-                    source: inhibit.enabled ? "./assets/eye-bold.svg" : "./assets/eye-closed-bold.svg"
+                    source: inhibit.enabled ? "./assets/coffee.svg" : "./assets/moon.svg"
+                    width: 20
+                    height: 20
+                    sourceSize.width: 22
+                    sourceSize.height: 22
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: shell.theme.source_color
+                    }
+
+                    transform: Scale {
+                        id: eyeScale
+                        origin.x: inhibit_image.width / 2
+                        origin.y: inhibit_image.height / 2
+                        yScale: 1.0
+                    }
                 }
-                states: [
-                    State {
-                        name: "active"
-                        when: toggleBtn.checked
-                        PropertyChanges {
-                            target: inhibit_image
-                            height: 36
-                        }
-                    },
-                    State {
-                        name: "inactive"
-                        when: !toggleBtn.checked
-                        PropertyChanges {
-                            target: inhibit_image
-                            height: 36
-                        }
+
+                SequentialAnimation {
+                    id: blinkAnimation
+                    NumberAnimation {
+                        target: eyeScale
+                        property: "yScale"
+                        to: 0.05
+                        duration: 90
+                        easing.type: Easing.InQuad
                     }
-                ]
-
-                // Define the entry animation for the active state
-                transitions: [
-                    Transition {
-                        from: "inactive"
-                        to: "active"
-
-                        ParallelAnimation {
-                            ColorAnimation {
-                                duration: 400
-                                easing.type: Easing.OutCirc
-                            }
-
-                            // This handles the temporary height stretch and return
-                            SequentialAnimation {
-                                NumberAnimation {
-                                    target: inhibit_image
-                                    property: "height"
-                                    to: 30 // Temporary height expansion peak
-                                    duration: 120
-                                    easing.type: Easing.OutQuad
-                                }
-                                NumberAnimation {
-                                    target: inhibit_image
-                                    property: "height"
-                                    to: 36 // Return to base height
-                                    duration: 180
-                                    easing.type: Easing.OutBack // Gives a slight snappy elastic settle
-                                }
-                            }
-                        }
-                    },
-                    Transition {
-                        from: "active"
-                        to: "inactive"
-
-                        ParallelAnimation {
-                            ColorAnimation {
-                                duration: 200
-                            }
-                            NumberAnimation { target: ; property: "height"; to: 36; duration: 100; easing.type: Easing.OutCubic }
-                            NumberAnimation { target: rect; property: "height"; to: 30; duration: 100; easing.type: Easing.OutCubic } 
-                        }
+                    NumberAnimation {
+                        target: eyeScale
+                        property: "yScale"
+                        to: 1.0
+                        duration: 160
+                        easing.type: Easing.OutBack
                     }
-                ]
+                }
+
                 MouseArea {
                     id: toggleBtn
+                    cursorShape: Qt.PointingHandCursor
                     property bool checked: false
                     anchors.fill: parent
-                    onClicked: checked = !checked
+                    onClicked: {
+                        checked = !checked;
+                        blinkAnimation.restart();
+                    }
+                }
+            }
+        }
+    }
 
-                    Behavior on checked {
-                        NumberAnimation {
-                            duration: 100
-                            easing.type: Easing.InCirc
-                        }
+    // shared delegate for menu entries (top-level and submenu) //
+    component MenuEntryDelegate: Item {
+        id: entryDelegate
+        required property QsMenuEntry modelData
+        required property Item ownerWindow  // the menu/submenu window this belongs to
+        width: parent ? parent.width - 8 : 0
+        height: entryDelegate.modelData.isSeparator ? 9 : 28
+
+        // separator
+        Rectangle {
+            visible: entryDelegate.modelData.isSeparator
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width
+            height: 1
+            color: shell.theme.background
+        }
+
+        // normal item
+        Rectangle {
+            visible: !entryDelegate.modelData.isSeparator
+            anchors.fill: parent
+            radius: 4
+            color: itemHover.hovered ? shell.theme.source_color : "transparent"
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 8
+                anchors.right: chevron.left
+                text: entryDelegate.modelData.text
+                color: entryDelegate.modelData.enabled ? shell.theme.on_background : shell.theme.surface_bright
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+
+            Text {
+                id: chevron
+                visible: entryDelegate.modelData.hasChildren
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                text: "\u203a"
+                color: shell.theme.on_background
+            }
+
+            HoverHandler {
+                id: itemHover
+            }
+            TapHandler {
+                enabled: entryDelegate.modelData.enabled
+                onTapped: {
+                    if (entryDelegate.modelData.hasChildren) {
+                        submenuWindow.forEntry = entryDelegate.modelData;
+                        submenuWindow.anchorItem = entryDelegate;
+                        submenuWindow.anchor.updateAnchor();
+                        submenuWindow.visible = true;
+                    } //else if (submenuWindow.visible = true) {
+                    else
+                    //submenuWindow.visible = false
+                    {
+                        entryDelegate.modelData.triggered();
+                        menuWindow.visible = false;
+                        submenuWindow.visible = false;
                     }
                 }
             }

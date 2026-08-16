@@ -1,0 +1,391 @@
+pragma ComponentBehavior: Bound
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import QtQuick
+import Quickshell.Widgets
+import QtQuick.Effects
+// Usage in shell.qml (same top level as Notifications / WallpaperSwitcher):
+//
+//   AppLauncher {
+//     id: appLauncher
+//     theme: shell.theme
+//     theme2: shell.theme2
+//     fontdefault: shell.fontdefault
+//     global_radius: shell.global_radius
+//   }
+//
+// Toggle from anywhere with:
+//   qs -p .config/quickshell/shell.qml ipc call launcher toggle
+// e.g. in hyprland.conf:
+//   bind = SUPER, D, exec, qs ipc call launcher toggle
+//
+// Built entirely on verified Quickshell APIs: Quickshell.DesktopEntries
+// (applications.values, .name/.icon/.genericName/.comment, .execute()) and
+// Quickshell.iconPath() for resolving theme icon names to a usable source.
+// No shelling out to wofi/rofi/etc — this is a native Quickshell launcher.
+//
+// Deliberately kept "simple": one flat searchable app list, no separate
+// history/web-search/run/emoji/settings tabs like some rofi/anyrun setups —
+// say the word if you actually want those bolted on later.
+
+Item {
+    id: root
+
+    property var theme
+    property var theme2
+    property string fontdefault: "Space Grotesk"
+    property int global_radius: 24
+
+    property bool isOpen: false
+    property string query: ""
+    property int selectedIndex: 0
+
+    // persisted pin list — survives restarts via Quickshell's data dir
+    FileView {
+        id: pinsFile
+        path: Quickshell.dataPath("app-launcher-pins.json")
+        watchChanges: true
+        onFileChanged: reload()
+        onAdapterUpdated: writeAdapter()
+
+        JsonAdapter {
+            id: pinsAdapter
+            property list<string> pinnedIds: []
+        }
+    }
+
+    function isPinned(id) {
+        return pinsAdapter.pinnedIds.indexOf(id) !== -1;
+    }
+    function togglePin(id) {
+        const list = pinsAdapter.pinnedIds.slice();
+        const idx = list.indexOf(id);
+        if (idx === -1)
+            list.push(id);
+        else
+            list.splice(idx, 1);
+        pinsAdapter.pinnedIds = list;
+    }
+
+    // full app list — pinned apps first (alphabetical within each group)
+    property var allApps: {
+        const apps = [...DesktopEntries.applications.values].filter(e => e.name && !e.noDisplay);
+        apps.sort((a, b) => {
+            const aPinned = root.isPinned(a.id);
+            const bPinned = root.isPinned(b.id);
+            if (aPinned !== bPinned)
+                return aPinned ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+        return apps;
+    }
+
+    // filtered by query — checks name, generic name, comment, and keywords
+    property var filteredApps: {
+        const q = root.query.trim().toLowerCase();
+        if (q === "")
+            return root.allApps;
+        return root.allApps.filter(e => {
+            if ((e.name || "").toLowerCase().includes(q))
+                return true;
+            if ((e.genericName || "").toLowerCase().includes(q))
+                return true;
+            if ((e.comment || "").toLowerCase().includes(q))
+                return true;
+            for (const kw of (e.keywords || [])) {
+                if ((kw || "").toLowerCase().includes(q))
+                    return true;
+            }
+            return false;
+        });
+    }
+
+    onQueryChanged: root.selectedIndex = 0
+    onFilteredAppsChanged: if (root.selectedIndex >= root.filteredApps.length)
+        root.selectedIndex = Math.max(0, root.filteredApps.length - 1)
+
+    function launch(entry) {
+        if (!entry)
+            return;
+        entry.execute();
+        root.query = "";
+        root.isOpen = false;
+        root.query = ""
+        root.selectedIndex = 0
+    }
+
+    IpcHandler {
+        target: "launcher"
+
+        function toggle(): void {
+            root.isOpen = !root.isOpen;
+            root.query = ""
+            root.selectedIndex = 0
+            if (root.isOpen)
+                searchField.forceActiveFocus();
+        }
+        function open(): void {
+            root.isOpen = true;
+            searchField.forceActiveFocus();
+        }
+        function close(): void {
+            root.isOpen = false;
+        }
+    }
+
+    PanelWindow {
+        id: panelWindow
+        WlrLayershell.namespace: "quickshell:applauncher"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: root.isOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        anchors.top: true
+        anchors.left: true
+        anchors.right: true
+        exclusiveZone: 0
+        color: "transparent"
+        margins.top: 15
+        margins.left: 600
+        margins.right: 600
+        implicitHeight: 440
+        
+        visible: root.isOpen
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.isOpen = false
+        }
+
+        Rectangle {
+            id: panelBg
+            anchors.fill: parent
+            radius: 10
+            border.width: 1
+            border.color: root.theme.surface_bright
+            color: Qt.alpha(root.theme.background, 1)
+            clip: true
+
+            Image {
+                source: "./assets/yukari.png"
+                sourceSize.width: 400
+                sourceSize.height: 400
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                fillMode: Image.PreserveAspectFit
+                opacity: 0.1
+                z: 0
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {}
+            }
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 10
+
+                // ---- search field ----
+                Rectangle {
+                    width: parent.width
+                    height: 45
+                    radius: root.global_radius - 2
+                    color: Qt.alpha(root.theme.background, 0.08)
+                    border.width: 1
+                    border.color: Qt.alpha(root.theme.source_color, 0.8)
+
+                    Row {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        spacing: 10
+
+                        /* Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "\u{1F50D}"
+                            font.pixelSize: 15
+                            opacity: 0.5
+                            color: root.theme.on_background
+                        } */
+
+                        TextInput {
+                            id: searchField
+                            leftPadding: 30
+                            width: parent.width - 30
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.query
+                            color: root.theme.on_background
+                            font.pixelSize: 15
+                            font.family: root.fontdefault
+                            /* renderType: Text.NativeRendering
+                            font.hintingPreference: Font.PreferVerticalHinting */
+                            clip: true
+
+                            onTextChanged: root.query = text
+
+                            Keys.onDownPressed: root.selectedIndex = Math.min(root.filteredApps.length - 1, root.selectedIndex + 1)
+                            Keys.onUpPressed: root.selectedIndex = Math.max(0, root.selectedIndex - 1)
+                            Keys.onReturnPressed: root.launch(root.filteredApps[root.selectedIndex])
+                            Keys.onEnterPressed: root.launch(root.filteredApps[root.selectedIndex])
+                            Keys.onEscapePressed: root.isOpen = false
+
+                            Text {
+                                visible: searchField.text.length === 0
+                                leftPadding: 30
+                                text: "Search Something\u2026"
+                                color: root.theme.on_background
+                                opacity: 0.4
+                                font.pixelSize: 15
+                                font.family: root.fontdefault
+                                /* renderType: Text.NativeRendering
+                                font.hintingPreference: Font.PreferVerticalHinting */
+                            }
+
+                            Image {
+                                source: "./assets/magnifying-glass-bold.svg"
+                                width: 20
+                                height: 20
+                                sourceSize.width: 22
+                                sourceSize.height: 22
+                                fillMode: Image.PreserveAspectFit
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: root.theme.source_color
+                                } 
+                            }
+                        }
+                    }
+                }
+
+                // ---- results ----
+                ListView {
+                    id: resultsList
+                    width: parent.width
+                    height: parent.height - 52
+                    clip: true
+                    model: root.filteredApps
+                    currentIndex: root.selectedIndex
+                    highlightMoveDuration: 200
+                    highlightMoveVelocity: -1
+                    highlightFollowsCurrentItem: true
+                    highlightResizeDuration: 0
+
+                    // one real highlight that glides between rows, instead of
+                    // each row teleport-toggling its own background color
+                    highlight: Rectangle {
+                        radius: root.global_radius
+                        color: Qt.alpha(root.theme.source_color, 0.85)
+                    }
+
+                    delegate: Rectangle {
+                        id: row
+                        required property var modelData
+                        required property int index
+                        width: resultsList.width
+                        height: 46
+                        radius: root.global_radius
+                        color: "transparent"
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 36
+                            spacing: 12
+
+                            IconImage {
+                                anchors.verticalCenter: parent.verticalCenter
+                                implicitSize: 28
+                                source: Quickshell.iconPath(row.modelData.icon, true)
+                            }
+
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 40
+                                spacing: 1
+
+                                Text {
+                                    width: parent.width
+                                    text: row.modelData.name
+                                    color: root.theme.on_background
+                                    font.pixelSize: 16
+                                    font.bold: false
+                                    font.family: "Space Grotesk SemiBold"
+                                    elide: Text.ElideRight
+                                    /* renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferVerticalHinting */
+                                }
+                                Text {
+                                    width: parent.width
+                                    visible: text.length > 0
+                                    text: row.modelData.genericName || ""
+                                    color: root.theme.on_background
+                                    opacity: 0.55
+                                    font.pixelSize: 13
+                                    font.family: root.fontdefault
+                                    //renderType: Text.NativeRendering
+                                    //font.hintingPreference: Font.PreferVerticalHinting
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            cursorShape: Qt.PointingHandCursor
+                            anchors.fill: parent
+                            onEntered: root.selectedIndex = row.index
+                            hoverEnabled: true
+                            onClicked: root.launch(row.modelData)
+                        }
+
+                        // pin toggle — declared last so it sits above the launch
+                        // MouseArea above and intercepts its own clicks instead of
+                        // also triggering a launch underneath it
+                        Rectangle {
+                            id: pinButton
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 24
+                            height: 24
+                            radius: 12
+                            color: "transparent"
+
+                            Image {
+                                visible: root.isPinned(row.modelData.id) || pinHover.containsMouse 
+                                anchors.centerIn: parent
+                                source: "./assets/push-pin-bold.svg"
+                                fillMode: Image.PreserveAspectFit
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: root.isPinned(row.modelData.id) || pinHover.containsMouse ? Qt.alpha(shell.theme.source_color, 0.5) : shell.theme.source_color
+                                }
+                            }                            
+                            MouseArea {
+                                id: pinHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.togglePin(row.modelData.id)
+                            }
+                        }
+                    }
+
+                    // simple empty state
+                    Text {
+                        anchors.centerIn: parent
+                        visible: resultsList.count === 0
+                        text: "No matching applications"
+                        color: root.theme.on_background
+                        opacity: 0.4
+                        font.pixelSize: 16
+                        font.family: root.theme.fontdefault
+                        //renderType: Text.NativeRendering
+                        //font.hintingPreference: Font.PreferVerticalHinting
+                    }
+                }
+            }
+        }
+    }
+}
