@@ -11,11 +11,11 @@
 
 ---
 
-<img src="./assets/pasted_2026-08-17_16-55-58.png" width="500">
+<img src="./assets/pasted_2026-08-17_16-55-58.png" width="700">
 
 ##
 
-<img src="./assets/pasted_2026-08-17_17-10-48.png" width="500">
+<img src="./assets/pasted_2026-08-17_17-10-48.png" width="700">
 
 
 
