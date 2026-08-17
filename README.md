@@ -1,6 +1,8 @@
-# .dotfiles...
 
-> A very personal configuration files repo.
+
+# Larp Shell
+
+> You can feel the larping energy radiating...
 
 ![Arch Linux](https://img.shields.io/badge/OS-Arch%20Linux-1793D1?style=flat-square&logo=arch-linux&logoColor=white)
 ![Hyprland](https://img.shields.io/badge/WM-Hyprland-555555?style=flat-square&logo=hyprland&logoColor=00f0ff)
@@ -11,35 +13,60 @@
 
 <img src="git_images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg" width="400">
 
+> 桜子
+
 ## Keeping Track Of:
 
 | Tool | Description | Configuration Path |
 | :--- | :--- | :--- |
 | **Shell** | Zsh configs & custom aliases | `~/.zshrc` |
 | **hyprland config** | the config files for hyprland | `~/.config/hypr` |
-| **quickshell config** | dotfiles for a quickshell bar | `~/.config/quickshell` |
+| **quickshell config** | larp-shell | `~/.config/quickshell` |
 | **Editor** | Neovim plugins, keymaps, and LSP settings | `~/.config/nvim/` |
 | **Git** | Global git settings & custom command shortcuts | `~/.gitconfig` |
-
+| **Matugen Config** | Get your wallpaper's color across the setup | `~/.config/matugen`
 ---
 
-## Syncing
-
-Clone and apply these dotfiles on a fresh machine:
+## Add New Device
 
 ```bash
-# 1. Define configuration alias
+# 1. Authenthicate New Device:
+ssh-keygen -t ed25519 -C "tvmito7@gmail.com"
+```
+```bash
+# Copy Public Key:
+cat ~/.ssh/id_ed25519.pub
+```
+ **Add to GitHub On Host's device:** 
+ *Navigate to [GitHub Settings] --> [SSH and GPG keys] --> [New SSH Key] then paste the output.
+ Verify the Connection:*
+```bash
+ssh -T git@github.com
+```
+
+## Bootstrap Repo on New Device
+```bash
+# Set up your shell wrapper temporary alias or add it to `~/.zshrc`:
 alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
-# 2. Add gitignore to prevent tracking home directory clutter
-echo ".cfg" >> .gitignore
-
-# 3. Clone the bare repository
+# Clone the repo as a bare repository:
 git clone --bare git@github.com:Dxd231/dotfiles.git $HOME/.cfg
 
-# 4. Checkout configurations
-config checkout
-
-# 5. Hide untracked files from git status
+# Hide untracked files in $HOME:
 config config --local status.showUntrackedFiles no
+
+# Checkout the config files to your home directory:
+config checkout
+```
+
+## Syncing
+#### On the device where changes were made:
+```bash
+config add ~/.config/hypr/hyprland.conf
+config commit -m "Update keybinds"
+config push
+```
+#### On device to be updated:
+```bash
+config pull
 
