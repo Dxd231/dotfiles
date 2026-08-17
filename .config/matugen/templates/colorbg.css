@@ -1,0 +1,2 @@
+@define-color bg_color rgba({{colors.surface_dim.default.red}}, {{colors.surface_dim.default.green}}, {{colors.surface_dim.default.blue}}, 0.75);
+@define-color bg_color1 {{colors.background.default.hex}};

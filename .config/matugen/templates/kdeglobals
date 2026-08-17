@@ -1,0 +1,190 @@
+[ColorEffects:Disabled]
+Color={{colors.surface_dim.default.hex}}
+ColorAmount=0
+ColorEffect=0
+ContrastAmount=0.65
+ContrastEffect=1
+IntensityAmount=0.1
+IntensityEffect=2
+
+[ColorEffects:Inactive]
+ChangeSelectionColor=true
+Color={{colors.surface_variant.default.hex}}
+ColorAmount=0.025
+ColorEffect=2
+ContrastAmount=0.1
+ContrastEffect=2
+Enable=false
+IntensityAmount=0
+IntensityEffect=0
+
+[Colors:Button]
+BackgroundAlternate={{colors.surface_container_low.default.hex}}
+BackgroundNormal={{colors.surface_container_high.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_surface.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:Complementary]
+BackgroundAlternate={{colors.surface_container_low.default.hex}}
+BackgroundNormal={{colors.surface.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_primary_container.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:Header]
+BackgroundAlternate={{colors.surface.default.hex}}
+BackgroundNormal={{colors.surface_container.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_surface.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:Header][Inactive]
+BackgroundAlternate={{colors.surface_container.default.hex}}
+BackgroundNormal={{colors.surface.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_surface.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:Selection]
+BackgroundAlternate={{colors.surface_container_low.default.hex}}
+BackgroundNormal={{colors.primary.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.on_primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary_fixed.default.hex}}
+ForegroundNegative={{colors.error_container.default.hex}}
+ForegroundNeutral={{colors.tertiary_fixed_dim.default.hex}}
+ForegroundNormal={{colors.on_primary.default.hex}}
+ForegroundPositive={{colors.tertiary_container.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:Tooltip]
+BackgroundAlternate={{colors.surface.default.hex}}
+BackgroundNormal={{colors.surface_container.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_background.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:View]
+BackgroundAlternate={{colors.surface_container.default.hex}}
+BackgroundNormal={{colors.background.default.hex}}
+DecorationFocus={{colors.on_primary_container.default.hex}}
+DecorationHover={{colors.on_primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_background.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[Colors:Window]
+BackgroundAlternate={{colors.primary_container.default.hex}}
+BackgroundNormal={{colors.surface_container.default.hex}}
+DecorationFocus={{colors.primary.default.hex}}
+DecorationHover={{colors.primary.default.hex}}
+ForegroundActive={{colors.primary.default.hex}}
+ForegroundInactive={{colors.on_surface_variant.default.hex}}
+ForegroundLink={{colors.secondary.default.hex}}
+ForegroundNegative={{colors.error.default.hex}}
+ForegroundNeutral={{colors.tertiary.default.hex}}
+ForegroundNormal={{colors.on_background.default.hex}}
+ForegroundPositive={{colors.tertiary_fixed.default.hex}}
+ForegroundVisited={{colors.on_secondary_container.default.hex}}
+
+[General]
+ColorSchemeHash=3c0cecefbea43cdb8fe3da156e4a106f7384a526
+LastUsedCustomAccentColor=184,117,220
+TerminalApplication=kitty -1
+XftHintStyle=hintslight
+XftSubPixel=none
+fixed=JetBrainsMono Nerd Font,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+font=Google Sans Flex,11,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium
+menuFont=Google Sans Flex,10,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium
+smallestReadableFont=Google Sans Flex,9,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium
+toolBarFont=Google Sans Flex,10,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium
+
+[KDE]
+LookAndFeelPackage=org.kde.breezedark.desktop
+ShowDeleteCommand=false
+widgetStyle=qt6ct-style
+
+[KFileDialog Settings]
+Allow Expansion=false
+Automatically select filename extension=true
+Breadcrumb Navigation=true
+Decoration position=2
+LocationCombo Completionmode=5
+PathCombo Completionmode=5
+Show Bookmarks=false
+Show Full Path=false
+Show Inline Previews=true
+Show Preview=false
+Show Speedbar=true
+Show hidden files=false
+Sort by=Name
+Sort directories first=true
+Sort hidden files last=false
+Sort reversed=false
+Speedbar Width=168
+View Style=Simple
+
+[PreviewSettings]
+EnableRemoteFolderThumbnail=false
+MaximumRemoteSize=0
+
+[Sounds]
+Theme=freedesktop
+
+[UiSettings]
+ColorScheme=qt6ct
+
+[KDE]
+contrast=4
+
+[WM]
+activeFont=Google Sans Flex,10,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium
+activeBackground={{colors.primary_container.default.hex}}
+activeBlend={{colors.on_primary_container.default.hex}}
+activeForeground={{colors.on_primary_container.default.hex}}
+inactiveBackground={{colors.surface.default.hex}}
+inactiveBlend={{colors.on_surface_variant.default.hex}}
+inactiveForeground={{colors.on_surface_variant.default.hex}}
