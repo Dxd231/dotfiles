@@ -4,7 +4,7 @@ QtObject {
     property string fontdefault: "Space Grotesk"
 
     property string fontjp: "Zen Maru Gothic Medium"
-    
+
     property int fontsize: 12
 
     readonly property string background: "#10140f"

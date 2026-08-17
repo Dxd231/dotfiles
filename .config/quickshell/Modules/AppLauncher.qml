@@ -5,29 +5,6 @@ import Quickshell.Wayland
 import QtQuick
 import Quickshell.Widgets
 import QtQuick.Effects
-// Usage in shell.qml (same top level as Notifications / WallpaperSwitcher):
-//
-//   AppLauncher {
-//     id: appLauncher
-//     theme: shell.theme
-//     theme2: shell.theme2
-//     fontdefault: shell.fontdefault
-//     global_radius: shell.global_radius
-//   }
-//
-// Toggle from anywhere with:
-//   qs -p .config/quickshell/shell.qml ipc call launcher toggle
-// e.g. in hyprland.conf:
-//   bind = SUPER, D, exec, qs ipc call launcher toggle
-//
-// Built entirely on verified Quickshell APIs: Quickshell.DesktopEntries
-// (applications.values, .name/.icon/.genericName/.comment, .execute()) and
-// Quickshell.iconPath() for resolving theme icon names to a usable source.
-// No shelling out to wofi/rofi/etc — this is a native Quickshell launcher.
-//
-// Deliberately kept "simple": one flat searchable app list, no separate
-// history/web-search/run/emoji/settings tabs like some rofi/anyrun setups —
-// say the word if you actually want those bolted on later.
 
 Item {
     id: root
@@ -37,11 +14,10 @@ Item {
     property string fontdefault: "Space Grotesk"
     property int global_radius: 24
 
-    property bool isOpen: false
+    property bool isOpenLauncher: false
     property string query: ""
     property int selectedIndex: 0
 
-    // persisted pin list — survives restarts via Quickshell's data dir
     FileView {
         id: pinsFile
         path: Quickshell.dataPath("app-launcher-pins.json")
@@ -68,7 +44,6 @@ Item {
         pinsAdapter.pinnedIds = list;
     }
 
-    // full app list — pinned apps first (alphabetical within each group)
     property var allApps: {
         const apps = [...DesktopEntries.applications.values].filter(e => e.name && !e.noDisplay);
         apps.sort((a, b) => {
@@ -81,7 +56,6 @@ Item {
         return apps;
     }
 
-    // filtered by query — checks name, generic name, comment, and keywords
     property var filteredApps: {
         const q = root.query.trim().toLowerCase();
         if (q === "")
@@ -110,7 +84,7 @@ Item {
             return;
         entry.execute();
         root.query = "";
-        root.isOpen = false;
+        root.isOpenLauncher = false;
         root.query = ""
         root.selectedIndex = 0
     }
@@ -119,18 +93,18 @@ Item {
         target: "launcher"
 
         function toggle(): void {
-            root.isOpen = !root.isOpen;
+            root.isOpenLauncher = !root.isOpenLauncher;
             root.query = ""
             root.selectedIndex = 0
-            if (root.isOpen)
+            if (root.isOpenLauncher)
                 searchField.forceActiveFocus();
         }
         function open(): void {
-            root.isOpen = true;
+            root.isOpenLauncher = true;
             searchField.forceActiveFocus();
         }
         function close(): void {
-            root.isOpen = false;
+            root.isOpenLauncher = false;
         }
     }
 
@@ -138,34 +112,82 @@ Item {
         id: panelWindow
         WlrLayershell.namespace: "quickshell:applauncher"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: root.isOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: root.isOpenLauncher ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         anchors.top: true
         anchors.left: true
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
         margins.top: 15
-        margins.left: 600
-        margins.right: 600
-        implicitHeight: 440
+        margins.left: 0
+        margins.right: 0
+        implicitHeight: 470
         
-        visible: root.isOpen
+        visible: root.isOpenLauncher || panelBg.opacity > 0
         MouseArea {
             anchors.fill: parent
-            onClicked: root.isOpen = false
+            onClicked: root.isOpenLauncher = false
         }
 
         Rectangle {
             id: panelBg
-            anchors.fill: parent
+            width: 630
+            height: 450
+            x: 1920 / 2 - width / 2
             radius: 10
             border.width: 1
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 1)
             clip: true
+            opacity: 0
+            y: -270
+
+            states: [
+                State {
+                    name: "open"
+                    when: root.isOpenLauncher
+                    PropertyChanges {
+                        target: panelBg
+                        y: 4
+                        opacity: 1
+                    }
+                },
+                State {
+                    name: "closed"
+                    when: !root.isOpenLauncher
+                    PropertyChanges {
+                        target: panelBg
+                        y: -270
+                        opacity: 0
+                    }
+                }
+            ]
+
+            transitions: [
+                Transition {
+                    from: "closed"
+                    to: "open"
+
+                    NumberAnimation {
+                        properties: "y,opacity"
+                        duration: 340
+                        easing.type: Easing.OutCubic
+                    }
+                },
+                Transition {
+                    from: "open"
+                    to: "closed"
+
+                    NumberAnimation {
+                        properties: "y,opacity"
+                        duration: 300
+                        easing.type: Easing.InCubic
+                    }
+                }
+            ]
 
             Image {
-                source: "./assets/yukari.png"
+                source: "../assets/yukari.png"
                 sourceSize.width: 400
                 sourceSize.height: 400
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -227,7 +249,7 @@ Item {
                             Keys.onUpPressed: root.selectedIndex = Math.max(0, root.selectedIndex - 1)
                             Keys.onReturnPressed: root.launch(root.filteredApps[root.selectedIndex])
                             Keys.onEnterPressed: root.launch(root.filteredApps[root.selectedIndex])
-                            Keys.onEscapePressed: root.isOpen = false
+                            Keys.onEscapePressed: root.isOpenLauncher = false
 
                             Text {
                                 visible: searchField.text.length === 0
@@ -242,7 +264,7 @@ Item {
                             }
 
                             Image {
-                                source: "./assets/magnifying-glass-bold.svg"
+                                source: "../assets/magnifying-glass-bold.svg"
                                 width: 20
                                 height: 20
                                 sourceSize.width: 22
@@ -354,12 +376,12 @@ Item {
                             Image {
                                 visible: root.isPinned(row.modelData.id) || pinHover.containsMouse 
                                 anchors.centerIn: parent
-                                source: "./assets/push-pin-bold.svg"
+                                source: "../assets/push-pin-bold.svg"
                                 fillMode: Image.PreserveAspectFit
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.isPinned(row.modelData.id) || pinHover.containsMouse ? Qt.alpha(shell.theme.source_color, 0.5) : shell.theme.source_color
+                                    colorizationColor: root.isPinned(row.modelData.id) || pinHover.containsMouse ? Qt.alpha(root.theme.source_color, 0.5) : shell.theme.source_color
                                 }
                             }                            
                             MouseArea {

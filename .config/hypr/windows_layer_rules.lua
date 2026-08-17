@@ -167,17 +167,22 @@ hl.layer_rule({
 })
 
 hl.layer_rule({
+    match = { namespace = "quickshell:mpris_popup" },
+    blur = true,
+    ignore_alpha = 0.3,
+})
+
+hl.layer_rule({
     match = { namespace = "quickshell:applauncher" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "slidefade"
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:wallpaperswitcher" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "slide bottom"
+    animation = "popin 80%"
 })
 
 hl.layer_rule({
@@ -191,12 +196,10 @@ hl.layer_rule({
     match = { namespace = "quickshell:clipboardmanager" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "slidefade top"
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:center" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "slidefade left"
 })

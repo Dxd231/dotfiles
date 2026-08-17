@@ -6,47 +6,9 @@ import QtQuick
 import Quickshell.Widgets
 import QtQuick.Effects
 
-// Usage in shell.qml:
-//
-//   ClipboardManager {
-//     id: clipboardManager
-//     theme: shell.theme
-//     theme2: shell.theme2
-//     fontdefault: shell.fontdefault
-//     global_radius: shell.global_radius
-//   }
-//
-// Toggle from anywhere with:
-//   qs -p .config/quickshell/shell.qml ipc call clipboard toggle
-// e.g. in hyprland.conf:
-//   bind = SUPER, V, exec, qs ipc call clipboard toggle
-//
-// Requires cliphist + wl-clipboard, on Hyprland/wlroots. This assumes you
-// already have the store daemon running, e.g. in hyprland.conf:
-//   exec-once = wl-paste --watch cliphist store
-// Without that running, cliphist has nothing to list.
-//
-// Verified against cliphist's actual CLI (github.com/sentriz/cliphist):
-//   cliphist list                        -> lines of "<id>\t<preview>"
-//   cliphist decode                      -> reads a list line on stdin,
-//                                            writes the original bytes to stdout
-//   cliphist delete / cliphist wipe      -> as named
-// Image entries are identified the same way cliphist's own official
-// fuzzel-img contrib script does it: matching "binary" + a known image
-// extension in the preview text.
-//
-// Piping is done via Process.stdinEnabled + Process.write() rather than
-// interpolating clipboard content into a shell string — clipboard text can
-// contain quotes, backticks, `$`, anything, so string-building a shell
-// command around it would be a real injection risk. write() sidesteps that
-// entirely since it's a raw pipe, not shell text.
-//
-// Left list intentionally shows text/icon only, not per-row decoded image
-// thumbnails — decoding every visible entry just to render the list would
-// mean spawning a process per row. The big preview pane decodes on demand,
-// only for whatever's currently selected.
-
 Item {
+    
+
     id: root
 
     property var theme
@@ -54,12 +16,12 @@ Item {
     property string fontdefault: "Space Grotesk"
     property int global_radius: 8
 
-    property bool isOpen: false
+    property bool isOpenClipB: false
     property string query: ""
-    property var entries: []           // [{id, preview, raw, isImage, ext}]
+    property var entries: []          
     property var selectedEntry: null
     property int selectedIndex: 0
-    property string previewMode: "none"  // "none" | "text" | "image"
+    property string previewMode: "none" 
     property string previewText: ""
     property string previewImagePath: ""
 
@@ -112,8 +74,7 @@ Item {
         root.selectedEntry = entry;
         if (entry.isImage) {
             root.previewMode = "image";
-            root.previewImagePath = "";  // hide the previous image immediately instead of
-                                          // leaving it on screen until the new one decodes
+            root.previewImagePath = "";  
             const path = "/tmp/qs-clip-" + entry.id + "." + entry.ext;
             decodeToFileProc.command = ["sh", "-c", "cliphist decode > '" + path + "'"];
             decodeToFileProc.pendingPath = path;
@@ -122,7 +83,7 @@ Item {
             decodeToFileProc.running = true;
             imageWriteTimer.callback = () => {
                 decodeToFileProc.write(entry.raw + "\n");
-                decodeToFileProc.stdinEnabled = false; // sends EOF — without this cliphist decode can hang forever
+                decodeToFileProc.stdinEnabled = false; 
             };
             imageWriteTimer.restart();
         } else {
@@ -133,7 +94,7 @@ Item {
             decodeToTextProc.running = true;
             textWriteTimer.callback = () => {
                 decodeToTextProc.write(entry.raw + "\n");
-                decodeToTextProc.stdinEnabled = false; // sends EOF
+                decodeToTextProc.stdinEnabled = false;
             };
             textWriteTimer.restart();
         }
@@ -148,8 +109,8 @@ Item {
         copyProc.running = true;
         copyWriteTimer.callback = () => {
             copyProc.write(entry.raw + "\n");
-            copyProc.stdinEnabled = false; // sends EOF
-            root.isOpen = false;
+            copyProc.stdinEnabled = false; 
+            root.isOpenClipB = false;
         };
         copyWriteTimer.restart();
     }
@@ -163,15 +124,12 @@ Item {
         deleteProc.running = true;
         deleteWriteTimer.callback = () => {
             deleteProc.write(entry.raw + "\n");
-            deleteProc.stdinEnabled = false; // sends EOF
+            deleteProc.stdinEnabled = false;
         };
         deleteWriteTimer.restart();
     }
 
-    // real timers, not Qt.callLater — spawning a process is real OS-level
-    // fork/exec that can still be mid-flight after Qt.callLater's same-tick
-    // defer fires, so write() can silently land on a pipe that isn't ready yet.
-    // A short actual delay gives it real wall-clock time to come up first.
+
     Timer {
         id: textWriteTimer
         interval: 30
@@ -256,56 +214,104 @@ Item {
         target: "clipboard"
 
         function toggle(): void {
-            root.isOpen = !root.isOpen;
-            if (root.isOpen) {
+            root.isOpenClipB = !root.isOpenClipB;
+            if (root.isOpenClipB) {
                 root.refreshList();
                 searchField.forceActiveFocus();
             }
         }
         function open(): void {
-            root.isOpen = true;
+            root.isOpenClipB = true;
             root.refreshList();
             searchField.forceActiveFocus();
         }
         function close(): void {
-            root.isOpen = false;
+            root.isOpenClipB = false;
         }
     }
 
-    Shortcut { sequence: "Escape"; enabled: root.isOpen; onActivated: root.isOpen = false }
+    Shortcut { sequence: "Escape"; enabled: root.isOpenClipB; onActivated: root.isOpenClipB = false }
 
     PanelWindow {
         id: panelWindow
         WlrLayershell.namespace: "quickshell:clipboardmanager"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: root.isOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: root.isOpenClipB ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         anchors.top: true
         anchors.left: true
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
         margins.top: 15
-        margins.left: 600
-        margins.right: 600
-        implicitHeight: 420
-        visible: root.isOpen
+        margins.left: 0
+        margins.right: 0
+        implicitHeight: 470
+        visible: root.isOpenClipB || panelBg.opacity > 0
 
         MouseArea {
             anchors.fill: parent
-            onClicked: root.isOpen = false
+            onClicked: root.isOpenClipB = false
         }
 
         Rectangle {
             id: panelBg
-            anchors.fill: parent
+            width: 630
+            height: 450
+            x: 1920 / 2 - width / 2
             radius: 8
             border.width: 1
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 0.95)
             clip: true
+            opacity: 0
+            y: -270
+
+            states: [
+                State {
+                    name: "open"
+                    when: root.isOpenClipB
+                    PropertyChanges {
+                        target: panelBg
+                        y: 4
+                        opacity: 1
+                    }
+                },
+                State {
+                    name: "closed"
+                    when: !root.isOpenClipB
+                    PropertyChanges {
+                        target: panelBg
+                        y: -270
+                        opacity: 0
+                    }
+                }
+            ]
+
+            transitions: [
+                Transition {
+                    from: "closed"
+                    to: "open"
+
+                    NumberAnimation {
+                        properties: "y,opacity"
+                        duration: 340
+                        easing.type: Easing.OutCubic
+                    }
+                },
+                Transition {
+                    from: "open"
+                    to: "closed"
+
+                    NumberAnimation {
+                        properties: "y,opacity"
+                        duration: 300
+                        easing.type: Easing.InCubic
+                    }
+                }
+            ]
             
             Image {
-                source: "./assets/yukari.png"
+                source: "../assets/yukari.png"
                 sourceSize.width: 400
                 sourceSize.height: 400
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -352,7 +358,7 @@ Item {
                             spacing: 10
 
                             Image {
-                                source: "./assets/magnifying-glass-bold.svg"
+                                source: "../assets/magnifying-glass-bold.svg"
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 20
                                 height: 20
@@ -362,7 +368,7 @@ Item {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: shell.theme.source_color
+                                    colorizationColor: root.theme.source_color
                                 } 
                             }
 
@@ -384,7 +390,7 @@ Item {
                                 Keys.onUpPressed: root.selectedIndex = Math.max(0, root.selectedIndex - 1)
                                 Keys.onReturnPressed: root.copySelected()
                                 Keys.onEnterPressed: root.copySelected()
-                                Keys.onEscapePressed: root.isOpen = false
+                                Keys.onEscapePressed: root.isOpenClipB = false
 
                                 Text {
                                     visible: parent.text.length === 0
@@ -465,7 +471,7 @@ Item {
 
                                         Image {
                                             anchors.centerIn: parent
-                                            source: entryRow.modelData.isImage ? "./assets/image.svg" : "./assets/text.svg"
+                                            source: entryRow.modelData.isImage ? "../assets/image.svg" : "../assets/text.svg"
                                             width: 20
                                             height: 20
                                             sourceSize.width: 22
@@ -474,7 +480,7 @@ Item {
                                             layer.enabled: true
                                             layer.effect: MultiEffect {
                                                 colorization: 1.0
-                                                colorizationColor: entryRow.isSelected ? shell.theme.on_background : shell.theme.source_color 
+                                                colorizationColor: entryRow.isSelected ? root.theme.on_background : root.theme.source_color 
                                             } 
                                         }
                                     }

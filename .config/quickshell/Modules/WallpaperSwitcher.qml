@@ -4,28 +4,24 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import Quickshell.Widgets
-import QtQuick.Effects
 
 Item {
     id: root
 
-    // ---- theme plumbing ----
     property var theme
     property var theme2
     property string fontdefault: "Space Grotesk"
     property int global_radius: 14
 
-    // ---- config ----
     property string wallpaperDir: "$HOME/Pictures/Wallpapers"
     property int cardWidth: 800
     property int cardHeight: 450
 
-    // ---- state ----
     property bool isOpen: false
     property string currentWallpaper: ""
     property int currentIndex: 0
-    property bool wallpapersLoadedOnce: false   // true after the very first successful list scan
-    property string colorPreference: "darkness"   // "dark" or "light" — passed to matugen's --prefer
+    property bool wallpapersLoadedOnce: false  
+    property string colorPreference: "darkness"   
 
     function toggleColorPreference() {
         root.colorPreference = root.colorPreference === "darkness" ? "lightness" : "darkness";
@@ -48,18 +44,13 @@ Item {
 
                 var targetIndex;
                 if (!root.wallpapersLoadedOnce) {
-                    // First ever scan: we have no browsing history yet, so land on whatever
-                    // wallpaper is actually currently applied (if we know it).
                     targetIndex = 0;
                     for (var i = 0; i < lines.length; i++) {
                         if (lines[i] === root.currentWallpaper)
                             targetIndex = i;
                     }
                 } else {
-                    // Every later reopen: keep showing wherever the user last left the
-                    // coverflow (browsing, not just applying, counts) — just clamp it in
-                    // case files were added/removed from the folder.
-                    targetIndex = Math.min(Math.max(root.currentIndex, 0), Math.max(lines.length - 1, 0));
+                    targetIndex = 0;
                 }
 
                 for (var j = 0; j < lines.length; j++) {
@@ -71,18 +62,13 @@ Item {
                 root.wallpapersLoadedOnce = true;
                 root.currentIndex = targetIndex;
 
-                // Defer the actual view sync to the next event-loop tick. Setting currentIndex
-                // synchronously here races against ListView's own internal index bookkeeping,
-                // which is still settling from the clear()/append() churn above — sometimes the
-                // currentIndexChanged signal doesn't fire and the highlight/position never
-                // updates (the "no border" bug). positionViewAtIndex is called unconditionally
-                // so this works even if currentIndex ends up numerically unchanged.
                 Qt.callLater(function () {
                     coverflow.currentIndex = targetIndex;
                     coverflow.positionViewAtIndex(targetIndex, ListView.Center);
                 });
             }
         }
+        onExited: (code) => { root.isOpen = !root.isOpen }
     }
 
     Process {
@@ -97,12 +83,10 @@ Item {
 
     function applyWallpaper(path, index) {
         root.currentWallpaper = path;
-        root.currentIndex = index;
 
         // Escaping single quotes in path safely
         var safePath = path.replace(/'/g, "'\\''");
 
-        // Wrap in nohup / disown or subshell backgrounding so QML killing applyProc doesn't kill matugen mid-write
         var cmd = "(" +
                 "awww img '" + safePath + "' --transition-type grow --transition-fps 60 --transition-duration 1 & " +
                 "matugen image '" + safePath + "' --prefer " + root.colorPreference +
@@ -117,13 +101,13 @@ Item {
         target: "wallpaper"
 
         function toggle(): void {
-            root.isOpen = !root.isOpen;
+            root.refreshWallpapers();
             if (root.isOpen) {
-                root.refreshWallpapers();
                 coverflow.forceActiveFocus();
             }
         }
         function open(): void {
+            root.isOpen = true
             root.refreshWallpapers();
             coverflow.forceActiveFocus();
         }
@@ -194,8 +178,6 @@ Item {
                     color: root.theme.surface_bright
                     font.pixelSize: 12
                     font.family: root.fontdefault
-                    renderType: Text.NativeRendering
-                    font.hintingPreference: Font.PreferFullHinting
                 }
                 /* Text {
                     anchors.right: parent.right

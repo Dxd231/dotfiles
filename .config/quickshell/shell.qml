@@ -6,49 +6,49 @@ import QtQuick
 import Quickshell.Io
 import Quickshell.Services.Mpris
 import Quickshell.Services.SystemTray
-import Quickshell.DBusMenu
-import Quickshell.Widgets
 import QtQuick.Layouts
 import Quickshell.Wayland
 import QtQuick.Effects
 import "Colors.qml"
-import "Notifications.qml"
+import "./Modules"
 
 ShellRoot {
     id: shell
     Notifications {
         id: notifications
-        theme: shell.theme
+        theme: root.theme
         calendarOpen: shell.calendarOpen
         shellRoot: shell
     }
 
     WallpaperSwitcher {
         id: wallpaperSwitcher
-        theme: shell.theme
-        fontdefault: shell.fontdefault
+        theme: root.theme
+        fontdefault: root.theme.fontdefault
     }
 
     AppLauncher {
         id: appLauncher
-        theme: shell.theme
-        fontdefault: shell.fontdefault
-        global_radius: shell.global_radius
+        theme: root.theme
+        fontdefault: root.theme.fontdefault
+        global_radius: root.global_radius
     }
 
     OnScreenDisplay {
         id: osd
-        theme: shell.theme
+        theme: root.theme
     }
 
     ClipboardManager {
         id: clipboardManager
-        theme: shell.theme
-        fontdefault: shell.fontdefault
-        global_radius: shell.global_radius
+        theme: root.theme
+        fontdefault: root.theme.fontdefault
+        global_radius: root.global_radius
     }
 
     ActiveArch {}
+
+    // Get activePlayer
     readonly property var activePlayer: {
         var players = Mpris.players.values || []; // Ensure players is an array, even if Mpris.players is undefined
         var foundPlayer = null;
@@ -63,23 +63,8 @@ ShellRoot {
         }
         return foundPlayer;
     }
-    property string fontdefault: "Space Grotesk"
-    property string fontjp: "Zen Maru Gothic Medium"
-    readonly property bool hasPlayer: activePlayer !== null && activePlayer !== undefined
-    property var theme: Colors {}
-    property string thumbpath: "file:///run/user/1000/mpv_thumbnail.png"
-    // Setting Variables
-    property int global_radius: 10
-    // A list of Kanji numerals from 1 to 10
-    readonly property var kanjiNumbers: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
-    // Clock (system sync)
-    readonly property string time: {
-        // The passed format string matches the default output of
-        // the `date` command.
-        Qt.formatDateTime(clock.date, "hh:mm");
-    }
-    readonly property string dateString: Qt.formatDateTime(clock.date, "ddd dd MMM")
 
+    // sync system clock
     SystemClock {
         id: clock
         precision: SystemClock.Minutes
@@ -88,7 +73,7 @@ ShellRoot {
     // ---- calendar popup state ----
     property bool calendarOpen: false
     property var viewDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-    property var highlightedDays: []   // array of "yyyy-M-d" keys, persists across popup toggles
+    property var highlightedDays: []
     property var gridCells: shell.buildCalendarGrid()
 
     function dateKey(d) {
@@ -141,10 +126,20 @@ ShellRoot {
         return cells;
     }
     onViewDateChanged: shell.gridCells = shell.buildCalendarGrid()
+
     QtObject {
         id: root
-        property string preferredPlayer: "spotify"
+        readonly property bool hasPlayer: shell.activePlayer !== null && shell.activePlayer !== undefined
+        property var theme: Colors {}
+        property int global_radius: 10
+        readonly property var kanjiNumbers: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
+        readonly property string time: {
+            Qt.formatDateTime(clock.date, "hh:mm");
+        }
+        readonly property string dateString: Qt.formatDateTime(clock.date, "ddd dd MMM")
+
+        property string preferredPlayer: "spotify"
         property string memoryUsage: "0%"
         property string memformat: ""
         property string memCount: ""
@@ -152,7 +147,6 @@ ShellRoot {
         property string calendar: ""
         property string networkInfo: "Disconnected"
         property string networkType: "disconnected"
-        property string time: "--:--"
         property string playing: "No Media"
     }
 
@@ -226,15 +220,15 @@ ShellRoot {
             bottomLeftRadius: panelbar.implicitHeight / 2
             bottomRightRadius: panelbar.implicitHeight / 2
             border.width: 0
-            border.color: shell.theme.surface_bright
-            color: Qt.alpha(shell.theme.background, 0.80)
+            border.color: root.theme.surface_bright
+            color: Qt.alpha(root.theme.background, 0.80)
 
             //Time Module
             Rectangle {
                 id: clockmodule
                 height: 24
                 width: timerContent.width
-                radius: shell.global_radius
+                radius: root.global_radius
                 anchors.rightMargin: 0
                 color: "transparent"
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -245,10 +239,10 @@ ShellRoot {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.verticalCenter
                     text: "時"
-                    color: Qt.alpha(shell.theme.on_background, 0.6)
+                    color: Qt.alpha(root.theme.on_background, 0.6)
                     rightPadding: 100
                     font.pixelSize: 18
-                    font.family: shell.fontjp
+                    font.family: root.theme.fontjp
                     font.bold: true
                     /* renderType: Text.NativeRendering
                         font.hintingPreference: Font.PreferVerticalHinting */
@@ -269,7 +263,7 @@ ShellRoot {
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: shell.theme.source_color   // any matugen color
+                            colorizationColor: root.theme.source_color   // any matugen color
                         }
                     } */
 
@@ -277,260 +271,22 @@ ShellRoot {
                         spacing: 0
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: shell.time
-                            color: shell.theme.on_background
+                            text: root.time
+                            color: root.theme.on_background
                             font.pixelSize: 16
-                            font.family: shell.fontdefault
+                            font.family: root.theme.fontdefault
                             font.bold: true
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
                         }
                         Text {
-                            text: shell.dateString
-                            color: Qt.alpha(shell.theme.on_background, 0.6)
+                            text: root.dateString
+                            color: Qt.alpha(root.theme.on_background, 0.6)
                             font.pixelSize: 12
-                            font.family: shell.fontdefault
+                            font.family: root.theme.fontdefault
                             font.bold: true
                             renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting
-                        }
-                    }
-                }
-                MouseArea {
-                    cursorShape: Qt.PointingHandCursor
-                    anchors.fill: parent
-                    onClicked: shell.calendarOpen = !shell.calendarOpen
-                }
-            }
-            // Calendar popup, anchored under the time module
-            PopupWindow {
-                id: calendarPopup
-
-                width: 300
-                height: 350
-                color: "transparent"
-                visible: shell.calendarOpen || calendarPanel.opacity > 0
-
-                anchor {
-                    window: clockmodule.QsWindow.window
-                    adjustment: PopupAdjustment.None
-                    onAnchoring: {
-                        const window = clockmodule.QsWindow.window;
-                        // when the notification center is open, drop the calendar below it instead of overlapping
-                        const dodgeOffset = notifications.centerOpen ? 0 : 0;
-                        const widgetRect = window.contentItem.mapFromItem(clockmodule, clockmodule.width / 2 - calendarPopup.width / 2, clockmodule.height + 5 + dodgeOffset);
-                        calendarPopup.anchor.rect.x = widgetRect.x - 2;
-                        calendarPopup.anchor.rect.y = widgetRect.y + 1;
-                    }
-                }
-
-                Item {
-                    anchors.fill: parent
-                    focus: true
-                    Keys.enabled: true
-                    Keys.onEscapePressed: { shell.calendarOpen = !shell.calendarOpen; }
-                } 
-
-                // re-run the anchoring above if the notification center opens/closes
-                // while the calendar is already sitting open, so it doesn't get stuck overlapping
-                /* Connections {
-                    target: notifications
-                    function onCenterOpenChanged() {
-                        if (shell.calendarOpen)
-                            calendarPopup.anchor.updateAnchor();
-                    }
-                } */
-
-                Rectangle {
-                    id: calendarPanel
-                    width: calendarPopup.width
-                    height: calendarPopup.height
-                    x: 0
-                    radius: 8
-                    border.width: 0
-                    border.color: shell.theme.surface_bright
-                    color: Qt.alpha(shell.theme.background, 0.8)
-                    transformOrigin: Item.Top
-                    opacity: 0
-                    y: -270
-
-                    Image {
-                        anchors.fill: parent
-                        source: "./assets/reimu.png"
-                        opacity: 0.2
-                        sourceSize.width: 350
-                        sourceSize.height: 350
-                        Layout.preferredWidth: 350
-                        Layout.preferredHeight: 350
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        fillMode: Image.PreserveAspectFit
-                    }
-
-                    states: [
-                        State {
-                            name: "open"
-                            when: shell.calendarOpen
-                            PropertyChanges {
-                                target: calendarPanel
-                                y: 0
-                                opacity: 1
-                            }
-                        },
-                        State {
-                            name: "closed"
-                            when: !shell.calendarOpen
-                            PropertyChanges {
-                                target: calendarPanel
-                                y: -270
-                                opacity: 0
-                            }
-                        }
-                    ]
-
-                    transitions: [
-                        Transition {
-                            from: "closed"
-                            to: "open"
-                            NumberAnimation {
-                                properties: "y,opacity"
-                                duration: 280
-                                easing.type: Easing.OutCubic
-                            }
-                        },
-                        Transition {
-                            from: "open"
-                            to: "closed"
-                            NumberAnimation {
-                                properties: "y,opacity"
-                                duration: 240
-                                easing.type: Easing.InCubic
-                            }
-                        }
-                    ]
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 10
-
-                        // month navigation
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: "‹"
-                                color: shell.theme.on_background
-                                font.pixelSize: 18
-                                font.bold: true
-                                font.family: shell.fontdefault
-                                renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting
-                                MouseArea {
-                                    cursorShape: Qt.PointingHandCursor
-                                    anchors.fill: parent
-                                    anchors.margins: -6
-                                    onClicked: shell.shiftMonth(-1)
-                                }
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                horizontalAlignment: Text.AlignHCenter
-                                text: Qt.formatDate(shell.viewDate, "MMMM yyyy")
-                                color: shell.theme.on_background
-                                font.pixelSize: 15
-                                font.bold: true
-                                font.family: shell.fontdefault
-                                renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting
-                            }
-                            Text {
-                                text: "›"
-                                color: shell.theme.on_background
-                                font.pixelSize: 18
-                                font.bold: true
-                                font.family: shell.fontdefault
-                                renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting
-                                MouseArea {
-                                    cursorShape: Qt.PointingHandCursor
-                                    anchors.fill: parent
-                                    anchors.margins: -6
-                                    onClicked: shell.shiftMonth(1)
-                                }
-                            }
-                        }
-
-                        // weekday labels
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-
-                            Repeater {
-                                model: ["S", "M", "T", "W", "T", "F", "S"]
-                                delegate: Text {
-                                    required property string modelData
-                                    Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    text: modelData
-                                    color: shell.theme.on_background
-                                    opacity: 0.5
-                                    font.pixelSize: 11
-                                    font.family: shell.fontdefault
-                                    renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting
-                                    font.bold: true
-                                }
-                            }
-                        }
-
-                        // day grid
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 7
-                            rowSpacing: 4
-                            columnSpacing: 4
-
-                            Repeater {
-                                model: shell.gridCells
-
-                                delegate: Rectangle {
-                                    id: dayCell
-                                    required property var modelData
-
-                                    Layout.preferredWidth: 34
-                                    Layout.preferredHeight: 34
-                                    radius: 17
-                                    opacity: modelData.inMonth ? 1.0 : 0.35
-                                    color: shell.isHighlighted(modelData.date) || (shell.isToday(modelData.date)) ? shell.theme.source_color : "transparent"
-                                    border.width: (shell.isToday(modelData.date) && !shell.isHighlighted(modelData.date)) ? 0 : 0
-                                    border.color: shell.theme.source_color
-
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            duration: 120
-                                        }
-                                    }
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: dayCell.modelData.date.getDate()
-                                        color: (shell.isHighlighted(dayCell.modelData.date) || !shell.isToday(dayCell.modelData.date)) ? Qt.alpha(shell.theme.on_background, 0.8) : shell.theme.background
-                                        font.pixelSize: 13
-                                        font.bold: true
-                                        font.family: shell.fontdefault
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting */
-                                    }
-
-                                    MouseArea {
-                                        cursorShape: Qt.PointingHandCursor
-                                        anchors.fill: parent
-                                        enabled: dayCell.modelData.inMonth
-                                        onClicked: shell.toggleDay(dayCell.modelData.date)
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -570,15 +326,15 @@ ShellRoot {
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: shell.theme.source_color   // any matugen color
+                            colorizationColor: root.theme.source_color   // any matugen color
                         }
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.memPercent ? "Mem: " + root.memoryUsage : root.memformat
-                        color: root.memCount > 12000 ? shell.theme.source_color : shell.theme.on_background
+                        color: root.memCount > 12000 ? root.theme.source_color : root.theme.on_background
                         font.pixelSize: 14
-                        font.family: shell.fontdefault
+                        font.family: root.theme.fontdefault
                         font.bold: true
                         /* renderType: Text.NativeRendering
                         font.hintingPreference: Font.PreferVerticalHinting */
@@ -597,9 +353,9 @@ ShellRoot {
                 id: mprisModule
                 height: 30
                 width: mprisContent.width + 24
-                radius: shell.global_radius
+                radius: root.global_radius
                 color: "transparent"
-                border.color: shell.theme.source_color
+                border.color: root.theme.source_color
                 border.width: 0
                 anchors.right: parent.right
                 anchors.rightMargin: 10
@@ -617,7 +373,7 @@ ShellRoot {
                         spacing: 2
                         height: 14
 
-                        property bool playing: shell.hasPlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
+                        property bool playing: root.hasPlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
 
                         Repeater {
                             model: 3
@@ -626,7 +382,7 @@ ShellRoot {
                                 required property int index
                                 width: 3
                                 radius: 1.5
-                                color: shell.theme.source_color
+                                color: root.theme.source_color
                                 anchors.bottom: parent.bottom
                                 height: 4
 
@@ -683,9 +439,9 @@ ShellRoot {
                                     return "No Media";
                                 return shell.activePlayer.trackTitle || "";
                             }
-                            color: shell.theme.on_background
+                            color: root.theme.on_background
                             font.pixelSize: 12
-                            font.family: shell.fontjp
+                            font.family: root.theme.fontjp
                             font.bold: shell.activePlayer && shell.activePlayer.loopState === MprisLoopState.Track ? true : false
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
@@ -701,7 +457,7 @@ ShellRoot {
                             SequentialAnimation {
                                 id: marqueeAnim
                                 loops: Animation.Infinite
-                                running: marqueeClip.shouldScroll && shell.hasPlayer
+                                running: marqueeClip.shouldScroll && root.hasPlayer
 
                                 onRunningChanged: {
                                     if (!running) {
@@ -774,46 +530,47 @@ ShellRoot {
                     }
                 }
             }
-            PopupWindow {
+            PanelWindow {
                 id: albumPopup
+                WlrLayershell.namespace: "quickshell:mpris_popup"
+
+                WlrLayershell.layer: WlrLayer.Overlay
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+                exclusionMode: ExclusionMode.Ignore
 
                 property string thumbnailPath: ""
                 property bool isOpen: false
                 property int refreshTrigger: 0
 
-                width: 330
+                width: 360
                 height: 510
                 color: "transparent"
-                visible: isOpen && shell.hasPlayer || mprispopup.opacity > 0 && shell.hasPlayer
+                visible: isOpen && root.hasPlayer || mprispopup.opacity > 0 && root.hasPlayer
 
                 Item {
                     anchors.fill: parent
                     focus: true
                     Keys.enabled: true
-                    Keys.onEscapePressed: { albumPopup.isOpen = !albumPopup.isOpen; }
-                } 
-
-                anchor {
-                    window: mprisModule.QsWindow.window
-                    adjustment: PopupAdjustment.None
-                    onAnchoring: {
-                        const window = mprisModule.QsWindow.window;
-                        const widgetRect = window.contentItem.mapFromItem(mprisModule, mprisModule.width - albumPopup.width - 2  // horizontal offset, tweak the "+10"
-                        , mprisModule.height + 5                      // vertical gap below the bar
-                        );
-                        albumPopup.anchor.rect.x = widgetRect.x;
-                        albumPopup.anchor.rect.y = widgetRect.y - 6;
+                    Keys.onEscapePressed: {
+                        albumPopup.isOpen = !albumPopup.isOpen;
                     }
                 }
 
+                anchors {
+                    top: true
+                    right: true
+                }
+                margins.top: 46
+                margins.right: 25
+
                 Rectangle {
                     id: mprispopup
-                    width: 330
-                    height: 470
+                    width: 360
+                    height: 480
                     x: 0
-                    color: shell.theme.background
+                    color: Qt.alpha(root.theme.background, 0.8)
                     radius: 12
-                    border.color: shell.theme.surface_bright
+                    border.color: root.theme.surface_bright
                     border.width: 1
                     transformOrigin: Item.Top
                     opacity: 0
@@ -865,9 +622,9 @@ ShellRoot {
                     //Album Art
                     Image {
                         id: image
-                        width: 294
+                        width: 320
                         height: 294
-                        sourceSize.width: 294
+                        sourceSize.width: 320
                         sourceSize.height: 294
                         anchors.top: parent.top
                         anchors.topMargin: 12
@@ -915,7 +672,7 @@ ShellRoot {
                                 x: titleClip.shouldScroll ? 0 : Math.max(0, (titleClip.width - implicitWidth) / 2)
 
                                 text: shell.activePlayer && shell.activePlayer.trackTitle ? shell.activePlayer.trackTitle : "No Media"
-                                color: shell.theme.on_background
+                                color: root.theme.on_background
                                 font.family: shell.fontjp
                                 font.pixelSize: 15
                                 font.bold: false
@@ -991,7 +748,7 @@ ShellRoot {
                                 x: artistClip.shouldScroll ? 0 : Math.max(0, (artistClip.width - implicitWidth) / 2)
 
                                 text: shell.activePlayer ? (shell.activePlayer.trackArtist || "") : ""
-                                color: shell.theme.on_background
+                                color: root.theme.on_background
                                 opacity: 0.6
                                 font.family: shell.fontjp
                                 font.pixelSize: 12
@@ -1060,7 +817,7 @@ ShellRoot {
                         height: 7
                         radius: 2
 
-                        color: Qt.alpha(shell.theme.source_color, 0.2)
+                        color: Qt.alpha(root.theme.source_color, 0.2)
 
                         Rectangle {
                             y: progress_bar.height - 9
@@ -1068,13 +825,13 @@ ShellRoot {
                             width: 11
                             height: 11
                             radius: 11
-                            color: shell.theme.source_color
+                            color: root.theme.source_color
                         }
 
                         Rectangle {
                             id: progress_bar
                             width: {
-                                if (!shell.hasPlayer || shell.activePlayer.length <= 0)
+                                if (!root.hasPlayer || shell.activePlayer.length <= 0)
                                     return 0;
                                 if (seekMouseArea.pressed) {
                                     return Math.max(0, Math.min(seekBar.width, seekMouseArea.mouseX));
@@ -1084,7 +841,7 @@ ShellRoot {
                             height: parent.height
                             radius: parent.radius
 
-                            color: shell.theme.source_color
+                            color: root.theme.source_color
 
                             Behavior on width {
                                 enabled: !seekMouseArea.pressed
@@ -1103,14 +860,14 @@ ShellRoot {
                             property bool savedPlayingState: false
 
                             function updateSeekPosition(mouse) {
-                                if (shell.hasPlayer && shell.activePlayer.length > 0) {
+                                if (root.hasPlayer && shell.activePlayer.length > 0) {
                                     const clampedX = Math.max(0, Math.min(mouse.x, seekBar.width));
                                     shell.activePlayer.position = shell.activePlayer.length * (clampedX / seekBar.width);
                                 }
                             }
 
                             onPressed: mouse => {
-                                if (shell.hasPlayer) {
+                                if (root.hasPlayer) {
                                     savedPlayingState = (shell.activePlayer.playbackState === MprisPlaybackState.Playing);
                                     if (savedPlayingState && shell.activePlayer.canPause) {
                                         shell.activePlayer.pause();
@@ -1119,21 +876,16 @@ ShellRoot {
                                 updateSeekPosition(mouse);
                             }
 
-                            onPositionChanged: mouse => {
-                                if (pressed)
-                                    updateSeekPosition(mouse);
-                            }
-
                             onReleased: mouse => {
-                                updateSeekPosition(mouse);
-                                if (shell.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                updateSeekPosition(mouse);   // send the seek exactly once, here
+                                if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
                                     shell.activePlayer.play();
                                 }
                                 savedPlayingState = false;
                             }
 
                             onCanceled: {
-                                if (shell.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
                                     shell.activePlayer.play();
                                 }
                                 savedPlayingState = false;
@@ -1141,11 +893,11 @@ ShellRoot {
                         }
 
                         Timer {
-                            running: shell.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed
-                            interval: 1000
+                            running: root.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed
+                            interval: 1
                             repeat: true
 
-                            onTriggered: if (shell.hasPlayer)
+                            onTriggered: if (root.hasPlayer)
                                 shell.activePlayer.positionChanged()
                         }
                     }
@@ -1167,7 +919,7 @@ ShellRoot {
                             width: 40
                             height: 40
                             radius: 40
-                            color: Qt.alpha(shell.theme.on_background, 0)
+                            color: Qt.alpha(root.theme.on_background, 0)
                             anchors.centerIn: parent
 
                             Image {
@@ -1180,7 +932,7 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: shell.theme.on_background   // any matugen color
+                                    colorizationColor: root.theme.on_background   // any matugen color
                                 }
                                 source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
                                 property real rotAngle: playButtonContainer.pressed ? 10 : 0
@@ -1236,7 +988,7 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: shell.theme.on_background   // any matugen color
+                                    colorizationColor: root.theme.on_background   // any matugen color
                                 }
                                 // Nudges the play triangle slightly right so it centers perfectly by eye
                                 // anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
@@ -1271,7 +1023,7 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: shell.theme.on_background   // any matugen color
+                                    colorizationColor: root.theme.on_background   // any matugen color
                                 }
                                 // Nudges the play triangle slightly right so it centers perfectly by eye
                                 // anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
@@ -1342,12 +1094,11 @@ ShellRoot {
                         Rectangle {
                             id: rect
                             required property var modelData
-                            // only show workspaces 1-8, and any negative-id special workspace
                             visible: modelData.id > 0 && modelData.id <= 8
                             width: 30
                             height: 30
                             radius: 30
-                            color: "transparent"   // activePill behind supplies the fill now
+                            color: "transparent"
 
                             property bool occupied: modelData.lastIpcObject ? modelData.lastIpcObject.windows > 0 : false
                             property bool isCurrent: rect.modelData.active || (rect.modelData.id < 0 && rect.modelData.visible)
@@ -1361,20 +1112,18 @@ ShellRoot {
                                 id: label
                                 anchors.centerIn: parent
                                 text: {
-                                    if (rect.modelData.id < 0)
-                                        return "特別"; // custom glyph overriding "-98"
                                     if (rect.modelData.id < 9)
-                                        return shell.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
-                                    return String(rect.modelData.id); // fallback, unreachable now that 9/10 are hidden
+                                        return root.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
+                                    return String(rect.modelData.id);
                                 }
-                                color: rect.isCurrent ? shell.theme.background : rect.occupied ? shell.theme.source_color : shell.theme.on_surface
-                                font.family: shell.fontjp
-                                font.pixelSize: 18            // fixed — no longer animated, avoids hinting jitter
+                                color: rect.isCurrent ? root.theme.background : rect.occupied ? root.theme.source_color : root.theme.on_surface
+                                font.family: root.theme.fontjp
+                                font.pixelSize: 18
                                 font.bold: true
                                 renderType: Text.QtRendering
                                 renderTypeQuality: Text.HighRenderTypeQuality
 
-                                scale: rect.isCurrent ? 1.0 : 14 / 18   // handles the size change instead
+                                scale: rect.isCurrent ? 1.0 : 14 / 18
                                 transformOrigin: Item.Center
 
                                 Behavior on color {
@@ -1403,7 +1152,7 @@ ShellRoot {
                     for (var i = 0; i < wsRepeater.count; i++) {
                         var item = wsRepeater.itemAt(i);
                         if (item && item.visible && item.isCurrent) {
-                            activePill.color = item.modelData.id < 0 ? shell.theme.secondary : shell.theme.source_color;
+                            activePill.color = item.modelData.id < 0 ? root.theme.secondary : root.theme.source_color;
                             activePill.width = 35;
                             activePill.x = item.x - (activePill.width - item.width) / 2;
                             workspacemodule.pillInitialized = true;
@@ -1412,11 +1161,6 @@ ShellRoot {
                     }
                 }
 
-                // safety net: the pill's first position gets computed before Hyprland's
-                // active-workspace data and the row's layout are both guaranteed settled.
-                // A single fixed delay was an unreliable guess at "surely it's ready by now,"
-                // so instead keep re-syncing for the first second after launch, then stop.
-                // Cheap and idempotent — harmless once it's already correct.
                 Timer {
                     id: pillSyncTimer
                     interval: 100
@@ -1436,12 +1180,12 @@ ShellRoot {
                 id: tray_module
                 implicitHeight: 24
                 implicitWidth: rowlayout.implicitWidth + 4
-                radius: shell.global_radius
+                radius: root.global_radius
                 color: transparentColor
                 anchors.right: mprisModule.left
                 anchors.rightMargin: 5
                 anchors.verticalCenter: parent.verticalCenter
-                property color transparentColor: Qt.alpha(shell.theme.source_color, 0)
+                property color transparentColor: Qt.alpha(root.theme.source_color, 0)
 
                 RowLayout {
                     id: rowlayout
@@ -1504,7 +1248,7 @@ ShellRoot {
                         return;
                     const pos = anchorItem.mapToItem(null, anchorItem.width / 2, anchorItem.height);
                     anchor.rect.x = pos.x - implicitWidth / 2;
-                    anchor.rect.y = pos.y + 6;
+                    anchor.rect.y = pos.y + 8;
                 }
 
                 implicitWidth: 200
@@ -1557,9 +1301,9 @@ ShellRoot {
 
                 Rectangle {
                     anchors.fill: parent
-                    color: shell.theme.background
+                    color: Qt.alpha(root.theme.background, 0.8)
                     radius: 8
-                    border.color: shell.theme.surface_bright
+                    border.color: root.theme.surface_bright
                     border.width: 1
 
                     Column {
@@ -1606,9 +1350,9 @@ ShellRoot {
 
                 Rectangle {
                     anchors.fill: parent
-                    color: shell.theme.background
+                    color: root.theme.background
                     radius: 8
-                    border.color: shell.theme.surface_bright
+                    border.color: root.theme.surface_bright
                     border.width: 1
 
                     Column {
@@ -1653,7 +1397,7 @@ ShellRoot {
                     implicitWidth: 8
                     radius: 8
                     anchors.left: tux_image.right
-                    color: notifications.hasNotifications === true ? shell.theme.source_color : "transparent"
+                    color: notifications.hasNotifications === true ? root.theme.source_color : "transparent"
                     visible: notifications.hasNotifications === true
                 }
 
@@ -1670,7 +1414,7 @@ ShellRoot {
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: shell.theme.source_color
+                        colorizationColor: root.theme.source_color
                     }
 
                     Behavior on source {
@@ -1731,7 +1475,7 @@ ShellRoot {
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: shell.theme.source_color
+                        colorizationColor: root.theme.source_color
                     }
 
                     transform: Scale {
@@ -1788,7 +1532,7 @@ ShellRoot {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width
             height: 1
-            color: shell.theme.background
+            color: root.theme.background
         }
 
         // normal item
@@ -1796,7 +1540,7 @@ ShellRoot {
             visible: !entryDelegate.modelData.isSeparator
             anchors.fill: parent
             radius: 4
-            color: itemHover.hovered ? shell.theme.source_color : "transparent"
+            color: itemHover.hovered ? root.theme.source_color : "transparent"
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -1804,7 +1548,7 @@ ShellRoot {
                 anchors.leftMargin: 8
                 anchors.right: chevron.left
                 text: entryDelegate.modelData.text
-                color: entryDelegate.modelData.enabled ? shell.theme.on_background : shell.theme.surface_bright
+                color: entryDelegate.modelData.enabled ? root.theme.on_background : root.theme.surface_bright
                 font.pixelSize: 13
                 elide: Text.ElideRight
             }
@@ -1816,7 +1560,7 @@ ShellRoot {
                 anchors.right: parent.right
                 anchors.rightMargin: 8
                 text: "\u203a"
-                color: shell.theme.on_background
+                color: root.theme.on_background
             }
 
             HoverHandler {
