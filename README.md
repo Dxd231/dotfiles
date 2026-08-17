@@ -1,8 +1,8 @@
 
 
-# Larp Shell
+# Eastern-Shell
 
-> You can feel the larping energy radiating...
+> 宇宙を飛び不思議な巫女。。。
 
 ![Arch Linux](https://img.shields.io/badge/OS-Arch%20Linux-1793D1?style=flat-square&logo=arch-linux&logoColor=white)
 ![Hyprland](https://img.shields.io/badge/WM-Hyprland-555555?style=flat-square&logo=hyprland&logoColor=00f0ff)
@@ -11,20 +11,24 @@
 
 ---
 
-<img src="git_images/9f7b72dfb7a07ef9c0b13c9906725232-568952216.jpg" width="400">
+<img src="./assets/pasted_2026-08-17_16-55-58.png" width="500">
 
-> 桜子
+##
+
+<img src="./assets/pasted_2026-08-17_17-10-48.png" width="500">
+
+
 
 ## Keeping Track Of:
 
 | Tool | Description | Configuration Path |
 | :--- | :--- | :--- |
 | **Shell** | Zsh configs & custom aliases | `~/.zshrc` |
-| **hyprland config** | the config files for hyprland | `~/.config/hypr` |
-| **quickshell config** | larp-shell | `~/.config/quickshell` |
+| **Hyprland** | The config files for hyprland | `~/.config/hypr` |
+| **Quickshell** | Bar, Modules, etc... | `~/.config/quickshell` |
 | **Editor** | Neovim plugins, keymaps, and LSP settings | `~/.config/nvim/` |
 | **Git** | Global git settings & custom command shortcuts | `~/.gitconfig` |
-| **Matugen Config** | Get your wallpaper's color across the setup | `~/.config/matugen`
+| **Matugen** | Get your wallpaper's color across the setup | `~/.config/matugen`
 ---
 
 ## Add New Device
@@ -37,9 +41,9 @@ ssh-keygen -t ed25519 -C "tvmito7@gmail.com"
 # Copy Public Key:
 cat ~/.ssh/id_ed25519.pub
 ```
- **Add to GitHub On Host's device:** 
- *Navigate to [GitHub Settings] --> [SSH and GPG keys] --> [New SSH Key] then paste the output.
- Verify the Connection:*
+**Add to GitHub On Host's device:**
+ Navigate to [GitHub Settings] --> [SSH and GPG keys] --> [New SSH Key] then paste the output.
+ Verify the Connection:
 ```bash
 ssh -T git@github.com
 ```
@@ -60,13 +64,13 @@ config checkout
 ```
 
 ## Syncing
-#### On the device where changes were made:
+On the device where changes were made:
 ```bash
 config add ~/.config/hypr/hyprland.conf
 config commit -m "Update keybinds"
 config push
 ```
-#### On device to be updated:
+ On device to be updated:
 ```bash
 config pull
 
