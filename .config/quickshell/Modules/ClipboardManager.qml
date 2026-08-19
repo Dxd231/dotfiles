@@ -3,7 +3,6 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
-import Quickshell.Widgets
 import QtQuick.Effects
 
 Item {
@@ -12,8 +11,7 @@ Item {
     id: root
 
     property var theme
-    property var theme2
-    property string fontdefault: "Space Grotesk"
+    property var settings
     property int global_radius: 8
 
     property bool isOpenClipB: false
@@ -242,10 +240,10 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 15
+        margins.top: 0
         margins.left: 0
         margins.right: 0
-        implicitHeight: 470
+        implicitHeight: 550
         visible: root.isOpenClipB || panelBg.opacity > 0
 
         MouseArea {
@@ -258,10 +256,10 @@ Item {
             width: 630
             height: 450
             x: 1920 / 2 - width / 2
-            radius: 8
+            radius: 18
             border.width: 1
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.95)
+            color: Qt.alpha(root.theme.background, 0.8)
             clip: true
             opacity: 0
             y: -270
@@ -272,7 +270,7 @@ Item {
                     when: root.isOpenClipB
                     PropertyChanges {
                         target: panelBg
-                        y: 4
+                        y: 6
                         opacity: 1
                     }
                 },
@@ -295,7 +293,7 @@ Item {
                     NumberAnimation {
                         properties: "y,opacity"
                         duration: 340
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.OutBack
                     }
                 },
                 Transition {
@@ -304,8 +302,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 300
-                        easing.type: Easing.InCubic
+                        duration: 400
+                        easing.type: Easing.InBack
                     }
                 }
             ]
@@ -342,9 +340,9 @@ Item {
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         height: 42
-                        radius: root.global_radius
+                        radius: 18
                         color: Qt.alpha(root.theme.on_background, 0.08)
-                        border.width: searchField.activeFocus ? 2 : 1
+                        border.width: 0
                         border.color: searchField.activeFocus ? root.theme.source_color : Qt.alpha(root.theme.surface_bright, 0.6)
 
                         Behavior on border.color {
@@ -379,7 +377,7 @@ Item {
                                 text: root.query
                                 color: root.theme.on_background
                                 font.pixelSize: 15
-                                font.family: root.fontdefault
+                                font.family: root.settings.fontdefault
                                 //renderType: Text.NativeRendering
                                 //font.hintingPreference: Font.PreferFullHinting
                                 clip: true
@@ -398,7 +396,7 @@ Item {
                                     color: root.theme.on_background
                                     opacity: 0.4
                                     font.pixelSize: 15
-                                    font.family: root.fontdefault
+                                    font.family: root.settings.fontdefault
                                     //renderType: Text.NativeRendering
                                     //font.hintingPreference: Font.PreferFullHinting
                                 }
@@ -419,7 +417,7 @@ Item {
                         height: parent.height
                         radius: root.global_radius
                         color: Qt.alpha(root.theme.background, 0.05)
-                        border.width: 1
+                        border.width: 0
                         border.color: Qt.alpha(root.theme.surface_bright, 0.5)
                         clip: true
 
@@ -496,7 +494,7 @@ Item {
                                             color: entryRow.isSelected ? root.theme.background : root.theme.on_background
                                             font.pixelSize: 16
                                             font.bold: false
-                                            font.family: "Space Grotesk SemiBold"
+                                            font.family: root.settings.fontmedium
                                             //renderType: Text.NativeRendering
                                             //font.hintingPreference: Font.PreferFullHinting
                                             elide: Text.ElideRight
@@ -510,7 +508,7 @@ Item {
                                             //renderType: Text.NativeRendering
                                             //font.hintingPreference: Font.PreferFullHinting
                                             font.pixelSize: 13
-                                            font.family: root.fontdefault
+                                            font.family: root.settings.fontdefault
                                         }
                                     }
                                 }
@@ -531,7 +529,7 @@ Item {
                                 color: root.theme.on_background
                                 opacity: 0.4
                                 font.pixelSize: 12
-                                font.family: root.fontdefault
+                                font.family: root.settings.fontdefault
                                 //renderType: Text.NativeRendering
                                 //font.hintingPreference: Font.PreferFullHinting
                             }
@@ -555,7 +553,7 @@ Item {
                             color: root.theme.on_background
                             opacity: 0.4
                             font.pixelSize: 13
-                            font.family: root.fontdefault
+                            font.family: root.settings.fontdefault
                             //renderType: Text.NativeRendering
                             //font.hintingPreference: Font.PreferFullHinting
                         }
@@ -578,7 +576,7 @@ Item {
                                 text: root.previewText
                                 color: root.theme.on_background
                                 font.pixelSize: 16
-                                font.family: root.fontdefault
+                                font.family: root.settings.fontdefault
                                 //renderType: TextEdit.NativeRendering
                                 wrapMode: Text.Wrap
                                 readOnly: true
@@ -595,7 +593,7 @@ Item {
                             color: root.theme.on_background
                             opacity: 0.35
                             font.pixelSize: 12
-                            font.family: root.fontdefault
+                            font.family: root.settings.fontdefault
                         }
 
                         // thin scroll indicator so it's obvious there's more
@@ -656,7 +654,7 @@ Item {
                                     text: "Delete"
                                     color: root.theme.on_background
                                     font.pixelSize: 12
-                                    font.family: root.fontdefault
+                                    font.family: root.settings.fontdefault
                                     font.underline: deleteArea.containsMouse ? true : false
                                 }
                                 MouseArea {
@@ -685,7 +683,7 @@ Item {
                                     color: root.theme.on_background
                                     font.pixelSize: 12
                                     font.bold: true
-                                    font.family: root.fontdefault
+                                    font.family: root.settings.fontdefault
                                 }
                                 MouseArea {
                                     id: copyArea

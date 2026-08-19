@@ -12,6 +12,7 @@ Scope {
     id: notify_root
 
     property var theme
+    property var settings
     property bool calendarOpen: false
     property bool centerOpen: false
     readonly property bool hasNotifications: history.count > 0
@@ -250,9 +251,9 @@ Scope {
             left: true
         }
         margins {
-            top: 20
-            left: 0
-            bottom: 10
+            top: 6
+            left: -10
+            bottom: -4
         }
         implicitHeight: panelBg.height + 10
         implicitWidth: panelBg.width + 50
@@ -264,7 +265,7 @@ Scope {
             focus: true
             Keys.enabled: true
             Keys.onEscapePressed: {
-                notify_root.centerOpen = !notify_root.centerOpen;
+                notify_root.centerOpen = false
             }
         }
 
@@ -272,7 +273,7 @@ Scope {
             id: panelBg
             width: 380
             height: 1020
-            radius: 10
+            radius: 18
             color: Qt.alpha(notify_root.theme.background, 0.8)
             border.width: 1
             border.color: Qt.alpha(notify_root.theme.surface_bright, 0.8)
@@ -359,10 +360,10 @@ Scope {
                     id: statsCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: statsRow.implicitHeight + 24
-                    radius: 8
-                    color: notify_root.theme.background
-                    border.width: 1
-                    border.color: Qt.alpha(notify_root.theme.on_background, 0.2)
+                    radius: 18
+                    color: Qt.alpha(notify_root.theme.background, 1)
+                    border.width: 0
+                    border.color: Qt.alpha(notify_root.theme.on_background, 0)
                     clip: true
 
                     ColumnLayout {
@@ -666,8 +667,8 @@ Scope {
 
                                     width: ListView.view.width
                                     height: contentCol.implicitHeight + 12
-                                    radius: 6
-                                    color: netCard.expanded ? Qt.alpha(notify_root.theme.on_background, 0.08) : (headerMouse.containsMouse ? Qt.alpha(notify_root.theme.on_background, 0.05) : "transparent")
+                                    radius: 18
+                                    color: netCard.expanded ? Qt.alpha(notify_root.theme.on_background, 0.05) : (headerMouse.containsMouse ? Qt.alpha(notify_root.theme.on_background, 0.05) : "transparent")
                                     clip: true
 
                                     Behavior on height {
@@ -873,7 +874,7 @@ Scope {
 
                         width: historyList.width
                         height: entryLayout.implicitHeight + 20
-                        radius: 8
+                        radius: 18
                         clip: true
                         color: notify_root.theme.background
                         border.width: 1
@@ -947,9 +948,6 @@ Scope {
                                         color: notify_root.theme.on_background
                                         opacity: 0.5
                                         font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: 11
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting */
                                     }
                                 }
                             }
@@ -971,10 +969,10 @@ Scope {
                     id: calendarCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: calendarCol.implicitHeight + 24
-                    radius: 8
-                    color: notify_root.theme.background
-                    border.width: 1
-                    border.color: Qt.alpha(notify_root.theme.on_background, 0.2)
+                    radius: 18
+                    color: "transparent"
+                    border.width: 0
+                    border.color: Qt.alpha(notify_root.theme.on_background, 0)
                     visible: !!notify_root.shellRoot
 
                     ColumnLayout {

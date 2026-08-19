@@ -45,19 +45,25 @@ end, {
 })
 
 -- === Audio Controls ===
-hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"),             { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),            { locked = true, repeating = true })
+hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 10%+"),             { locked = true, repeating = true })
+hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 19%-"),            { locked = true, repeating = true })
 hl.bind("XF86AudioMute",            hl.dsp.exec_cmd("swayosd-client --output-volume mute-toggle"),   { locked = true })
-hl.bind(mod .. " + CTRL + M",       hl.dsp.exec_cmd("swayosd-client --input-volume mute-toggle"),    { locked = true })
-hl.bind("XF86AudioStop",            hl.dsp.exec_cmd("playerctl -p spotify play-pause"))
-hl.bind("XF86AudioNext",            hl.dsp.exec_cmd("playerctl -p spotify next"))
-hl.bind("XF86AudioPrev",            hl.dsp.exec_cmd("playerctl -p spotify previous"))
-hl.bind("XF86Tools",                hl.dsp.exec_cmd("playerctl -p spotify loop track"))
 
 
 -- === Window Management ===
 hl.bind(mod .. " + Delete",         hl.dsp.window.close())
-hl.bind(mod .. " + F",              hl.dsp.window.fullscreen({ mode = "maximized", layout_aware = true }))   -- 1 = maximized
+local mainMod = "SUPER"
+
+local col_wide = true
+
+hl.bind(mainMod .. " + F", function()
+    if col_wide then
+        hl.dispatch(hl.dsp.layout("colresize 0.6"))
+    else
+        hl.dispatch(hl.dsp.layout("colresize 1.0"))
+    end
+    col_wide = not col_wide
+end)
 hl.bind(mod .. " + SHIFT + F",      hl.dsp.window.fullscreen({ mode = "fullscreen" })) -- 0 = real fullscreen
 hl.bind(mod .. " + SHIFT + T",      hl.dsp.window.float({ action = "toggle" }))
 --hl.bind("ALT + left",               hl.dsp.group.active({ direction = "b" }))
@@ -69,10 +75,10 @@ hl.bind(mod .. " + U",              hl.dsp.focus({ window = "floating" }))
 -- Focus Navigation
 -- =============================================================================
 
-hl.bind(mod .. " + left",           hl.dsp.layout("move -col"))
+hl.bind(mod .. " + left",           hl.dsp.focus({ direction = "left"}))
 hl.bind(mod .. " + down",           hl.dsp.focus({ direction = "down"}))
 hl.bind(mod .. " + up",             hl.dsp.focus({ direction = "up"}))
-hl.bind(mod .. " + right",          hl.dsp.layout("move +col"))
+hl.bind(mod .. " + right",          hl.dsp.focus({ direction = "right"}))
 
 hl.bind(mod .. " + ALT + right",    hl.dsp.layout("cyclenext"))
 hl.bind(mod .. " + ALT + left",     hl.dsp.layout("cycleprev"))

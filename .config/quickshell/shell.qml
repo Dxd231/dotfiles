@@ -9,7 +9,9 @@ import Quickshell.Services.SystemTray
 import QtQuick.Layouts
 import Quickshell.Wayland
 import QtQuick.Effects
+import Quickshell.Widgets
 import "Colors.qml"
+import "Settings.qml"
 import "./Modules"
 
 ShellRoot {
@@ -17,6 +19,7 @@ ShellRoot {
     Notifications {
         id: notifications
         theme: root.theme
+        settings: root.settings
         calendarOpen: shell.calendarOpen
         shellRoot: shell
     }
@@ -24,13 +27,13 @@ ShellRoot {
     WallpaperSwitcher {
         id: wallpaperSwitcher
         theme: root.theme
-        fontdefault: root.theme.fontdefault
+        fontdefault: root.settings.fontdefault
     }
 
     AppLauncher {
         id: appLauncher
         theme: root.theme
-        fontdefault: root.theme.fontdefault
+        settings: root.settings
         global_radius: root.global_radius
     }
 
@@ -42,7 +45,7 @@ ShellRoot {
     ClipboardManager {
         id: clipboardManager
         theme: root.theme
-        fontdefault: root.theme.fontdefault
+        settings: root.settings
         global_radius: root.global_radius
     }
 
@@ -129,6 +132,10 @@ ShellRoot {
 
     QtObject {
         id: root
+        property string fontdefault: "Google Sans"
+        property string fontjp: "Zen Maru Gothic Medium"
+        property int fontsize: 12
+        property var settings: Settings {}
         readonly property bool hasPlayer: shell.activePlayer !== null && shell.activePlayer !== undefined
         property var theme: Colors {}
         property int global_radius: 10
@@ -206,22 +213,61 @@ ShellRoot {
         anchors.top: true
         anchors.left: true
         anchors.right: true
-        implicitHeight: 36
+        implicitHeight: 36 + roundDecorators.height
         color: "transparent"
-        margins.right: 20
-        margins.left: 20
-        margins.top: 10
-        margins.bottom: -15
+        margins.right: 0
+        margins.left: 0
+        margins.top: 0
+        margins.bottom: -24
+
+        Item {
+            id: roundDecorators
+            anchors {
+                left: parent.left
+                right: parent.right
+                top: realbar.bottom
+            }
+            height: 24   // or hardcode e.g. 20–30
+
+            RoundCorner {
+                id: leftCorner
+                anchors {
+                    top: parent.top
+                    bottom: parent.bottom
+                    left: parent.left
+                }
+                implicitSize: parent.height
+                color: Qt.alpha(root.theme.background, 0.8)         // same as bar bg
+                corner: RoundCorner.CornerEnum.TopLeft // → becomes BottomLeft if bar is at bottom
+            }
+
+            RoundCorner {
+                id: rightCorner
+                anchors {
+                    top: parent.top
+                    bottom: parent.bottom
+                    right: parent.right
+                }
+                implicitSize: parent.height
+                color: Qt.alpha(root.theme.background, 0.8)
+                corner: RoundCorner.CornerEnum.TopRight
+            }
+        }
 
         Rectangle {
             id: realbar
-            anchors.fill: parent
-            radius: 8
-            bottomLeftRadius: panelbar.implicitHeight / 2
-            bottomRightRadius: panelbar.implicitHeight / 2
+            height: 36
+            anchors {
+                top: parent.top
+                left: parent.left
+                right: parent.right
+            }
+            radius: 0
+            bottomLeftRadius: 0
+            bottomRightRadius: 0
             border.width: 0
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.80)
+            color: Qt.alpha(root.theme.background, 0.8)
 
             //Time Module
             Rectangle {
@@ -242,7 +288,7 @@ ShellRoot {
                     color: Qt.alpha(root.theme.on_background, 0.6)
                     rightPadding: 100
                     font.pixelSize: 18
-                    font.family: root.theme.fontjp
+                    font.family: root.settings.fontjp
                     font.bold: true
                     /* renderType: Text.NativeRendering
                         font.hintingPreference: Font.PreferVerticalHinting */
@@ -274,7 +320,7 @@ ShellRoot {
                             text: root.time
                             color: root.theme.on_background
                             font.pixelSize: 16
-                            font.family: root.theme.fontdefault
+                            font.family: root.settings.fontdefault
                             font.bold: true
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
@@ -283,10 +329,10 @@ ShellRoot {
                             text: root.dateString
                             color: Qt.alpha(root.theme.on_background, 0.6)
                             font.pixelSize: 12
-                            font.family: root.theme.fontdefault
+                            font.family: root.settings.fontdefault
                             font.bold: true
-                            renderType: Text.NativeRendering
-                            font.hintingPreference: Font.PreferVerticalHinting
+                            /* renderType: Text.NativeRendering
+                            font.hintingPreference: Font.PreferVerticalHinting */
                         }
                     }
                 }
@@ -334,7 +380,7 @@ ShellRoot {
                         text: root.memPercent ? "Mem: " + root.memoryUsage : root.memformat
                         color: root.memCount > 12000 ? root.theme.source_color : root.theme.on_background
                         font.pixelSize: 14
-                        font.family: root.theme.fontdefault
+                        font.family: root.settings.fontdefault
                         font.bold: true
                         /* renderType: Text.NativeRendering
                         font.hintingPreference: Font.PreferVerticalHinting */
@@ -441,7 +487,7 @@ ShellRoot {
                             }
                             color: root.theme.on_background
                             font.pixelSize: 12
-                            font.family: root.theme.fontjp
+                            font.family: root.settings.fontjp
                             font.bold: shell.activePlayer && shell.activePlayer.loopState === MprisLoopState.Track ? true : false
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
@@ -536,14 +582,13 @@ ShellRoot {
 
                 WlrLayershell.layer: WlrLayer.Overlay
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-                exclusionMode: ExclusionMode.Ignore
+                exclusionMode: ExclusionMode.Auto
 
-                property string thumbnailPath: ""
                 property bool isOpen: false
                 property int refreshTrigger: 0
 
                 width: 360
-                height: 510
+                height: 530
                 color: "transparent"
                 visible: isOpen && root.hasPlayer || mprispopup.opacity > 0 && root.hasPlayer
 
@@ -560,16 +605,16 @@ ShellRoot {
                     top: true
                     right: true
                 }
-                margins.top: 46
-                margins.right: 25
+                margins.top: -2
+                margins.right: 6
 
                 Rectangle {
                     id: mprispopup
                     width: 360
-                    height: 480
+                    height: 500
                     x: 0
                     color: Qt.alpha(root.theme.background, 0.8)
-                    radius: 12
+                    radius: 18
                     border.color: root.theme.surface_bright
                     border.width: 1
                     transformOrigin: Item.Top
@@ -582,7 +627,7 @@ ShellRoot {
                             when: albumPopup.isOpen
                             PropertyChanges {
                                 target: mprispopup
-                                y: 4
+                                y: 8
                                 opacity: 1
                             }
                         },
@@ -620,30 +665,34 @@ ShellRoot {
                         }
                     ]
                     //Album Art
-                    Image {
+                    ClippingRectangle {
                         id: image
+                        radius: 18
                         width: 320
-                        height: 294
-                        sourceSize.width: 320
-                        sourceSize.height: 294
+                        height: 320
                         anchors.top: parent.top
+                        color: "transparent"
                         anchors.topMargin: 12
                         anchors.horizontalCenter: parent.horizontalCenter
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        source: {
-                            const isMPV = shell.activePlayer && shell.activePlayer.identity?.toLowerCase().includes("mpv");
+                        Image {
+                            sourceSize.width: 320
+                            sourceSize.height: 320
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            source: {
+                                const isMPV = shell.activePlayer && shell.activePlayer.identity?.toLowerCase().includes("mpv");
 
-                            if (isMPV) {
-                                return shell.thumbpath;
+                                if (isMPV) {
+                                    return shell.thumbpath;
+                                }
+                                if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
+                                    return shell.activePlayer.trackArtUrl;
+                                } else
+                                    return "";
                             }
-                            if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
-                                return shell.activePlayer.trackArtUrl;
-                            } else
-                                return "";
+                            layer.enabled: true
+                            layer.effect: ShaderEffect {}
                         }
-                        layer.enabled: true
-                        layer.effect: ShaderEffect {}
                     }
 
                     // Track info
@@ -673,7 +722,7 @@ ShellRoot {
 
                                 text: shell.activePlayer && shell.activePlayer.trackTitle ? shell.activePlayer.trackTitle : "No Media"
                                 color: root.theme.on_background
-                                font.family: shell.fontjp
+                                font.family: root.settings.fontjp
                                 font.pixelSize: 15
                                 font.bold: false
                                 /* renderType: Text.NativeRendering
@@ -750,7 +799,7 @@ ShellRoot {
                                 text: shell.activePlayer ? (shell.activePlayer.trackArtist || "") : ""
                                 color: root.theme.on_background
                                 opacity: 0.6
-                                font.family: shell.fontjp
+                                font.family: root.settings.fontjp
                                 font.pixelSize: 12
                                 /* renderType: Text.NativeRendering
                                 font.hintingPreference: Font.PreferFullHinting */
@@ -813,7 +862,7 @@ ShellRoot {
                         anchors.top: infoColumn.bottom
                         anchors.topMargin: 14
                         anchors.horizontalCenter: parent.horizontalCenter
-                        width: 260
+                        width: 200
                         height: 7
                         radius: 2
 
@@ -932,7 +981,7 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.on_background   // any matugen color
+                                    colorizationColor: root.theme.source_color
                                 }
                                 source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
                                 property real rotAngle: playButtonContainer.pressed ? 10 : 0
@@ -988,10 +1037,8 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.on_background   // any matugen color
+                                    colorizationColor: root.theme.source_color
                                 }
-                                // Nudges the play triangle slightly right so it centers perfectly by eye
-                                // anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
                             }
 
                             MouseArea {
@@ -1023,10 +1070,8 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.on_background   // any matugen color
+                                    colorizationColor: root.theme.source_color   // any matugen color
                                 }
-                                // Nudges the play triangle slightly right so it centers perfectly by eye
-                                // anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
                             }
 
                             MouseArea {
@@ -1117,7 +1162,7 @@ ShellRoot {
                                     return String(rect.modelData.id);
                                 }
                                 color: rect.isCurrent ? root.theme.background : rect.occupied ? root.theme.source_color : root.theme.on_surface
-                                font.family: root.theme.fontjp
+                                font.family: root.settings.fontjp
                                 font.pixelSize: 18
                                 font.bold: true
                                 renderType: Text.QtRendering

@@ -11,7 +11,7 @@ Item {
     property var theme
     property var theme2
     property string fontdefault: "Space Grotesk"
-    property int global_radius: 14
+    property int global_radius: 24
 
     property string wallpaperDir: "$HOME/Pictures/Wallpapers"
     property int cardWidth: 800
@@ -131,7 +131,6 @@ Item {
         implicitHeight: root.cardHeight + 70
         visible: root.isOpen
 
-        // click on the backdrop closes the popup
         MouseArea {
             anchors.fill: parent
             onClicked: root.isOpen = false
@@ -140,7 +139,7 @@ Item {
         Rectangle {
             id: panelBg
             anchors.fill: parent
-            radius: 14
+            radius: 18
             border.width: 0
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 0)
@@ -152,20 +151,6 @@ Item {
                 onClicked: {}
             }
 
-            /* Image {
-                source: "./assets/image-fill.svg"
-                sourceSize {
-                    width: 40
-                    height: 40
-                }
-                fillMode: Image.PreserveAspectFit
-                layer.enabled: true
-                layer.effect: MultiEffect {
-                    colorization: 1.0
-                    colorizationColor: shell.theme.source_color   // any matugen color    
-                } 
-            }
- */
             Column {
                 anchors.top: parent.top
                 anchors.right: parent.right
@@ -179,14 +164,6 @@ Item {
                     font.pixelSize: 12
                     font.family: root.fontdefault
                 }
-                /* Text {
-                    anchors.right: parent.right
-                    text: "Prefer " + (root.colorPreference === "darkness" ? "Dark" : "Light") + "  ·  X to toggle"
-                    color: root.colorPreference === "darkness" ? root.theme.source_color : root.theme.on_background
-                    font.pixelSize: 16
-                    font.family: root.fontdefault
-                    font.bold: true
-                } */
             }
 
             ListView {
@@ -199,14 +176,9 @@ Item {
                 spacing: 1
                 focus: root.isOpen
                 highlightRangeMode: ListView.StrictlyEnforceRange
-                preferredHighlightBegin: width / 2 - root.cardWidth / 2
+                preferredHighlightBegin: width / 2 - root.cardWidth / 2 
                 preferredHighlightEnd: width / 2 + root.cardWidth / 2
                 highlightMoveDuration: 200
-                // currentIndex is intentionally NOT a declarative binding to root.currentIndex.
-                // ListView's internals reset currentIndex to -1 whenever the model is cleared
-                // (which happens on every refresh), and that internal write permanently breaks
-                // a QML binding. Instead, currentIndex is set imperatively (see listProc above)
-                // and mirrored back to root.currentIndex via onCurrentIndexChanged below.
                 onCurrentIndexChanged: root.currentIndex = currentIndex
 
                 Keys.onLeftPressed: currentIndex = Math.max(0, currentIndex - 1)
@@ -228,37 +200,24 @@ Item {
                     width: root.cardWidth
                     height: root.cardHeight
 
-                    // signed distance (in px) from the center of the view, updates live while flicking
-                    readonly property real centerOffset: x - coverflow.contentX + width / 2 - coverflow.width / 2
+                    readonly property real centerOffset: x - coverflow.contentX + width / 2 - coverflow.width / 2 
                     readonly property real absOffset: Math.abs(centerOffset)
                     readonly property bool isCentered: index === coverflow.currentIndex && absOffset < 4
 
                     anchors.verticalCenter: parent.verticalCenter
-                    scale: Math.max(0.72, 1 - absOffset / 620)
+                    scale: Math.max(0.72, 1 - absOffset / 620) 
                     opacity: Math.max(0.35, 1 - absOffset / 480)
                     z: -absOffset
-
-                    /* transform: Rotation {
-                        origin.x: card.width / 2
-                        origin.y: card.height / 2
-                        axis {
-                            x: 0
-                            y: 1
-                            z: 0
-                        }
-                        angle: Math.max(-55, Math.min(55, card.centerOffset / 3.2))
-                    } */
 
                     ClippingRectangle {
                         id: frame
                         anchors.fill: parent
                         radius: root.global_radius
                         color: "black"
-                        border.width: card.isCentered ? 4 : 2
+                        border.width: card.isCentered ? 3 : 2
                         border.color: card.isCentered ? (root.colorPreference === "darkness" ? root.theme.source_color : root.theme.on_background) : root.theme.surface_bright
 
                         Image {
-                            
                             anchors.fill: parent
                             source: "file://" + card.path
                             sourceSize.width: 800

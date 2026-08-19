@@ -78,12 +78,12 @@ Scope {
                         }
                         source: {
                             if (Pipewire.defaultAudioSink?.audio.muted || Pipewire.defaultAudioSink?.audio.volume <= 0.01) {
-                                return "./assets/speaker-simple-none-fill.svg"; 
+                                return "../assets/speaker-simple-none-fill.svg"; 
                             }
                             if (Pipewire.defaultAudioSink?.audio.volume < 0.5) { 
-                                return "./assets/speaker-low-fill.svg"; 
+                                return "../assets/speaker-low-fill.svg"; 
                             }
-                            else return "./assets/speaker-high-fill.svg"; 
+                            else return "../assets/speaker-high-fill.svg"; 
                         }
                     }
 

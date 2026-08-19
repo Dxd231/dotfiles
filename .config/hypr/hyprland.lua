@@ -46,8 +46,8 @@ hl.device = {
 hl.config({
   general = {
     gaps_in             = 8,
-    gaps_out            = 35,
-    border_size         = 3,
+    gaps_out            = 15,
+    border_size         = 0,
     allow_tearing       = true,
 
     col = {
@@ -62,20 +62,20 @@ hl.config({
 -- ==================
 hl.config({
   decoration = {
-    rounding              = 8,
-    rounding_power        = 2.0,
+    rounding              = 18,
+    rounding_power        = 4.0,
     dim_special           = 0.2,
     dim_inactive          = false,
     dim_strength          = 0.3,
     active_opacity        = 1.0,
     inactive_opacity      = 1.0,
-    border_part_of_window = false,
+    border_part_of_window = true,
     shadow = {
-        enabled       = false,
+        enabled       = true,
         range         = 15,
         render_power  = 3,
-        offset        = "-15 10",
-        color         = "rgba(00000035)",
+        offset        = "1 1",
+        color         = scrim,
     },
     blur = {
         enabled       = true,
@@ -88,29 +88,17 @@ hl.config({
 -- =================
 -- ANIMATTION
 -- =================
--- Beziers
--- windowsIn: niri's window-open is fast and always critically damped — never bounces.
--- stiffness=1000 for a snappy, ~150ms settle, same math as niri's actual default.
+
 hl.curve("smooth", { type = "spring", mass = 1, stiffness = 1000, dampening = 63.2 })
 
--- windowsOut: I know it's named "easeOutBack" but niri's window-close (ease-out-quad)
--- has ZERO overshoot. Naming a curve "back" and then not giving it a bounce is a bit of
--- a troll move on your part, but I'm respecting the spirit of the assignment, not the name.
 hl.curve("easeOutBack", { type = "bezier", points = { {0.5, 1}, {0.89, 1} } })
 
--- workspaces: this is just niri's actual, unmodified default. No notes. It's correct as-is.
 hl.curve("niri_spring", { type = "spring", mass = 1, stiffness = 1000, dampening = 63.2 })
 
--- border: niri doesn't animate borders at all (concept doesn't exist there), so this is
--- "in the spirit of niri" rather than "ripped from niri" — gentle ease-out-cubic, no drama.
 hl.curve("easeoutCubic", { type = "bezier", points = { {0.33, 1}, {0.68, 1} } })
 
--- specialWorkspace: niri has no scratchpad/special-workspace concept either — closest
--- philosophical cousin is the overview-open spring (damping=1.0, stiffness=800), just
--- tightened up a bit since you called it "snappy" and I'm not going to hand you a limp spring.
 hl.curve("snappy", { type = "spring", mass = 0.95, stiffness = 1200, dampening = 69.3 })
 
--- windowsMove: exact niri window-movement/window-resize default.
 hl.curve("easy", { type = "spring", mass = 1, stiffness = 800, dampening = 56.6 })
 
 hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",       style = "slide top" })
@@ -182,3 +170,13 @@ hl.config({
 --         },
 --     },
 -- })
+local active_border_timer = nil
+
+-- Keep borders hidden by default
+hl.config({
+    general = {
+        border_size = 0,
+        ["col.active_border"] = source_color,
+    }
+})
+

@@ -27,15 +27,7 @@ hl.window_rule({ match = { class = "zalo" },                        float = true
 -- clipse floating clipboard
 hl.window_rule({ match = { class = "clipse" }, float = true, size = { 622, 652 }, stay_focused = true })
 
--- Librewolf: force opaque + tiled, but PiP floats
--- hl.window_rule({ match = { class = "librewolf" },
---     opacity = "1 override 1 override 1 override",
---     tile = true,
--- })
 hl.window_rule({ match = { class = "librewolf", title = "Picture-in-Picture" }, float = true, border_size = 0 })
-
--- No border when fullscreen
-hl.window_rule({ match = { fullscreen = true }, border_size = 0 })
 
 -- Steam games: fullscreen + immediate (tearing)
 hl.window_rule({ match = { class = "steam_app_default" }, fullscreen = true, immediate = true })
@@ -43,12 +35,6 @@ hl.window_rule({ match = { class = "steam_app_3224770" }, fullscreen = true })
 
 -- kitty: transparency
 hl.window_rule({ match = { class = "kitty" }, opacity = "0.8 override 0.8 override 0.8 override" })
-
--- No border on workspace 1 windows
-hl.window_rule({ match = { workspace = "w[1]" }, border_size = 0 })
-
--- Floating windows: rounded corners + fully opaque
-hl.window_rule({ match = { float = true }, rounding = 2 })
 
 -- Fullscreen apps
 hl.window_rule({ match = { class = "org.vinegarhq.Sober" },   fullscreen = true })
@@ -143,7 +129,7 @@ hl.layer_rule({ match = { namespace = "launcher" },
 
 hl.layer_rule({ match = { namespace = "quickshell:thebar" },
     blur        = true,
-    ignore_alpha = 0.5,
+    ignore_alpha = 0.2,
     blur_popups = true,
 })
 

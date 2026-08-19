@@ -10,8 +10,7 @@ Item {
     id: root
 
     property var theme
-    property var theme2
-    property string fontdefault: "Space Grotesk"
+    property var settings
     property int global_radius: 24
 
     property bool isOpenLauncher: false
@@ -118,10 +117,10 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 15
+        margins.top: 0
         margins.left: 0
         margins.right: 0
-        implicitHeight: 470
+        implicitHeight: 550
         
         visible: root.isOpenLauncher || panelBg.opacity > 0
         MouseArea {
@@ -134,10 +133,10 @@ Item {
             width: 630
             height: 450
             x: 1920 / 2 - width / 2
-            radius: 10
+            radius: 18
             border.width: 1
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 1)
+            color: Qt.alpha(root.theme.background, 0.8)
             clip: true
             opacity: 0
             y: -270
@@ -148,7 +147,7 @@ Item {
                     when: root.isOpenLauncher
                     PropertyChanges {
                         target: panelBg
-                        y: 4
+                        y: 6
                         opacity: 1
                     }
                 },
@@ -170,8 +169,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 340
-                        easing.type: Easing.OutCubic
+                        duration: 360
+                        easing.type: Easing.OutBack
                     }
                 },
                 Transition {
@@ -180,8 +179,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 300
-                        easing.type: Easing.InCubic
+                        duration: 400
+                        easing.type: Easing.InBack
                     }
                 }
             ]
@@ -194,6 +193,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 fillMode: Image.PreserveAspectFit
                 opacity: 0.1
+                visible: false
                 z: 0
             }
 
@@ -211,9 +211,9 @@ Item {
                 Rectangle {
                     width: parent.width
                     height: 45
-                    radius: root.global_radius - 2
-                    color: Qt.alpha(root.theme.background, 0.08)
-                    border.width: 1
+                    radius: 18
+                    color: Qt.alpha(root.theme.on_background, 0.08)
+                    border.width: 0
                     border.color: Qt.alpha(root.theme.source_color, 0.8)
 
                     Row {
@@ -238,7 +238,7 @@ Item {
                             text: root.query
                             color: root.theme.on_background
                             font.pixelSize: 15
-                            font.family: root.fontdefault
+                            font.family: root.settings.fontdefault
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
                             clip: true
@@ -258,7 +258,7 @@ Item {
                                 color: root.theme.on_background
                                 opacity: 0.4
                                 font.pixelSize: 15
-                                font.family: root.fontdefault
+                                font.family: root.settings.fontdefault
                                 /* renderType: Text.NativeRendering
                                 font.hintingPreference: Font.PreferVerticalHinting */
                             }
@@ -332,7 +332,7 @@ Item {
                                     color: root.theme.on_background
                                     font.pixelSize: 16
                                     font.bold: false
-                                    font.family: "Space Grotesk SemiBold"
+                                    font.family: root.settings.fontmedium
                                     elide: Text.ElideRight
                                     /* renderType: Text.NativeRendering
                                     font.hintingPreference: Font.PreferVerticalHinting */
@@ -344,7 +344,7 @@ Item {
                                     color: root.theme.on_background
                                     opacity: 0.55
                                     font.pixelSize: 13
-                                    font.family: root.fontdefault
+                                    font.family: root.settings.fontdefault
                                     //renderType: Text.NativeRendering
                                     //font.hintingPreference: Font.PreferVerticalHinting
                                     elide: Text.ElideRight
@@ -402,7 +402,7 @@ Item {
                         color: root.theme.on_background
                         opacity: 0.4
                         font.pixelSize: 16
-                        font.family: root.theme.fontdefault
+                        font.family: root.settings.fontdefault
                         //renderType: Text.NativeRendering
                         //font.hintingPreference: Font.PreferVerticalHinting
                     }
