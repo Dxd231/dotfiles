@@ -83,17 +83,17 @@ Item {
 
     function applyWallpaper(path, index) {
         root.currentWallpaper = path;
-
-        // Escaping single quotes in path safely
         var safePath = path.replace(/'/g, "'\\''");
 
-        var cmd = "(" +
-                "awww img '" + safePath + "' --transition-type grow --transition-fps 60 --transition-duration 1 & " +
-                "matugen image '" + safePath + "' --prefer " + root.colorPreference +
-                ") >/dev/null 2>&1 &";
+        // fire wallpaper change immediately, don't wait on color extraction
+        var cmd =
+            "awww img '" + safePath + "' --transition-type grow --transition-fps 100 --transition-duration 1 >/dev/null 2>&1 & " +
+            "tmp=$(mktemp --suffix=.png); " +
+            "magick '" + safePath + "' -resize 128x128 \"$tmp\" 2>/dev/null && " +
+            "matugen image \"$tmp\" --prefer " + root.colorPreference + " >/dev/null 2>&1; " +
+            "rm -f \"$tmp\" &";
 
         applyProc.command = ["sh", "-c", cmd];
-        applyProc.running = false;
         applyProc.running = true;
     }
 

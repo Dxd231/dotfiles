@@ -294,7 +294,7 @@ Item {
 
                     highlight: Rectangle {
                         radius: root.global_radius
-                        color: Qt.alpha(root.theme.source_color, 0.5)
+                        color: Qt.alpha(root.theme.source_color, 0.8)
                     }
 
                     delegate: Rectangle {
@@ -307,6 +307,7 @@ Item {
                         color: "transparent"
 
                         Row {
+                            id: entry
                             anchors.fill: parent
                             anchors.leftMargin: 10
                             anchors.rightMargin: 36
@@ -326,7 +327,7 @@ Item {
                                 Text {
                                     width: parent.width
                                     text: row.modelData.name
-                                    color: root.theme.on_background
+                                    color: root.selectedIndex === row.index ? root.theme.background : root.theme.on_background
                                     font.pixelSize: 16
                                     font.bold: false
                                     font.family: root.settings.fontmedium
@@ -338,7 +339,7 @@ Item {
                                     width: parent.width
                                     visible: text.length > 0
                                     text: row.modelData.genericName || ""
-                                    color: root.theme.on_background
+                                    color: root.selectedIndex === row.index ? root.theme.background : root.theme.on_background
                                     opacity: 0.55
                                     font.pixelSize: 13
                                     font.family: root.settings.fontdefault

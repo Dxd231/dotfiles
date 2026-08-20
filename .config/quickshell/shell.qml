@@ -20,6 +20,7 @@ ShellRoot {
 
     Notifications {
         id: notifications
+        mainroot: root
         theme: root.theme
         settings: root.settings
         calendarOpen: shell.calendarOpen
@@ -236,7 +237,7 @@ ShellRoot {
                 right: parent.right
                 top: realbar.bottom
             }
-            height: 24   // or hardcode e.g. 20–30
+            height: 25   // or hardcode e.g. 20–30
 
             RoundCorner {
                 id: leftCorner
@@ -593,7 +594,12 @@ ShellRoot {
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
                 exclusionMode: ExclusionMode.Auto
 
-                property bool isOpen: false
+                property bool onEmptyWorkspace: {
+                    const wsId = Hyprland.focusedWorkspace?.id
+                    if (wsId === undefined) return true
+                    return Hyprland.toplevels.values.filter(t => t.workspace?.id === wsId).length === 0
+                }
+                property bool isOpen: onEmptyWorkspace 
                 property int refreshTrigger: 0
 
                 width: 360

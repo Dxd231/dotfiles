@@ -7,14 +7,21 @@ import Quickshell.Services.Notifications
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
+import Quickshell.Hyprland
 
 Scope {
     id: notify_root
-
+    
+    property var mainroot
     property var theme
     property var settings
+    property bool onEmptyWorkspace: {
+        const wsId = Hyprland.focusedWorkspace?.id
+        if (wsId === undefined) return true
+        return Hyprland.toplevels.values.filter(t => t.workspace?.id === wsId).length === 0
+    }
     property bool calendarOpen: false
-    property bool centerOpen: false
+    property bool centerOpen: onEmptyWorkspace 
     readonly property bool hasNotifications: history.count > 0
     property var shellRoot
     property var mutedApps: []
@@ -134,6 +141,14 @@ Scope {
     }
 
     Component.onCompleted: scan()
+    
+    // pop sound
+    Process {
+        id: pop
+        command: ["mpv", "--no-video", "/home/niconico/.config/quickshell/assets/notification.mp3"]
+        running: false
+    }
+
 
     // PowerProfilesCtl
     Process {
@@ -223,6 +238,7 @@ Scope {
             if (notify_root.mutedApps.indexOf(n.appName) === -1) {
                 n.tracked = true;   // only pops up if not muted
             }
+            Quickshell.execDetached(["sh", "-c", "paplay ~/.config/quickshell/assets/notification.mp3"])
         }
     }
 
@@ -279,6 +295,124 @@ Scope {
             border.color: Qt.alpha(notify_root.theme.surface_bright, 0.8)
             opacity: 0
             x: -270
+
+
+            property bool isTouhou: {
+                return shellRoot.activePlayer.trackArtist.includes("上海アリス") || 
+                shellRoot.activePlayer.trackArtist.includes("ZUN") || 
+                shellRoot.activePlayer.trackArtist.includes("Records") || 
+                shellRoot.activePlayer.trackArtist.includes("幽閉") || 
+                shellRoot.activePlayer.trackArtist.includes("黄昏フロンティア") || 
+                shellRoot.activePlayer.trackTitle.includes("〜")
+            }
+
+            property bool isDeltarune: {
+                return shellRoot.activePlayer.trackArtist.includes("Toby Fox") 
+            }
+
+            /* Image {
+                id: touhou
+                source: "../assets/touhou_mpris.png"
+                visible: false                
+                sourceSize.width: 350
+                sourceSize.height: 350
+                Layout.preferredWidth: 350
+                Layout.preferredHeight: 350
+                anchors.verticalCenterOffset: -60
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                fillMode: Image.PreserveAspectFit
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    colorization: 0.2
+                    colorizationColor: root.theme.source_color
+                }
+                opacity: history.count === 0 ? 0.3 : 0.2
+
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 1000
+                        easing.type: Easing.OutCirc
+                    }
+                }
+            } */
+            // Your two GIF paths
+            property var gifsTH: [  "../assets/reimu-touhou.gif",
+                                    "../assets/marisa-touhou.gif",
+                                    "../assets/reimu-touhou.gif2.gif"]
+
+            // The currently chosen GIF
+            property string currentGifTou: pickRandomTH()
+
+            function pickRandomTH() {
+                let next
+                do {
+                    next = gifsTH[Math.floor(Math.random() * gifsTH.length)]
+                } while (next === currentGifTou && gifsTH.length > 1)
+                return next
+            }
+            
+
+            property var gifsDR: [  "../assets/deltarune-icegif-2.gif",
+                                    "../assets/deltarune-icegif.gif",
+                                    "../assets/deltarune3.gif"]
+
+            // The currently chosen GIF
+            property string currentGifDel: pickRandomDel()
+
+            function pickRandomDel() {
+                let next
+                do {
+                    next = gifsDR[Math.floor(Math.random() * gifsDR.length)]
+                } while (next === currentGifDel && gifsDR.length > 1)
+                return next
+            }
+
+
+            AnimatedImage {
+                id: anim
+                source: panelBg.currentGifTou
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.horizontalCenter: parent.horizontalCenter
+                fillMode: Image.PreserveAspectFit
+                width: 200
+                height: 200 
+                sourceSize.width: width
+                sourceSize.height: height
+                asynchronous: true
+
+                // Only play when this item is visible
+                playing: visible && shellRoot.activePlayer.isPlaying 
+                visible: panelBg.isTouhou
+
+                // When it becomes visible (and starts playing), pick a new random GIF
+                onVisibleChanged: {
+                    if (visible) {
+                        panelBg.currentGifTou = panelBg.pickRandomTH()
+                    }
+                }
+            }
+
+            AnimatedImage {
+                id: animDelta
+                source: panelBg.currentGifDel
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.horizontalCenter: parent.horizontalCenter
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+
+                // Only play when this item is visible
+                playing: visible && shellRoot.activePlayer.isPlaying
+                visible: panelBg.isDeltarune
+
+                // When it becomes visible (and starts playing), pick a new random GIF
+                onVisibleChanged: {
+                    if (visible) {
+                        panelBg.currentGifDel = panelBg.pickRandomDel()
+                    }
+                }
+            }
+
 
             states: [
                 State {
@@ -1085,11 +1219,11 @@ Scope {
             left: true
         }
         margins {
-            top: 20
+            top: 30
             left: 0
         }
-        implicitWidth: 380
-        implicitHeight: Math.max(0, column.implicitHeight)
+        implicitWidth: 300
+        implicitHeight: Math.max(0, column.implicitHeight + 10)
         color: "transparent"
         visible: !notify_root.centerOpen && !notify_root.calendarOpen
 
@@ -1126,18 +1260,18 @@ Scope {
                     // once the slide/fade finishes, actually tell the notification server to drop it
                     Timer {
                         id: closeAnimTimer
-                        interval: 500   // must match the animation durations below
+                        interval: 300   // must match the animation durations below
                         onTriggered: card.modelData.dismiss()
                     }
                     onClosingChanged: if (closing)
                         closeAnimTimer.start()
 
                     Layout.fillWidth: true
-                    Layout.preferredHeight: closing ? 56 : layout.implicitHeight + 20
+                    Layout.preferredHeight: layout.implicitHeight + 20
 
                     Behavior on Layout.preferredHeight {
                         NumberAnimation {
-                            duration: 500
+                            duration: 300
                             easing.type: Easing.InCirc
                         }
                     }
@@ -1145,16 +1279,16 @@ Scope {
                     opacity: closing ? 0 : 1
                     Behavior on opacity {
                         NumberAnimation {
-                            duration: 500
+                            duration: 300
                             easing.type: Easing.InCirc
                         }
                     }
 
                     transform: Translate {
-                        x: card.closing ? -(card.width + 0) : 0
+                        x: card.closing ? -(card.width + 20) : 0
                         Behavior on x {
                             NumberAnimation {
-                                duration: 500
+                                duration: 300
                                 easing.type: Easing.InCirc
                             }
                         }
@@ -1164,7 +1298,7 @@ Scope {
                     color: Qt.alpha(notify_root.theme.background, 0.8)
                     clip: true
                     border.width: 1
-                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.source_color, 0.2) : Qt.alpha(notify_root.theme.surface_bright, 0.2)
+                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.source_color, 0.5) : Qt.alpha(notify_root.theme.surface_bright, 0.5)
 
                     RowLayout {
                         id: layout

@@ -308,17 +308,6 @@ Item {
                 }
             ]
             
-            Image {
-                source: "../assets/yukari.png"
-                sourceSize.width: 400
-                sourceSize.height: 400
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                fillMode: Image.PreserveAspectFit
-                opacity: 0.1
-                z: 0
-            }
-
             MouseArea {
                 anchors.fill: parent
                 onClicked: {}
@@ -329,7 +318,6 @@ Item {
                 anchors.margins: 16
                 spacing: 12
 
-                // ---- search bar, styled like AppLauncher's ----
                 Item {
                     width: parent.width
                     height: 42
@@ -436,7 +424,7 @@ Item {
 
                             highlight: Rectangle {
                                 radius: root.global_radius
-                                color: Qt.alpha(root.theme.source_color, 0.5)
+                                color: Qt.alpha(root.theme.source_color, 0.8)
                             }
 
                             delegate: Rectangle {

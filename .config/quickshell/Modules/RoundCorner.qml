@@ -10,7 +10,7 @@ Item {
     property int implicitSize
     property color color
 
-    implicitWidth: implicitSize
+    implicitWidth: implicitSize 
     implicitHeight: implicitSize
 
     property bool isTopLeft: corner === RoundCorner.CornerEnum.TopLeft
@@ -56,7 +56,7 @@ Item {
             PathAngleArc {
                 moveToStart: false
                 centerX: root.implicitSize - shapePath.startX
-                centerY: root.implicitSize - shapePath.startY
+                centerY: root.implicitSize - shapePath.startY 
                 radiusX: root.implicitSize
                 radiusY: root.implicitSize
                 startAngle: switch (root.corner) {
