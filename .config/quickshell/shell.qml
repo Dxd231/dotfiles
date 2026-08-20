@@ -10,18 +10,26 @@ import QtQuick.Layouts
 import Quickshell.Wayland
 import QtQuick.Effects
 import Quickshell.Widgets
+import Qt5Compat.GraphicalEffects
 import "Colors.qml"
 import "Settings.qml"
 import "./Modules"
 
 ShellRoot {
     id: shell
+
     Notifications {
         id: notifications
         theme: root.theme
         settings: root.settings
         calendarOpen: shell.calendarOpen
         shellRoot: shell
+    }
+
+    PowerMenu {
+        id: powerMenu
+        theme: root.theme
+        settings: root.settings
     }
 
     WallpaperSwitcher {
@@ -220,6 +228,7 @@ ShellRoot {
         margins.top: 0
         margins.bottom: -24
 
+
         Item {
             id: roundDecorators
             anchors {
@@ -237,8 +246,8 @@ ShellRoot {
                     left: parent.left
                 }
                 implicitSize: parent.height
-                color: Qt.alpha(root.theme.background, 0.8)         // same as bar bg
-                corner: RoundCorner.CornerEnum.TopLeft // → becomes BottomLeft if bar is at bottom
+                color: Qt.alpha(root.theme.background, 0.8)         
+                corner: RoundCorner.CornerEnum.TopLeft 
             }
 
             RoundCorner {
@@ -592,6 +601,14 @@ ShellRoot {
                 color: "transparent"
                 visible: isOpen && root.hasPlayer || mprispopup.opacity > 0 && root.hasPlayer
 
+
+                IpcHandler {
+                    target: "mprispopup"
+                    function open(): void   { albumPopup.isOpen = true }
+                    function close(): void  { albumPopup.isOpen = false }
+                    function toggle(): void { albumPopup.isOpen = !albumPopup.isOpen }
+                }
+
                 Item {
                     anchors.fill: parent
                     focus: true
@@ -605,7 +622,7 @@ ShellRoot {
                     top: true
                     right: true
                 }
-                margins.top: -2
+                margins.top: -1
                 margins.right: 6
 
                 Rectangle {
@@ -1255,6 +1272,22 @@ ShellRoot {
                                 sourceSize.width: 20
                                 sourceSize.height: 20
                             }
+                            readonly property bool isFcitx: {
+                                let name = (trayIcon.modelData.id || trayIcon.modelData.icon || "").toLowerCase();
+                                return name.includes("fcitx") || name.includes("unikey");
+                            }
+
+                            // Render recolored layer ONLY for Fcitx5
+                            Loader {
+                                anchors.fill: parent
+                                active: trayIcon.isFcitx
+                                sourceComponent: Component {
+                                    ColorOverlay {
+                                        source: trayIcon
+                                        color: root.theme.source_color // Replace with your desired hex color or dynamic Pywal/Matugen variable
+                                    }
+                                }
+                            }          
 
                             MouseArea {
                                 anchors.fill: parent

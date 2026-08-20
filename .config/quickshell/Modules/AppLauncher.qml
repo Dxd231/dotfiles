@@ -138,7 +138,6 @@ Item {
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 0.8)
             clip: true
-            opacity: 0
             y: -270
 
             states: [
@@ -169,8 +168,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 360
-                        easing.type: Easing.OutBack
+                        duration: 260
+                        easing.type: Easing.OutCirc
                     }
                 },
                 Transition {
@@ -179,8 +178,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 400
-                        easing.type: Easing.InBack
+                        duration: 260
+                        easing.type: Easing.InCirc
                     }
                 }
             ]
@@ -293,11 +292,9 @@ Item {
                     highlightFollowsCurrentItem: true
                     highlightResizeDuration: 0
 
-                    // one real highlight that glides between rows, instead of
-                    // each row teleport-toggling its own background color
                     highlight: Rectangle {
                         radius: root.global_radius
-                        color: Qt.alpha(root.theme.source_color, 0.85)
+                        color: Qt.alpha(root.theme.source_color, 0.5)
                     }
 
                     delegate: Rectangle {
@@ -368,8 +365,8 @@ Item {
                             anchors.right: parent.right
                             anchors.rightMargin: 8
                             anchors.verticalCenter: parent.verticalCenter
-                            width: 24
-                            height: 24
+                            width: 22
+                            height: 22
                             radius: 12
                             color: "transparent"
 
@@ -377,6 +374,8 @@ Item {
                                 visible: root.isPinned(row.modelData.id) || pinHover.containsMouse 
                                 anchors.centerIn: parent
                                 source: "../assets/push-pin-bold.svg"
+                                sourceSize.width: pinButton.width
+                                sourceSize.height: pinButton.height
                                 fillMode: Image.PreserveAspectFit
                                 layer.enabled: true
                                 layer.effect: MultiEffect {

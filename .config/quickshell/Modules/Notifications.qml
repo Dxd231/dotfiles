@@ -308,8 +308,8 @@ Scope {
 
                     NumberAnimation {
                         properties: "x,opacity"
-                        duration: 440
-                        easing.type: Easing.OutBack
+                        duration: 340
+                        easing.type: Easing.OutCirc
                     }
                 },
                 Transition {
@@ -318,37 +318,11 @@ Scope {
 
                     NumberAnimation {
                         properties: "x,opacity"
-                        duration: 400
-                        easing.type: Easing.InBack
+                        duration: 300
+                        easing.type: Easing.InCirc
                     }
                 }
             ]
-
-            Image {
-                id: yukari
-                source: "../assets/marisa.png"
-                sourceSize.width: 350
-                sourceSize.height: 350
-                Layout.preferredWidth: 350
-                Layout.preferredHeight: 350
-                anchors.verticalCenterOffset: -60
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                fillMode: Image.PreserveAspectFit
-                layer.enabled: true
-                layer.effect: MultiEffect {
-                    colorization: 0.2
-                    colorizationColor: root.theme.source_color
-                }
-                opacity: history.count === 0 ? 0.3 : 0.2
-
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: 1000
-                        easing.type: Easing.OutCirc
-                    }
-                }
-            }
 
             ColumnLayout {
                 id: centerCol
@@ -656,7 +630,7 @@ Scope {
 
                             ListView {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: Math.min(contentHeight, 200)
+                                Layout.preferredHeight: Math.min(contentHeight, 150)
                                 clip: true
                                 spacing: 4
                                 model: notify_root.networks
@@ -1186,11 +1160,11 @@ Scope {
                         }
                     }
 
-                    radius: 8
+                    radius: 18
                     color: Qt.alpha(notify_root.theme.background, 0.8)
                     clip: true
-                    border.width: 2
-                    border.color: modelData.urgency === NotificationUrgency.Critical ? notify_root.theme.source_color : Qt.alpha(notify_root.theme.surface_bright, 0.2)
+                    border.width: 1
+                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.source_color, 0.2) : Qt.alpha(notify_root.theme.surface_bright, 0.2)
 
                     RowLayout {
                         id: layout

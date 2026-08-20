@@ -292,8 +292,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 340
-                        easing.type: Easing.OutBack
+                        duration: 260
+                        easing.type: Easing.OutCirc
                     }
                 },
                 Transition {
@@ -302,8 +302,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 400
-                        easing.type: Easing.InBack
+                        duration: 260
+                        easing.type: Easing.InCirc
                     }
                 }
             ]
@@ -434,14 +434,9 @@ Item {
                             highlightFollowsCurrentItem: true
                             highlightResizeDuration: 0
 
-                            // one real highlight that glides between rows —
-                            // entryList never had `currentIndex` bound at all before,
-                            // which is also why keyboard up/down never auto-scrolled
-                            // the viewport: ListView only repositions itself in
-                            // response to its OWN currentIndex changing.
                             highlight: Rectangle {
                                 radius: root.global_radius
-                                color: root.theme.source_color
+                                color: Qt.alpha(root.theme.source_color, 0.5)
                             }
 
                             delegate: Rectangle {
@@ -554,8 +549,6 @@ Item {
                             opacity: 0.4
                             font.pixelSize: 13
                             font.family: root.settings.fontdefault
-                            //renderType: Text.NativeRendering
-                            //font.hintingPreference: Font.PreferFullHinting
                         }
 
                         Flickable {
@@ -596,8 +589,7 @@ Item {
                             font.family: root.settings.fontdefault
                         }
 
-                        // thin scroll indicator so it's obvious there's more
-                        // text below the fold instead of it just looking cut off
+                        //scroll bar
                         Rectangle {
                             visible: root.previewMode === "text" && previewFlick.contentHeight > previewFlick.height
                             anchors.top: previewFlick.top
@@ -614,7 +606,7 @@ Item {
                             Rectangle {
                                 width: parent.width
                                 radius: 2
-                                color: root.theme.source_color
+                                color: Qt.alpha(root.theme.source_color, 0.5)
                                 y: parent.handleY
                                 height: parent.handleHeight
                             }

@@ -64,7 +64,7 @@ Item {
 
                 Qt.callLater(function () {
                     coverflow.currentIndex = targetIndex;
-                    coverflow.positionViewAtIndex(targetIndex, ListView.Center);
+                    coverflow.positionViewAtIndex(targetIndex, ListView.Contain);
                 });
             }
         }
@@ -123,13 +123,13 @@ Item {
         WlrLayershell.keyboardFocus: root.isOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         anchors.left: true
         anchors.right: true
-        anchors.bottom: true
+        anchors.top: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 0
+        margins.bottom: 0
         margins.left: 0
         margins.right: 0
-        implicitHeight: root.cardHeight + 100
+        implicitHeight: root.cardHeight + 32
         visible: root.isOpen || panelBg.opacity > 0
 
         
@@ -141,15 +141,16 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 1920
-            height: 280
-            x: 0
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: 8
+            height: root.cardHeight + 16
             radius: 18
             border.width: 0
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.8)
+            color: Qt.alpha(root.theme.background, 0)
             clip: true
-            y: 0
+            y: -height
 
             states: [
                 State {
@@ -157,7 +158,7 @@ Item {
                     when: root.isOpen
                     PropertyChanges {
                         target: panelBg
-                        y: 35
+                        y: 8
                         opacity: 1
                     }
                 },
@@ -166,7 +167,7 @@ Item {
                     when: !root.isOpen
                     PropertyChanges {
                         target: panelBg
-                        y: 1950
+                        y: -panelBg.height
                         opacity: 0
                     }
                 }
@@ -179,8 +180,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 320
-                        easing.type: Easing.OutCirc
+                        duration: 360
+                        easing.type: Easing.OutBack
                     }
                 },
                 Transition {
@@ -189,8 +190,8 @@ Item {
 
                     NumberAnimation {
                         properties: "y,opacity"
-                        duration: 260
-                        easing.type: Easing.InCirc
+                        duration: 400
+                        easing.type: Easing.InBack
                     }
                 }
             ]
@@ -219,16 +220,20 @@ Item {
             ListView {
                 id: coverflow
                 anchors.fill: parent
-                anchors.leftMargin: 50
-                anchors.rightMargin: 50
+                anchors.margins: 8
                 orientation: ListView.Horizontal
                 model: wallpaperModel
-                spacing: 40
+                spacing: 8
+                clip: true
                 focus: root.isOpen
-                highlightFollowsCurrentItem: true
-                highlightMoveDuration: 200
-                highlightMoveVelocity: 0.5
-                onCurrentIndexChanged: root.currentIndex = currentIndex
+                boundsBehavior: Flickable.StopAtBounds
+                flickDeceleration: 1500
+                maximumFlickVelocity: 2500
+                onCurrentIndexChanged: {
+                    root.currentIndex = currentIndex;
+                    positionViewAtIndex(currentIndex, ListView.Contain);
+                }
+
                 Keys.onLeftPressed: currentIndex = Math.max(0, currentIndex - 1)
                 Keys.onRightPressed: currentIndex = Math.min(count - 1, currentIndex + 1)
                 Keys.onReturnPressed: if (model.count > 0)
@@ -247,29 +252,25 @@ Item {
                     required property int index
                     width: root.cardWidth
                     height: root.cardHeight
-                    readonly property bool isCentered: index === coverflow.currentIndex 
+
+                    readonly property bool isSelected: index === coverflow.currentIndex
+
                     anchors.verticalCenter: parent.verticalCenter
 
                     ClippingRectangle {
                         id: frame
                         anchors.fill: parent
-                        radius: 18
-                        color: "transparent"
-                        border.width: card.isCentered ? 4 : 0
-                        border.color: card.isCentered ? (root.colorPreference === "darkness" ? root.theme.source_color : root.theme.on_background) : root.theme.surface_bright
+                        radius: 0
+                        color: "black"
+                        border.width: card.isSelected ? 3 : 2
+                        border.color: card.isSelected ? (root.colorPreference === "darkness" ? root.theme.source_color : root.theme.on_background) : root.theme.surface_bright
 
-                        Behavior on border.color {
-                            ColorAnimation {
-                                duration: 300
-                                easing.type: Easing.OutBack
-                            }
-                        }
                         Image {
                             id: wallpaper_image
                             anchors.fill: parent
                             source: "file://" + card.path
-                            sourceSize.width: 400
-                            sourceSize.height: 225
+                            sourceSize.width: root.cardWidth
+                            sourceSize.height: root.cardHeight
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                         }
@@ -279,7 +280,7 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         anchors.fill: frame
                         onClicked: {
-                            if (card.isCentered)
+                            if (card.isSelected)
                                 root.applyWallpaper(card.path, card.index);
                             else
                                 coverflow.currentIndex = card.index;

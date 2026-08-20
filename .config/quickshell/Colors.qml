@@ -1,11 +1,11 @@
 import QtQuick
 
 QtObject {
-    property string fontdefault: "Google Sans"
+  property string fontdefault: "Space Grotesk"
 
-    property string fontjp: "Zen Maru Gothic Medium"
+  property string fontjp: "Zen Maru Gothic Medium"
 
-    property int fontsize: 12
+  property int fontsize: 12
 
 
     readonly property string background: "#191114"

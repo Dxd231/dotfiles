@@ -7,8 +7,8 @@ Item {
     enum CornerEnum { TopLeft, TopRight, BottomLeft, BottomRight }
     property var corner: RoundCorner.CornerEnum.TopLeft
 
-    property int implicitSize: 25          // radius / size of the arch
-    property color color: "#000000"        // usually your bar background color
+    property int implicitSize
+    property color color
 
     implicitWidth: implicitSize
     implicitHeight: implicitSize

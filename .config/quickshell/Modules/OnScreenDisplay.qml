@@ -53,7 +53,7 @@ Scope {
             Rectangle {
                 anchors.fill: parent
                 radius: 8
-                color: Qt.alpha(osdroot.theme.scrim, 0.8)
+                color: Qt.alpha(osdroot.theme.background, 0.8)
                 border.width: 1
                 border.color: osdroot.theme.surface_bright
 
@@ -106,8 +106,8 @@ Scope {
 
                             Behavior on width {
                                 NumberAnimation {
-                                    duration: 120
-                                    easing.type: Easing.OutBack
+                                    duration: 200
+                                    easing.type: Easing.InOutCirc
                                 }
                             }
                         }
