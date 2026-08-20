@@ -27,6 +27,8 @@ hl.window_rule({ match = { class = "zalo" },                        float = true
 -- clipse floating clipboard
 hl.window_rule({ match = { class = "clipse" }, float = true, size = { 622, 652 }, stay_focused = true })
 
+ hl.window_rule({ match = { class = "org.gnome.Calculator" }, float = true, size = { 360,616 }, stay_focused = true })
+
 hl.window_rule({ match = { class = "librewolf", title = "Picture-in-Picture" }, float = true, border_size = 0 })
 
 -- Steam games: fullscreen + immediate (tearing)
@@ -35,7 +37,8 @@ hl.window_rule({ match = { class = "steam_app_3224770" }, fullscreen = true })
 
 -- kitty: transparency
 hl.window_rule({ match = { class = "kitty" }, opacity = "0.8 override 0.8 override 0.8 override" })
-
+hl.window_rule({ match = { class = ".*\\.exe$|wine|winehq|steam_app_.*" }, opacity = "0.8 override 0.8 override 0.8 override" })
+hl.window_rule({ match = { class = "^th" }, opacity = "1 override 1 override 1 override" })
 -- Fullscreen apps
 hl.window_rule({ match = { class = "org.vinegarhq.Sober" },   fullscreen = true })
 hl.window_rule({ match = { class = "com.mojang.minecraft" },  fullscreen = true })
@@ -137,6 +140,7 @@ hl.layer_rule({ match = { namespace = "quickshell:wallpaperswitcher" },
     blur        = true,
     ignore_alpha = 0.3,
     blur_popups = true,
+    no_anim = true
 })
 
 
@@ -153,39 +157,50 @@ hl.layer_rule({
 })
 
 hl.layer_rule({
+    match = { namespace = "quickshell:powermenu" },
+    blur = true,
+    ignore_alpha = 0.3,
+    no_anim = true
+})
+
+hl.layer_rule({
     match = { namespace = "quickshell:mpris_popup" },
     blur = true,
     ignore_alpha = 0.3,
+    no_anim = true
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:applauncher" },
     blur = true,
     ignore_alpha = 0.3,
+    no_anim = true
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:wallpaperswitcher" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "popin 80%"
+    no_anim = true
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:osd" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "fade"
+    animation = "popin 80%"
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:clipboardmanager" },
     blur = true,
     ignore_alpha = 0.3,
+    no_anim = true
 })
 
 hl.layer_rule({
     match = { namespace = "quickshell:center" },
     blur = true,
     ignore_alpha = 0.3,
+    no_anim = true
 })

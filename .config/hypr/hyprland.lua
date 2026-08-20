@@ -23,6 +23,8 @@ hl.env("MOZ_ENABLE_WAYLAND", "1")
 hl.env("MOZ_WEBRENDER", "1")
 hl.env("GTK_USE_PORTAL","1")
 hl.env("GDK_DEBUG", "portals")
+hl.env("QT_IM_MODULES","wayland;fcitx")
+
 hl.config({
   cursor = {
     no_hardware_cursors = 1,
@@ -65,21 +67,21 @@ hl.config({
     rounding              = 18,
     rounding_power        = 4.0,
     dim_special           = 0.2,
-    dim_inactive          = false,
+    dim_inactive          = true,
     dim_strength          = 0.3,
     active_opacity        = 1.0,
     inactive_opacity      = 1.0,
-    border_part_of_window = true,
+    border_part_of_window = false,
     shadow = {
         enabled       = true,
-        range         = 15,
-        render_power  = 3,
+        range         = 18,
+        render_power  = 4,
         offset        = "1 1",
-        color         = scrim,
+        color         = "rgba(00000090)",
     },
     blur = {
         enabled       = true,
-        size          = 3,
+        size          = 2,
         passes        = 3,
         vibrancy      = 0.1696,
     },
@@ -101,16 +103,16 @@ hl.curve("snappy", { type = "spring", mass = 0.95, stiffness = 1200, dampening =
 
 hl.curve("easy", { type = "spring", mass = 1, stiffness = 800, dampening = 56.6 })
 
-hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",       style = "slide top" })
-hl.animation({ leaf = "windowsOut",               enabled = true, speed = 4, bezier = "easeOutBack",  style = "popin" })
+hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",       style = "popin 50%" })
+hl.animation({ leaf = "windowsOut",               enabled = true, speed = 1, bezier = "easeOutBack",  style = "popin 80%" })
 hl.animation({ leaf = "workspaces",               enabled = true, speed = 1, spring = "niri_spring",         style = "slidevert" })
 hl.animation({ leaf = "border",                   enabled = true, speed = 3, bezier = "easeoutCubic" })
 hl.animation({ leaf = "specialWorkspace",         enabled = true, speed = 1, spring = "snappy",       style =  "slidevert -100%" })
 hl.animation({ leaf = "windowsMove",              enabled = true, speed = 4, spring = "easy",         style = "slide" })
-hl.animation({ leaf = "layers",                   enabled = true, speed = 4, spring = "easy",         style = "fade" })
-hl.animation({ leaf = "layersOut",                enabled = true, speed = 5, spring = "easy",         style = "fade" })
+hl.animation({ leaf = "layers",                   enabled = true, speed = 4, spring = "easy",         style = "slide" })
+hl.animation({ leaf = "layersOut",                enabled = true, speed = 5, spring = "easy",         style = "slide" })
 
-hl.config({  
+hl.config({
   scrolling = {
     column_width = 0.6,
     focus_fit_method = 1,
@@ -128,9 +130,9 @@ hl.config({
 -- ~/.config/hypr/hyprland.lua
 
 hl.config({
-    input = {
-        follow_mouse = 1,  -- was probably 1 (full) — 2 is "loose": still focuses windows on hover, but doesn't drag keyboard focus along with it, which kills most of this race condition
-    },
+  input = {
+      follow_mouse = 1,
+  },
 })
 -- Plugin Configurations
 
@@ -172,11 +174,4 @@ hl.config({
 -- })
 local active_border_timer = nil
 
--- Keep borders hidden by default
-hl.config({
-    general = {
-        border_size = 0,
-        ["col.active_border"] = source_color,
-    }
-})
 
