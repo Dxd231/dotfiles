@@ -143,6 +143,9 @@ hl.layer_rule({ match = { namespace = "quickshell:wallpaperswitcher" },
     no_anim = true
 })
 
+hl.layer_rule({ match = { namespace = "selection" },
+    animation = "fade"
+})
 
 hl.layer_rule({
     match = { namespace = "quickshell:mypopup" },

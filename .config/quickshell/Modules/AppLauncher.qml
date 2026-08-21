@@ -11,11 +11,21 @@ Item {
 
     property var theme
     property var settings
-    property int global_radius: 24
+    property int global_radius: 50
 
     property bool isOpenLauncher: false
     property string query: ""
     property int selectedIndex: 0
+
+    onIsOpenLauncherChanged: {
+        if (isOpenLauncher) {
+            closeAnim.stop();
+            openAnim.restart();
+        } else {
+            openAnim.stop();
+            closeAnim.restart();
+        }
+    }   
 
     FileView {
         id: pinsFile
@@ -117,12 +127,12 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 0
+        margins.top: -1
         margins.left: 0
         margins.right: 0
         implicitHeight: 550
-        
-        visible: root.isOpenLauncher || panelBg.opacity > 0
+        property bool animatingClosed: false
+        visible: root.isOpenLauncher || animatingClosed
         MouseArea {
             anchors.fill: parent
             onClicked: root.isOpenLauncher = false
@@ -130,70 +140,71 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 630
-            height: 450
+            width: 60
+            height: 40
             x: 1920 / 2 - width / 2
+            y: -100
             radius: 18
             border.width: 1
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 0.8)
             clip: true
-            y: -270
+            transformOrigin: Item.Top
 
-            states: [
-                State {
-                    name: "open"
-                    when: root.isOpenLauncher
-                    PropertyChanges {
+
+            SequentialAnimation {
+                id: closeAnim
+
+                onStarted: panelWindow.animatingClosed = true
+                onStopped: panelWindow.animatingClosed = false
+
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
+
+                ParallelAnimation {
+                    NumberAnimation { target: panelBg; property: "width"; to: 60; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 40; duration: 260; easing.type: Easing.InBack }
+                }
+
+                NumberAnimation { target: panelBg; property: "y"; to: -100; duration: 220; easing.type: Easing.InCirc }
+            }
+
+            SequentialAnimation {
+                id: openAnim
+                // Phase 1: empty small box slides down
+                NumberAnimation {
+                    target: panelBg
+                    property: "y"
+                    to: 6
+                    duration: 120
+                    easing.type: Easing.OutCirc
+                }
+
+                // Phase 2: box bounces open to full size, content fades in alongside
+                ParallelAnimation {
+                    NumberAnimation {
                         target: panelBg
-                        y: 6
-                        opacity: 1
+                        properties: "width"
+                        to: 630   // (height needs its own NumberAnimation to a different target value)
+                        duration: 380
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
                     }
-                },
-                State {
-                    name: "closed"
-                    when: !root.isOpenLauncher
-                    PropertyChanges {
+                    NumberAnimation {
                         target: panelBg
-                        y: -270
-                        opacity: 0
+                        properties: "height"
+                        to: 400   // (height needs its own NumberAnimation to a different target value)
+                        duration: 380
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
+                    }
+                    NumberAnimation {
+                        target: content
+                        property: "opacity"
+                        to: 1
+                        duration: 200
+                        // starts partway into phase 2, once the box is big enough to hold content legibly
                     }
                 }
-            ]
-
-            transitions: [
-                Transition {
-                    from: "closed"
-                    to: "open"
-
-                    NumberAnimation {
-                        properties: "y,opacity"
-                        duration: 260
-                        easing.type: Easing.OutCirc
-                    }
-                },
-                Transition {
-                    from: "open"
-                    to: "closed"
-
-                    NumberAnimation {
-                        properties: "y,opacity"
-                        duration: 260
-                        easing.type: Easing.InCirc
-                    }
-                }
-            ]
-
-            Image {
-                source: "../assets/yukari.png"
-                sourceSize.width: 400
-                sourceSize.height: 400
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                fillMode: Image.PreserveAspectFit
-                opacity: 0.1
-                visible: false
-                z: 0
             }
 
             MouseArea {
@@ -202,7 +213,9 @@ Item {
             }
 
             Column {
+                id: content
                 anchors.fill: parent
+                opacity: 0
                 anchors.margins: 14
                 spacing: 10
 
@@ -210,7 +223,7 @@ Item {
                 Rectangle {
                     width: parent.width
                     height: 45
-                    radius: 18
+                    radius: 50
                     color: Qt.alpha(root.theme.on_background, 0.08)
                     border.width: 0
                     border.color: Qt.alpha(root.theme.source_color, 0.8)
@@ -220,14 +233,6 @@ Item {
                         anchors.leftMargin: 14
                         anchors.rightMargin: 14
                         spacing: 10
-
-                        /* Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "\u{1F50D}"
-                            font.pixelSize: 15
-                            opacity: 0.5
-                            color: root.theme.on_background
-                        } */
 
                         TextInput {
                             id: searchField
@@ -293,7 +298,7 @@ Item {
                     highlightResizeDuration: 0
 
                     highlight: Rectangle {
-                        radius: root.global_radius
+                        radius: 20
                         color: Qt.alpha(root.theme.source_color, 0.8)
                     }
 
@@ -334,6 +339,12 @@ Item {
                                     elide: Text.ElideRight
                                     /* renderType: Text.NativeRendering
                                     font.hintingPreference: Font.PreferVerticalHinting */
+
+                                    Behavior on color {
+                                        ColorAnimation {
+                                            easing.type: Easing.OutCirc
+                                        }
+                                    }
                                 }
                                 Text {
                                     width: parent.width
@@ -346,6 +357,13 @@ Item {
                                     //renderType: Text.NativeRendering
                                     //font.hintingPreference: Font.PreferVerticalHinting
                                     elide: Text.ElideRight
+
+                                    Behavior on color {
+                                        ColorAnimation {
+                                            duration: 10
+                                            easing.type: Easing.OutCirc
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -358,9 +376,6 @@ Item {
                             onClicked: root.launch(row.modelData)
                         }
 
-                        // pin toggle — declared last so it sits above the launch
-                        // MouseArea above and intercepts its own clicks instead of
-                        // also triggering a launch underneath it
                         Rectangle {
                             id: pinButton
                             anchors.right: parent.right

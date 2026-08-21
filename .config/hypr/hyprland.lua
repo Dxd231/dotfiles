@@ -67,7 +67,7 @@ hl.config({
     rounding              = 18,
     rounding_power        = 4.0,
     dim_special           = 0.2,
-    dim_inactive          = true,
+    dim_inactive          = false,
     dim_strength          = 0.3,
     active_opacity        = 1.0,
     inactive_opacity      = 1.0,
@@ -81,7 +81,7 @@ hl.config({
     },
     blur = {
         enabled       = true,
-        size          = 2,
+        size          = 3,
         passes        = 3,
         vibrancy      = 0.1696,
     },
@@ -104,7 +104,7 @@ hl.curve("snappy", { type = "spring", mass = 0.95, stiffness = 1200, dampening =
 hl.curve("easy", { type = "spring", mass = 1, stiffness = 800, dampening = 56.6 })
 
 hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",       style = "popin 50%" })
-hl.animation({ leaf = "windowsOut",               enabled = true, speed = 1, bezier = "easeOutBack",  style = "popin 80%" })
+hl.animation({ leaf = "windowsOut",               enabled = true, speed = 5, bezier = "easeOutBack",  style = "popin 10%" })
 hl.animation({ leaf = "workspaces",               enabled = true, speed = 1, spring = "niri_spring",         style = "slidevert" })
 hl.animation({ leaf = "border",                   enabled = true, speed = 3, bezier = "easeoutCubic" })
 hl.animation({ leaf = "specialWorkspace",         enabled = true, speed = 1, spring = "snappy",       style =  "slidevert -100%" })

@@ -27,6 +27,12 @@ ShellRoot {
         shellRoot: shell
     }
 
+    EmojiPicker {
+        id: emojiPicker
+        theme: root.theme
+        settings: root.settings
+    }
+
     PowerMenu {
         id: powerMenu
         theme: root.theme
@@ -590,16 +596,20 @@ ShellRoot {
                 id: albumPopup
                 WlrLayershell.namespace: "quickshell:mpris_popup"
 
-                WlrLayershell.layer: WlrLayer.Overlay
-                WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-                exclusionMode: ExclusionMode.Auto
-
                 property bool onEmptyWorkspace: {
                     const wsId = Hyprland.focusedWorkspace?.id
                     if (wsId === undefined) return true
                     return Hyprland.toplevels.values.filter(t => t.workspace?.id === wsId).length === 0
                 }
-                property bool isOpen: onEmptyWorkspace 
+                onOnEmptyWorkspaceChanged: {
+                    isOpen = onEmptyWorkspace
+                }
+
+                WlrLayershell.layer: WlrLayer.Overlay
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+                exclusionMode: ExclusionMode.Auto
+
+                property bool isOpen: false 
                 property int refreshTrigger: 0
 
                 width: 360
@@ -673,7 +683,8 @@ ShellRoot {
                             NumberAnimation {
                                 properties: "y,opacity"
                                 duration: 280
-                                easing.type: Easing.OutCubic
+                                easing.type: Easing.OutBack
+                                easing.overshoot: 1.5
                             }
                         },
                         Transition {
@@ -683,40 +694,46 @@ ShellRoot {
                             NumberAnimation {
                                 properties: "y,opacity"
                                 duration: 240
-                                easing.type: Easing.InCubic
+                                easing.type: Easing.InBack
+                                easing.overshoot: 1.5
                             }
                         }
                     ]
                     //Album Art
                     ClippingRectangle {
                         id: image
-                        radius: 18
+                        radius: 320
                         width: 320
                         height: 320
+                        antialiasing: true
                         anchors.top: parent.top
                         color: "transparent"
                         anchors.topMargin: 12
                         anchors.horizontalCenter: parent.horizontalCenter
+
                         Image {
+                            id: art
                             sourceSize.width: 320
                             sourceSize.height: 320
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             source: {
-                                const isMPV = shell.activePlayer && shell.activePlayer.identity?.toLowerCase().includes("mpv");
-
-                                if (isMPV) {
-                                    return shell.thumbpath;
-                                }
                                 if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
                                     return shell.activePlayer.trackArtUrl;
                                 } else
                                     return "";
                             }
-                            layer.enabled: true
-                            layer.effect: ShaderEffect {}
                         }
-                    }
+                        RotationAnimation {
+                            target: image
+                            property: "rotation"
+                            from: 0
+                            to: 360
+                            duration: 20000                 // one full spin every 8s — tweak to taste
+                            loops: Animation.Infinite
+                            running: root.hasPlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
+                        }
+                    } 
 
                     // Track info
                     Column {

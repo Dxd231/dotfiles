@@ -15,13 +15,16 @@ Scope {
     property var mainroot
     property var theme
     property var settings
+    property bool calendarOpen: false
     property bool onEmptyWorkspace: {
         const wsId = Hyprland.focusedWorkspace?.id
         if (wsId === undefined) return true
         return Hyprland.toplevels.values.filter(t => t.workspace?.id === wsId).length === 0
     }
-    property bool calendarOpen: false
-    property bool centerOpen: onEmptyWorkspace 
+    onOnEmptyWorkspaceChanged: {
+        notify_root.centerOpen = onEmptyWorkspace
+    }
+    property bool centerOpen: false
     readonly property bool hasNotifications: history.count > 0
     property var shellRoot
     property var mutedApps: []
@@ -145,7 +148,7 @@ Scope {
     // pop sound
     Process {
         id: pop
-        command: ["mpv", "--no-video", "/home/niconico/.config/quickshell/assets/notification.mp3"]
+        command: ["mpv", "--no-video", "/home/niconico/.config/quickshell/assets/notification.mp3", "exit"]
         running: false
     }
 
@@ -303,7 +306,8 @@ Scope {
                 shellRoot.activePlayer.trackArtist.includes("Records") || 
                 shellRoot.activePlayer.trackArtist.includes("幽閉") || 
                 shellRoot.activePlayer.trackArtist.includes("黄昏フロンティア") || 
-                shellRoot.activePlayer.trackTitle.includes("〜")
+                shellRoot.activePlayer.trackTitle.includes("砕月") ||
+                shellRoot.activePlayer.trackArtist.includes("少女フラクタル")
             }
 
             property bool isDeltarune: {
@@ -355,7 +359,9 @@ Scope {
 
             property var gifsDR: [  "../assets/deltarune-icegif-2.gif",
                                     "../assets/deltarune-icegif.gif",
-                                    "../assets/deltarune3.gif"]
+                                    "../assets/deltarune3.gif",
+                                    "../assets/deltarune-knight.gif",
+                                    "../assets/deltarune-roaring-knight.gif"]
 
             // The currently chosen GIF
             property string currentGifDel: pickRandomDel()
@@ -398,6 +404,8 @@ Scope {
                 source: panelBg.currentGifDel
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.horizontalCenter: parent.horizontalCenter
+                width: 200
+                height: 200 
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
 
@@ -429,7 +437,7 @@ Scope {
                     when: !notify_root.centerOpen
                     PropertyChanges {
                         target: panelBg
-                        x: -270
+                        x: -100
                         opacity: 0
                     }
                 }
@@ -443,7 +451,8 @@ Scope {
                     NumberAnimation {
                         properties: "x,opacity"
                         duration: 340
-                        easing.type: Easing.OutCirc
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
                     }
                 },
                 Transition {

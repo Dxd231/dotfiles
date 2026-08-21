@@ -16,6 +16,15 @@ Item {
 
     property bool isOpenClipB: false
     property string query: ""
+    onIsOpenClipBChanged: {
+        if (isOpenClipB) {
+            closeAnim.stop();
+            openAnim.restart();
+        } else {
+            openAnim.stop();
+            closeAnim.restart();
+        }
+    }
     property var entries: []          
     property var selectedEntry: null
     property int selectedIndex: 0
@@ -240,11 +249,12 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 0
+        margins.top: -1
         margins.left: 0
         margins.right: 0
         implicitHeight: 550
-        visible: root.isOpenClipB || panelBg.opacity > 0
+        property bool animatingClosed: false
+        visible: root.isOpenClipB || animatingClosed
 
         MouseArea {
             anchors.fill: parent
@@ -253,60 +263,71 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 630
-            height: 450
+            width: 60
+            height: 40
             x: 1920 / 2 - width / 2
             radius: 18
             border.width: 1
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 0.8)
             clip: true
-            opacity: 0
-            y: -270
+            y: -100
+            transformOrigin: Item.Top
 
-            states: [
-                State {
-                    name: "open"
-                    when: root.isOpenClipB
-                    PropertyChanges {
+            SequentialAnimation {
+                id: closeAnim
+
+                onStarted: panelWindow.animatingClosed = true
+                onStopped: panelWindow.animatingClosed = false
+
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
+
+                ParallelAnimation {
+                    NumberAnimation { target: panelBg; property: "width"; to: 60; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 40; duration: 260; easing.type: Easing.InBack }
+                }
+
+                NumberAnimation { target: panelBg; property: "y"; to: -100; duration: 220; easing.type: Easing.InCirc }
+            }
+
+            SequentialAnimation {
+                id: openAnim
+                // Phase 1: empty small box slides down
+                NumberAnimation {
+                    target: panelBg
+                    property: "y"
+                    to: 6
+                    duration: 120
+                    easing.type: Easing.OutCirc
+                }
+
+                // Phase 2: box bounces open to full size, content fades in alongside
+                ParallelAnimation {
+                    NumberAnimation {
                         target: panelBg
-                        y: 6
-                        opacity: 1
+                        properties: "width"
+                        to: 630   // (height needs its own NumberAnimation to a different target value)
+                        duration: 380
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
                     }
-                },
-                State {
-                    name: "closed"
-                    when: !root.isOpenClipB
-                    PropertyChanges {
+                    NumberAnimation {
                         target: panelBg
-                        y: -270
-                        opacity: 0
+                        properties: "height"
+                        to: 400   // (height needs its own NumberAnimation to a different target value)
+                        duration: 380
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
+                    }
+                    NumberAnimation {
+                        target: content
+                        property: "opacity"
+                        to: 1
+                        duration: 200
+                        // starts partway into phase 2, once the box is big enough to hold content legibly
                     }
                 }
-            ]
-
-            transitions: [
-                Transition {
-                    from: "closed"
-                    to: "open"
-
-                    NumberAnimation {
-                        properties: "y,opacity"
-                        duration: 260
-                        easing.type: Easing.OutCirc
-                    }
-                },
-                Transition {
-                    from: "open"
-                    to: "closed"
-
-                    NumberAnimation {
-                        properties: "y,opacity"
-                        duration: 260
-                        easing.type: Easing.InCirc
-                    }
-                }
-            ]
+            }
             
             MouseArea {
                 anchors.fill: parent
@@ -314,6 +335,7 @@ Item {
             }
 
             Column {
+                id: content
                 anchors.fill: parent
                 anchors.margins: 16
                 spacing: 12
@@ -328,7 +350,7 @@ Item {
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         height: 42
-                        radius: 18
+                        radius: 50
                         color: Qt.alpha(root.theme.on_background, 0.08)
                         border.width: 0
                         border.color: searchField.activeFocus ? root.theme.source_color : Qt.alpha(root.theme.surface_bright, 0.6)
@@ -403,7 +425,7 @@ Item {
                     Rectangle {
                         width: 240
                         height: parent.height
-                        radius: root.global_radius
+                        radius: 20
                         color: Qt.alpha(root.theme.background, 0.05)
                         border.width: 0
                         border.color: Qt.alpha(root.theme.surface_bright, 0.5)
@@ -423,7 +445,7 @@ Item {
                             highlightResizeDuration: 0
 
                             highlight: Rectangle {
-                                radius: root.global_radius
+                                radius: 20
                                 color: Qt.alpha(root.theme.source_color, 0.8)
                             }
 
