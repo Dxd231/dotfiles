@@ -20,9 +20,20 @@ Scope {
         : emojiRoot.emojiList.filter(e => e.label.toLowerCase().includes(searchQuery.toLowerCase()))
 
     onPickerOpenChanged: if (pickerOpen) {
+        if (emojiRoot.emojiList.length === 0) {
+            emojiRoot.loadEmojiJson();
+        }
         searchField.text = "";
         emojiListView.currentIndex = 0;
         searchField.forceActiveFocus();
+    }
+
+    function loadEmojiJson() {
+        try {
+            emojiRoot.emojiList = JSON.parse(emojiJson.text());
+        } catch (e) {
+            console.log("emoji.json parse failed:", e);
+        }
     }
 
     function normalizeEmoji(str) {
@@ -44,17 +55,6 @@ Scope {
     FileView {
         id: emojiJson
         path: Qt.resolvedUrl("../assets/emoji.json")
-
-        onLoaded: {
-            try {
-                emojiRoot.emojiList = JSON.parse(text());
-            } catch (e) {
-                console.log("emoji.json parse failed:", e);
-            }
-        }
-        onLoadFailed: error => {
-            console.log("failed to load emoji.json:", error);
-        }
     }
 
     property var frequency: ({})
@@ -140,7 +140,7 @@ Scope {
             bottom: -4
         }
         implicitHeight: panelBg.height + 20
-        implicitWidth: panelBg.width + 20
+        implicitWidth: panelBg.width + 50
         color: "transparent"
         exclusionMode: ExclusionMode.Auto
 
@@ -196,8 +196,9 @@ Scope {
 
                     NumberAnimation {
                         properties: "x,opacity"
-                        duration: 240
-                        easing.type: Easing.OutCirc
+                        duration: 300
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
                     }
                 },
                 Transition {
@@ -206,8 +207,9 @@ Scope {
 
                     NumberAnimation {
                         properties: "x,opacity"
-                        duration: 200
-                        easing.type: Easing.InCirc
+                        duration: 300
+                        easing.type: Easing.InBack
+                        easing.overshoot: 1.5
                     }
                 }
             ]
@@ -270,7 +272,7 @@ Scope {
                             color: emojiRoot.theme.on_background
                             opacity: 0.4
                             font.pixelSize: 15
-                            font.family: emojiRoot.theme.fontdefault
+                            font.family: emojiRoot.settings.fontdefault
                         }
 
                         Image {
@@ -298,6 +300,7 @@ Scope {
                 anchors.horizontalCenter: parent.horizontalCenter
                 height: panelBg.height - 40
                 clip: true
+                reuseItems: true
                 model: emojiRoot.filtered
                 currentIndex: 0
                 highlightMoveDuration: 200
@@ -328,6 +331,7 @@ Scope {
                             font.pixelSize: 16
                         }
                         Text {
+                            Layout.fillWidth: true
                             text: row.modelData.label
                             color: row.index === emojiListView.currentIndex ? emojiRoot.theme.background : emojiRoot.theme.on_background
                             font.pixelSize: 16
@@ -339,13 +343,14 @@ Scope {
                                 }
                             }
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onEntered: emojiListView.currentIndex = row.index
-                            onClicked: emojiRoot.copyEmoji(row.modelData)
-                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: emojiListView.currentIndex = row.index
+                        onClicked: emojiRoot.copyEmoji(row.modelData)
                     }
                 }
             }

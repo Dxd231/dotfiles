@@ -339,6 +339,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 16
                 spacing: 12
+                opacity: 0
 
                 Item {
                     width: parent.width
@@ -437,6 +438,7 @@ Item {
                             anchors.margins: 6
                             spacing: 4
                             clip: true
+                            reuseItems: true
                             model: root.filteredEntries
                             currentIndex: root.selectedIndex
                             highlightMoveDuration: 150

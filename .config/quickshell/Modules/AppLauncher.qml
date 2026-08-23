@@ -175,7 +175,7 @@ Item {
                     target: panelBg
                     property: "y"
                     to: 6
-                    duration: 120
+                    duration: 180
                     easing.type: Easing.OutCirc
                 }
 
@@ -290,6 +290,7 @@ Item {
                     width: parent.width
                     height: parent.height - 52
                     clip: true
+                    reuseItems: true
                     model: root.filteredApps
                     currentIndex: root.selectedIndex
                     highlightMoveDuration: 200
@@ -393,10 +394,10 @@ Item {
                                 sourceSize.width: pinButton.width
                                 sourceSize.height: pinButton.height
                                 fillMode: Image.PreserveAspectFit
-                                layer.enabled: true
+                                layer.enabled: visible
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.isPinned(row.modelData.id) || pinHover.containsMouse ? Qt.alpha(root.theme.source_color, 0.5) : shell.theme.source_color
+                                    colorizationColor: root.isPinned(row.modelData.id) || pinHover.containsMouse ? Qt.alpha(root.theme.source_color, 0.5) : root.theme.source_color
                                 }
                             }                            
                             MouseArea {

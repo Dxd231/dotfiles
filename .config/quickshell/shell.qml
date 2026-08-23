@@ -174,48 +174,29 @@ ShellRoot {
 
     //Memory
     Process {
-        id: memUsage
-        command: ["sh", "-c", "free -m | awk 'NR==2{printf \"%.0f of %.0fGB\\n\", $3/1024, $2/1024}'"]
+        id: memProcess
+        command: ["sh", "-c", "free -m | awk '/Mem:/ { printf \"%d|%.0f%%|%.0f of %.0fGB\\n\", $3, ($3/$2)*100, $3/1024, $2/1024 }'"]
         running: true
 
         stdout: StdioCollector {
             onStreamFinished: {
-                root.memoryUsage = text.trim();
-            }
-        }
-    }
-    Process {
-        id: memUsagePercent
-        command: ["sh", "-c", "free | grep Mem | awk '{printf \"%.0f%%\", ($3/$2) * 100.0}'"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.memformat = text.trim();
+                const parts = text.trim().split("|");
+                if (parts.length >= 3) {
+                    root.memCount = parseInt(parts[0]) || 0;
+                    root.memformat = parts[1];
+                    root.memoryUsage = parts[2];
+                }
             }
         }
     }
 
-    Process {
-        id: memUsageCount
-        command: ["sh", "-c", "free -m | awk '/Mem:/{print $3}'"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.memCount = parseInt(this.text.trim()) || 0;
-            }
-        }
-    }
-
-    property var player: Timer {
-        interval: 3000
+    property var memTimer: Timer {
+        interval: 4000
         running: true
         repeat: true
         onTriggered: {
-            memUsage.running = true;
-            memUsagePercent.running = true;
-            memUsageCount.running = true;
+            memProcess.running = false;
+            memProcess.running = true;
         }
     }
 
@@ -699,46 +680,154 @@ ShellRoot {
                             }
                         }
                     ]
-                    //Album Art
-                    ClippingRectangle {
-                        id: image
-                        radius: 320
+                    //Album Art Container
+                    Item {
+                        id: discContainer
                         width: 320
                         height: 320
-                        antialiasing: true
                         anchors.top: parent.top
-                        color: "transparent"
                         anchors.topMargin: 12
                         anchors.horizontalCenter: parent.horizontalCenter
 
-                        Image {
-                            id: art
-                            sourceSize.width: 320
-                            sourceSize.height: 320
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            source: {
-                                if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
-                                    return shell.activePlayer.trackArtUrl;
-                                } else
-                                    return "";
+                        // The visual rotating disc
+                        ClippingRectangle {
+                            id: discImage
+                            anchors.fill: parent
+                            radius: 320
+                            antialiasing: true
+                            color: "transparent"
+
+                            layer.enabled: true
+                            layer.smooth: true
+                            layer.samples: 8
+
+                            Image {
+                                id: art
+                                anchors.fill: parent
+                                sourceSize.width: 320
+                                sourceSize.height: 320
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                source: {
+                                    if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
+                                        return shell.activePlayer.trackArtUrl;
+                                    } else {
+                                        return "";
+                                    }
+                                }
                             }
                         }
-                        RotationAnimation {
-                            target: image
-                            property: "rotation"
-                            from: 0
-                            to: 360
-                            duration: 20000                 // one full spin every 8s — tweak to taste
-                            loops: Animation.Infinite
-                            running: root.hasPlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
+
+                        // 1. Smooth, interruptible rotation timer during playback
+                        Timer {
+                            id: rotateTimer
+                            interval: 40 // 25fps for smooth rotation with low CPU usage
+                            running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing && !discMouseArea.isDragging
+                            repeat: true
+                            onTriggered: {
+                                // 360 degrees / 20000ms = 0.018 deg/ms. 0.018 * 40ms = 0.72 deg per tick
+                                discImage.rotation = (discImage.rotation + 0.72) % 360;
+                            }
                         }
-                    } 
+
+                        // 2. Interactive Spin-to-Seek MouseArea (Static sibling to discImage to avoid coordinate oscillation)
+                        MouseArea {
+                            id: discMouseArea
+                            anchors.fill: parent
+                            cursorShape: Qt.OpenHandCursor
+                            property real lastAngle: 0
+                            property real initialRotation: 0
+                            property real accumulatedDelta: 0
+                            property int startPosition: 0
+                            property int previewPosition: 0
+                            property bool isDragging: false
+                            property bool wasPlaying: false
+
+                            function getAngle(x, y) {
+                                var cx = discContainer.width / 2;
+                                var cy = discContainer.height / 2;
+                                var angle = Math.atan2(y - cy, x - cx) * 180 / Math.PI;
+                                return angle < 0 ? angle + 360 : angle;
+                            }
+
+                            onPressed: function(mouse) {
+                                isDragging = true;
+                                cursorShape = Qt.ClosedHandCursor;
+                                lastAngle = getAngle(mouse.x, mouse.y);
+                                initialRotation = discImage.rotation;
+                                accumulatedDelta = 0;
+                                startPosition = shell.activePlayer ? shell.activePlayer.position : 0;
+                                previewPosition = startPosition;
+                                
+                                // Pause playback while scrubbing for better control
+                                if (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) {
+                                    wasPlaying = true;
+                                    if (shell.activePlayer.canPause) {
+                                        shell.activePlayer.pause();
+                                    }
+                                } else {
+                                    wasPlaying = false;
+                                }
+                            }
+
+                            onPositionChanged: function(mouse) {
+                                if (!isDragging || !shell.activePlayer) return;
+                                
+                                var currentAngle = getAngle(mouse.x, mouse.y);
+                                var delta = currentAngle - lastAngle;
+                                
+                                // Handle wrap-around crossing the 0°/360° boundary between mouse events
+                                if (delta > 180) {
+                                    delta -= 360;
+                                } else if (delta < -180) {
+                                    delta += 360;
+                                }
+                                
+                                lastAngle = currentAngle;
+                                accumulatedDelta += delta;
+                                
+                                // Smoothly rotate disc relative to initial touch rotation
+                                var rot = (initialRotation + accumulatedDelta) % 360;
+                                if (rot < 0) rot += 360;
+                                discImage.rotation = rot;
+
+                                // Update visual preview position without flooding DBus with SetPosition calls
+                                if (shell.activePlayer.length > 0) {
+                                    var targetTime = startPosition + (accumulatedDelta / 360.0) * shell.activePlayer.length;
+                                    previewPosition = Math.max(0, Math.min(targetTime, shell.activePlayer.length));
+                                }
+                            }
+
+                            onReleased: function() {
+                                // Send seek command exactly once on release to prevent playback delay
+                                if (shell.activePlayer && shell.activePlayer.length > 0) {
+                                    shell.activePlayer.position = previewPosition;
+                                }
+                                isDragging = false;
+                                cursorShape = Qt.OpenHandCursor;
+                                // Resume playback if it was playing before the drag
+                                if (shell.activePlayer && wasPlaying && shell.activePlayer.canPlay) {
+                                    shell.activePlayer.play();
+                                }
+                            }
+                            
+                            onCanceled: {
+                                if (shell.activePlayer && shell.activePlayer.length > 0) {
+                                    shell.activePlayer.position = previewPosition;
+                                }
+                                isDragging = false;
+                                cursorShape = Qt.OpenHandCursor;
+                                if (shell.activePlayer && wasPlaying && shell.activePlayer.canPlay) {
+                                    shell.activePlayer.play();
+                                }
+                            }
+                        }
+                    }
 
                     // Track info
                     Column {
                         id: infoColumn
-                        anchors.top: image.bottom
+                        anchors.top: discContainer.bottom
                         anchors.topMargin: 14
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: 280
@@ -925,6 +1014,9 @@ ShellRoot {
                                 if (seekMouseArea.pressed) {
                                     return Math.max(0, Math.min(seekBar.width, seekMouseArea.mouseX));
                                 }
+                                if (discMouseArea.isDragging) {
+                                    return Math.min(seekBar.width, seekBar.width * (discMouseArea.previewPosition / shell.activePlayer.length));
+                                }
                                 return Math.min(seekBar.width, seekBar.width * (shell.activePlayer.position / shell.activePlayer.length));
                             }
                             height: parent.height
@@ -933,7 +1025,7 @@ ShellRoot {
                             color: root.theme.source_color
 
                             Behavior on width {
-                                enabled: !seekMouseArea.pressed
+                                enabled: !seekMouseArea.pressed && !discMouseArea.isDragging
                                 NumberAnimation {
                                     duration: 80
                                     easing.type: Easing.OutBack
@@ -982,8 +1074,8 @@ ShellRoot {
                         }
 
                         Timer {
-                            running: root.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed
-                            interval: 1
+                            running: root.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed && !discMouseArea.isDragging && albumPopup.isOpen
+                            interval: 150
                             repeat: true
 
                             onTriggered: if (root.hasPlayer)
@@ -1186,7 +1278,7 @@ ShellRoot {
                             color: "transparent"
 
                             property bool occupied: modelData.lastIpcObject ? modelData.lastIpcObject.windows > 0 : false
-                            property bool isCurrent: rect.modelData.active || (rect.modelData.id < 0 && rect.modelData.visible)
+                            property bool isCurrent: rect.modelData.active || rect.modelData.id < 0
 
                             onIsCurrentChanged: if (isCurrent)
                                 Qt.callLater(workspacemodule.updatePill)
@@ -1237,7 +1329,7 @@ ShellRoot {
                     for (var i = 0; i < wsRepeater.count; i++) {
                         var item = wsRepeater.itemAt(i);
                         if (item && item.visible && item.isCurrent) {
-                            activePill.color = item.modelData.id < 0 ? root.theme.secondary : root.theme.source_color;
+                            activePill.color = root.theme.source_color;
                             activePill.width = 35;
                             activePill.x = item.x - (activePill.width - item.width) / 2;
                             workspacemodule.pillInitialized = true;
@@ -1300,14 +1392,13 @@ ShellRoot {
                                 return name.includes("fcitx") || name.includes("unikey");
                             }
 
-                            // Render recolored layer ONLY for Fcitx5
                             Loader {
                                 anchors.fill: parent
                                 active: trayIcon.isFcitx
                                 sourceComponent: Component {
                                     ColorOverlay {
                                         source: trayIcon
-                                        color: root.theme.source_color // Replace with your desired hex color or dynamic Pywal/Matugen variable
+                                        color: root.theme.source_color 
                                     }
                                 }
                             }          

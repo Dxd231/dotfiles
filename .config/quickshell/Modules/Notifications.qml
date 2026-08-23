@@ -4,10 +4,12 @@ import QtQuick.Controls
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Notifications
+import Quickshell.Services.Mpris
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell.Hyprland
+import Quickshell.Networking
 
 Scope {
     id: notify_root
@@ -25,6 +27,7 @@ Scope {
         notify_root.centerOpen = onEmptyWorkspace
     }
     property bool centerOpen: false
+
     readonly property bool hasNotifications: history.count > 0
     property var shellRoot
     property var mutedApps: []
@@ -44,6 +47,13 @@ Scope {
             netDown = 0;
             netUp = 0;
         }
+        if (centerOpen) {
+            closeAnim.stop();
+            openAnim.restart();
+        } else {
+            openAnim.stop();
+            closeAnim.restart();
+        }
     }
 
     function formatSpeed(kb) {
@@ -59,9 +69,11 @@ Scope {
     // ---- system stats shown at the top of the notification center ----
     property real cpuPercent: 0
     property real memPercent: 0
-    property real wifiPercent: 0
-    property string wifiIcon: "../assets/wifi-x.svg"
-
+    property string wifiIcon: { 
+        if (wifiPercent > 50) return "../assets/wifi-high.svg";
+        if (wifiPercent > 0 && wifiDevice && wifiDevice.active !== false) return "../assets/wifi-medium.svg";
+        return "../assets/wifi-x.svg";
+    }
     ListModel {
         id: history
     }
@@ -88,63 +100,43 @@ Scope {
     }
 
     // wifi menu
-    property var networks: []
     property string selectedSsid: ""
     property string expandedSsid: ""
-    // 1. Get the list of wifi networks — now reports errors too
-    Process {
-        id: scanProc
-        command: ["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let lines = this.text.trim().split("\n");
-                notify_root.networks = lines.map(line => {
-                    let parts = line.split(":");
-                    return {
-                        active: parts[0] === "yes",
-                        ssid: parts[1],
-                        signal: parts[2],
-                        security: parts[3]
-                    };
-                }).filter(n => n.ssid.length > 0);
-                console.log("wifi scan found:", notify_root.networks.length, "networks");
-            }
-        }
-        stderr: StdioCollector {
-            onStreamFinished: {
-                if (this.text.trim().length > 0)
-                    console.log("nmcli error:", this.text);
-            }
-        }
+    property var wifiDevice: Networking.devices.values.find(d => d.type === DeviceType.Wifi) 
+    property var networks: wifiDevice ? wifiDevice.networks.values : []
+    property real wifiPercent: {
+        if (!wifiDevice) return 0;
+        let active = wifiDevice.networks?.values.find(n => n.connected);
+        return active ? Math.round(active.signalStrength * 100) : 0;
+    }
+
+    function reasonText(reason) {
+        if (reason === ConnectionFailReason.NoSecrets) return "wrong password";
+        return "unknown error";
+    }
+
+    Component.onCompleted: {
+        let dev = Networking.devices.values.find(d => d.type === DeviceType.Wifi);
+        console.log(Object.keys(dev));
+        if (wifiDevice) wifiDevice.scannerEnabled = true;
     }
 
     // 2. Connect to a chosen network
-    Process {
-        id: connectProc
-        property string ssid: ""
-        property string password: ""
-        command: password.length > 0 ? ["nmcli", "device", "wifi", "connect", ssid, "password", password] : ["nmcli", "device", "wifi", "connect", ssid]
-        onExited: exitCode => {
-            if (exitCode === 0) {
-                notify_root.expandedSsid = "";
-                notify_root.scan();
-            }
+    function connectTo(network, password) {
+        if (password.length > 0) {
+            network.connectWithPsk(password);
+        } else {
+            network.connect();
         }
-    }
-
-    function connectTo(ssid, password) {
-        connectProc.ssid = ssid;
-        connectProc.password = password;
-        connectProc.running = true;
         wifiMenu.wifiMenu_open = false;
     }
 
     function scan() {
-        scanProc.running = true;
+        if (wifiDevice) wifiDevice.scannerEnabled = true;
     }
 
-    Component.onCompleted: scan()
     
+
     // pop sound
     Process {
         id: pop
@@ -192,18 +184,7 @@ Scope {
         }
     }
 
-    Process {
-        id: wifiStatProc
-        command: ["nmcli", "-t", "-f", "active,signal", "dev", "wifi", "list", "--rescan", "no"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const match = text.match(/^yes:(\d+)/m);
-                const val = match ? parseFloat(match[1]) : NaN;
-                notify_root.wifiPercent = isNaN(val) ? 0 : val;
-                notify_root.wifiIcon = isNaN(val) ? "../assets/wifi-x.svg" : val < 50 ? "../assets/wifi-medium.svg" : "../assets/wifi-high.svg";
-            }
-        }
-    }
+   
 
     function refreshStats() {
         netSpeedProc.running = false;
@@ -212,8 +193,6 @@ Scope {
         cpuStatProc.running = true;
         memStatProc.running = false;
         memStatProc.running = true;
-        wifiStatProc.running = false;
-        wifiStatProc.running = true;
     }
 
     Timer {
@@ -264,20 +243,22 @@ Scope {
         WlrLayershell.namespace: "quickshell:center"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-        visible: notify_root.centerOpen || panelBg.opacity > 0
+        exclusiveZone: 0
+       
         anchors {
             top: true
             left: true
+            bottom: true
         }
         margins {
-            top: 6
-            left: -10
-            bottom: -4
+            top: -12
         }
-        implicitHeight: panelBg.height + 10
-        implicitWidth: panelBg.width + 50
+        implicitHeight: panelBg.height + 30
+        implicitWidth: 550
         color: "transparent"
         exclusionMode: ExclusionMode.Auto
+        property bool animatingClosed: false
+        visible: notify_root.centerOpen || animatingClosed
 
         Item {
             anchors.fill: parent
@@ -290,56 +271,90 @@ Scope {
 
         Rectangle {
             id: panelBg
-            width: 380
-            height: 1020
+            width: 30
+            height: 100
             radius: 18
             color: Qt.alpha(notify_root.theme.background, 0.8)
             border.width: 1
             border.color: Qt.alpha(notify_root.theme.surface_bright, 0.8)
-            opacity: 0
-            x: -270
+            x: -100
+            y: 1080 / 2 - height / 2
+            clip: true
+            transformOrigin: Item.Right
 
+            SequentialAnimation {
+                id: closeAnim
+
+                onStarted: centerPanel.animatingClosed = true
+                onStopped: centerPanel.animatingClosed = false
+
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
+
+                ParallelAnimation {
+                    NumberAnimation { target: panelBg; property: "width"; to: 60; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 40; duration: 260; easing.type: Easing.InBack }
+                }
+
+                NumberAnimation { target: panelBg; property: "x"; to: -100; duration: 220; easing.type: Easing.InCirc }
+            }
+
+            SequentialAnimation {
+                id: openAnim
+                NumberAnimation {
+                    target: panelBg
+                    property: "x"
+                    to: 14
+                    duration: 300
+                    easing.type: Easing.OutCirc
+                }
+
+                ParallelAnimation {
+                    NumberAnimation {
+                        target: panelBg
+                        properties: "width"
+                        to: 380   
+                        duration: 380
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
+                    }
+                    NumberAnimation {
+                        target: panelBg
+                        properties: "height"
+                        to: 1000   
+                        duration: 380
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.5
+                    }
+                    NumberAnimation {
+                        target: content
+                        property: "opacity"
+                        to: 1
+                        duration: 200
+                    }
+                }
+            }
 
             property bool isTouhou: {
-                return shellRoot.activePlayer.trackArtist.includes("上海アリス") || 
-                shellRoot.activePlayer.trackArtist.includes("ZUN") || 
-                shellRoot.activePlayer.trackArtist.includes("Records") || 
-                shellRoot.activePlayer.trackArtist.includes("幽閉") || 
-                shellRoot.activePlayer.trackArtist.includes("黄昏フロンティア") || 
-                shellRoot.activePlayer.trackTitle.includes("砕月") ||
-                shellRoot.activePlayer.trackArtist.includes("少女フラクタル")
+                if (!shellRoot.activePlayer) return false;
+                var artist = (shellRoot.activePlayer.trackArtist || "").toLowerCase();
+                var title = (shellRoot.activePlayer.trackTitle || "").toLowerCase();
+                return artist.includes("上海アリス") || 
+                artist.includes("zun") || 
+                artist.includes("records") || 
+                artist.includes("幽閉") || 
+                artist.includes("黄昏フロンティア") || 
+                artist.includes("東京アクティブneets") ||
+                title.includes("砕月") ||
+                artist.includes("少女フラクタル");
             }
 
             property bool isDeltarune: {
-                return shellRoot.activePlayer.trackArtist.includes("Toby Fox") 
+                if (!shellRoot.activePlayer) return false;
+                var artist = (shellRoot.activePlayer.trackArtist || "").toLowerCase();
+                var title = (shellRoot.activePlayer.trackTitle || "").toLowerCase();
+                return artist.includes("toby fox") || title.includes("deltarune") || title.includes("undertale");
             }
 
-            /* Image {
-                id: touhou
-                source: "../assets/touhou_mpris.png"
-                visible: false                
-                sourceSize.width: 350
-                sourceSize.height: 350
-                Layout.preferredWidth: 350
-                Layout.preferredHeight: 350
-                anchors.verticalCenterOffset: -60
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                fillMode: Image.PreserveAspectFit
-                layer.enabled: true
-                layer.effect: MultiEffect {
-                    colorization: 0.2
-                    colorizationColor: root.theme.source_color
-                }
-                opacity: history.count === 0 ? 0.3 : 0.2
-
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: 1000
-                        easing.type: Easing.OutCirc
-                    }
-                }
-            } */
             // Your two GIF paths
             property var gifsTH: [  "../assets/reimu-touhou.gif",
                                     "../assets/marisa-touhou.gif",
@@ -375,514 +390,490 @@ Scope {
             }
 
 
-            AnimatedImage {
-                id: anim
-                source: panelBg.currentGifTou
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.horizontalCenter: parent.horizontalCenter
-                fillMode: Image.PreserveAspectFit
-                width: 200
-                height: 200 
-                sourceSize.width: width
-                sourceSize.height: height
-                asynchronous: true
 
-                // Only play when this item is visible
-                playing: visible && shellRoot.activePlayer.isPlaying 
-                visible: panelBg.isTouhou
-
-                // When it becomes visible (and starts playing), pick a new random GIF
-                onVisibleChanged: {
-                    if (visible) {
-                        panelBg.currentGifTou = panelBg.pickRandomTH()
-                    }
-                }
-            }
-
-            AnimatedImage {
-                id: animDelta
-                source: panelBg.currentGifDel
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: 200
-                height: 200 
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-
-                // Only play when this item is visible
-                playing: visible && shellRoot.activePlayer.isPlaying
-                visible: panelBg.isDeltarune
-
-                // When it becomes visible (and starts playing), pick a new random GIF
-                onVisibleChanged: {
-                    if (visible) {
-                        panelBg.currentGifDel = panelBg.pickRandomDel()
-                    }
-                }
-            }
-
-
-            states: [
-                State {
-                    name: "open"
-                    when: notify_root.centerOpen
-                    PropertyChanges {
-                        target: panelBg
-                        x: 16
-                        opacity: 1
-                    }
-                },
-                State {
-                    name: "closed"
-                    when: !notify_root.centerOpen
-                    PropertyChanges {
-                        target: panelBg
-                        x: -100
-                        opacity: 0
-                    }
-                }
-            ]
-
-            transitions: [
-                Transition {
-                    from: "closed"
-                    to: "open"
-
-                    NumberAnimation {
-                        properties: "x,opacity"
-                        duration: 340
-                        easing.type: Easing.OutBack
-                        easing.overshoot: 1.5
-                    }
-                },
-                Transition {
-                    from: "open"
-                    to: "closed"
-
-                    NumberAnimation {
-                        properties: "x,opacity"
-                        duration: 300
-                        easing.type: Easing.InCirc
-                    }
-                }
-            ]
-
-            ColumnLayout {
-                id: centerCol
+            Item {
+                id: content
                 anchors.fill: parent
-                anchors.margins: 12
-                spacing: 10
+                opacity: 0
+                anchors.margins: 14
+            
+                
+                AnimatedImage {
+                    id: anim
+                    source: panelBg.isTouhou ? panelBg.currentGifTou : ""
+                    anchors.centerIn: parent
+                    fillMode: Image.PreserveAspectFit
+                    width: 200
+                    height: 200 
+                    sourceSize.width: 200
+                    sourceSize.height: 200
+                    asynchronous: true
 
-                Rectangle {
-                    id: statsCard
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: statsRow.implicitHeight + 24
-                    radius: 18
-                    color: Qt.alpha(notify_root.theme.background, 1)
-                    border.width: 0
-                    border.color: Qt.alpha(notify_root.theme.on_background, 0)
-                    clip: true
+                    // Only play when this item is visible and music is playing
+                    playing: visible && (!shellRoot.activePlayer || shellRoot.activePlayer.playbackState === MprisPlaybackState.Playing)
+                    visible: panelBg.isTouhou
 
-                    ColumnLayout {
-                        id: statsRow
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 10
+                    // When it becomes visible (and starts playing), pick a new random GIF
+                    onVisibleChanged: {
+                        if (visible) {
+                            panelBg.currentGifTou = panelBg.pickRandomTH()
+                        }
+                    }
+                }
 
-                        // Powerprofiles
+                AnimatedImage {
+                    id: animDelta
+                    source: panelBg.isDeltarune ? panelBg.currentGifDel : ""
+                    anchors.centerIn: parent
+                    width: 200
+                    height: 200 
+                    sourceSize.width: 200
+                    sourceSize.height: 200
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+
+                    // Only play when this item is visible and music is playing
+                    playing: visible && (!shellRoot.activePlayer || shellRoot.activePlayer.playbackState === MprisPlaybackState.Playing)
+                    visible: panelBg.isDeltarune
+
+                    // When it becomes visible (and starts playing), pick a new random GIF
+                    onVisibleChanged: {
+                        if (visible) {
+                            panelBg.currentGifDel = panelBg.pickRandomDel()
+                        }
+                    }
+                }
+
+
+                ColumnLayout {
+                    id: centerCol
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 10
+
+                    Rectangle {
+                        id: statsCard
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: statsRow.implicitHeight + 24
+                        radius: 18
+                        color: Qt.alpha(notify_root.theme.background, 1)
+                        border.width: 0
+                        border.color: Qt.alpha(notify_root.theme.on_background, 0)
+                        clip: true
+
                         ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.maximumHeight: implicitHeight
-                            Layout.alignment: Qt.AlignTop
-                            spacing: 6
+                            id: statsRow
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 10
 
-                            RowLayout {
+                            // Powerprofiles
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.maximumHeight: implicitHeight
+                                Layout.alignment: Qt.AlignTop
                                 spacing: 6
 
-                                Repeater {
-                                    model: notify_root.profiles
-                                    Rectangle {
-                                        id: profiles_rect
-                                        required property var modelData
-                                        width: 50
-                                        height: 28
-                                        color: (modelData === notify_root.current_profile) ? notify_root.theme.source_color : notify_root.theme.background
-                                        radius: 4
+                                RowLayout {
+                                    spacing: 6
 
-                                        Behavior on color {
-                                            ColorAnimation {
-                                                duration: 250
+                                    Repeater {
+                                        model: notify_root.profiles
+                                        Rectangle {
+                                            id: profiles_rect
+                                            required property var modelData
+                                            width: 50
+                                            height: 28
+                                            color: (modelData === notify_root.current_profile) ? notify_root.theme.source_color : notify_root.theme.background
+                                            radius: 4
+
+                                            Behavior on color {
+                                                ColorAnimation {
+                                                    duration: 250
+                                                    easing.type: Easing.OutCubic
+                                                }
+                                            }
+
+                                            Image {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                sourceSize.width: 22
+                                                sourceSize.height: 22
+                                                Layout.preferredWidth: 22
+                                                Layout.preferredHeight: 22
+                                                fillMode: Image.PreserveAspectFit
+                                                layer.enabled: true
+                                                layer.effect: MultiEffect {
+                                                    colorization: 1.0
+                                                    colorizationColor: (modelData === notify_root.current_profile) ? notify_root.theme.background : notify_root.theme.source_color   // any matugen color
+                                                }
+                                                source: {
+                                                    if (profiles_rect.modelData === "performance")
+                                                        return "../assets/lightning-fill.svg";
+                                                    if (profiles_rect.modelData === "balanced")
+                                                        return "../assets/scales-fill.svg";
+                                                    if (profiles_rect.modelData === "power-saver")
+                                                        return "../assets/leaf-fill.svg";
+                                                }
+                                            }
+                                            MouseArea {
+                                                cursorShape: Qt.PointingHandCursor
+                                                anchors.fill: parent
+                                                onClicked: notify_root.setPowerprofile(profiles_rect.modelData)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ---- CPU ----
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.maximumHeight: implicitHeight
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 6
+
+                                RowLayout {
+                                    spacing: 6
+                                    Image {
+                                        source: "../assets/cpu.svg"
+                                        sourceSize.width: 22
+                                        sourceSize.height: 22
+                                        Layout.preferredWidth: 22
+                                        Layout.preferredHeight: 22
+                                        fillMode: Image.PreserveAspectFit
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: notify_root.theme.source_color   // any matugen color
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "CPU"
+                                        color: notify_root.theme.on_background
+                                        opacity: 0.7
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.bold: true
+                                    }
+                                    Text {
+                                        text: Math.round(notify_root.cpuPercent) + "%"
+                                        color: notify_root.theme.on_background
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.bold: true
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 5
+                                    radius: 5
+                                    color: Qt.alpha(notify_root.theme.on_background, 0.15)
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 5
+                                        color: notify_root.theme.source_color
+                                        width: parent.width * Math.min(1, Math.max(0, notify_root.cpuPercent / 100))
+                                        Behavior on width {
+                                            NumberAnimation {
+                                                duration: 300
                                                 easing.type: Easing.OutCubic
                                             }
                                         }
+                                    }
+                                }
+                            }
 
-                                        Image {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            sourceSize.width: 22
-                                            sourceSize.height: 22
-                                            Layout.preferredWidth: 22
-                                            Layout.preferredHeight: 22
-                                            fillMode: Image.PreserveAspectFit
-                                            layer.enabled: true
-                                            layer.effect: MultiEffect {
-                                                colorization: 1.0
-                                                colorizationColor: (modelData === notify_root.current_profile) ? notify_root.theme.background : notify_root.theme.source_color   // any matugen color
+                            // ---- Memory ----
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.maximumHeight: implicitHeight
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 6
+
+                                RowLayout {
+                                    spacing: 6
+                                    Image {
+                                        source: "../assets/memory.svg"
+                                        sourceSize.width: 22
+                                        sourceSize.height: 22
+                                        Layout.preferredWidth: 22
+                                        Layout.preferredHeight: 22
+                                        fillMode: Image.PreserveAspectFit
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: notify_root.theme.source_color   // any matugen color
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "RAM"
+                                        color: notify_root.theme.on_background
+                                        opacity: 0.7
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.bold: true
+                                    }
+                                    Text {
+                                        text: Math.round(notify_root.memPercent) + "%"
+                                        color: notify_root.theme.on_background
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.bold: true
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 5
+                                    radius: 5
+                                    color: Qt.alpha(notify_root.theme.on_background, 0.15)
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 5
+                                        color: notify_root.theme.source_color
+                                        width: parent.width * Math.min(1, Math.max(0, notify_root.memPercent / 100))
+                                        Behavior on width {
+                                            NumberAnimation {
+                                                duration: 300
+                                                easing.type: Easing.OutCubic
                                             }
-                                            source: {
-                                                if (profiles_rect.modelData === "performance")
-                                                    return "../assets/lightning-fill.svg";
-                                                if (profiles_rect.modelData === "balanced")
-                                                    return "../assets/scales-fill.svg";
-                                                if (profiles_rect.modelData === "power-saver")
-                                                    return "../assets/leaf-fill.svg";
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ---- WiFi ----
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.maximumHeight: implicitHeight
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 6
+
+                                RowLayout {
+                                    spacing: 6
+                                    Image {
+                                        source: notify_root.wifiIcon
+                                        sourceSize.width: 22
+                                        sourceSize.height: 22
+                                        Layout.preferredWidth: 22
+                                        Layout.preferredHeight: 22
+                                        fillMode: Image.PreserveAspectFit
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: notify_root.theme.source_color   // any matugen color
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "NET"
+                                        color: notify_root.theme.on_background
+                                        opacity: 0.7
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.bold: true
+                                        /* renderType: Text.NativeRendering
+                                        font.hintingPreference: Font.PreferFullHinting */
+                                    }
+                                    Text {
+                                        text: "↓ " + notify_root.formatSpeed(notify_root.netDown) + "  ↑ " + notify_root.formatSpeed(notify_root.netUp)
+                                        color: Qt.alpha(notify_root.theme.on_background, 0.75)
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        /* renderType: Text.NativeRendering
+                                        font.hintingPreference: Font.PreferFullHinting */
+                                    }
+                                    Text {
+                                        text: Math.round(notify_root.wifiPercent) + "%"
+                                        color: notify_root.theme.on_background
+                                        font.family: notify_root.theme.fontdefault
+                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.bold: true
+                                        /* renderType: Text.NativeRendering
+                                        font.hintingPreference: Font.PreferFullHinting */
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 5
+                                    radius: 5
+                                    color: Qt.alpha(notify_root.theme.on_background, 0.15)
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 5
+                                        color: notify_root.theme.source_color
+                                        width: parent.width * Math.min(1, Math.max(0, notify_root.wifiPercent / 100))
+                                        Behavior on width {
+                                            NumberAnimation {
+                                                duration: 300
+                                                easing.type: Easing.OutCubic
                                             }
                                         }
-                                        MouseArea {
-                                            cursorShape: Qt.PointingHandCursor
-                                            anchors.fill: parent
-                                            onClicked: notify_root.setPowerprofile(profiles_rect.modelData)
-                                        }
+                                    }
+                                }
+                                MouseArea {
+                                    cursorShape: Qt.PointingHandCursor
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        wifiMenu.wifiMenu_open = !wifiMenu.wifiMenu_open
+                                        if (wifiMenu.wifiMenu_open)
+                                            notify_root.scan();
                                     }
                                 }
                             }
-                        }
-
-                        // ---- CPU ----
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.maximumHeight: implicitHeight
-                            Layout.alignment: Qt.AlignTop
-                            spacing: 6
-
-                            RowLayout {
-                                spacing: 6
-                                Image {
-                                    source: "../assets/cpu.svg"
-                                    sourceSize.width: 22
-                                    sourceSize.height: 22
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    fillMode: Image.PreserveAspectFit
-                                    layer.enabled: true
-                                    layer.effect: MultiEffect {
-                                        colorization: 1.0
-                                        colorizationColor: notify_root.theme.source_color   // any matugen color
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "CPU"
-                                    color: notify_root.theme.on_background
-                                    opacity: 0.7
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: notify_root.theme.fontsize
-                                    font.bold: true
-                                }
-                                Text {
-                                    text: Math.round(notify_root.cpuPercent) + "%"
-                                    color: notify_root.theme.on_background
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: notify_root.theme.fontsize
-                                    font.bold: true
-                                }
-                            }
-                            Rectangle {
+                            // Wifi Menu
+                            ColumnLayout {
+                                id: wifiMenu
                                 Layout.fillWidth: true
-                                height: 5
-                                radius: 5
-                                color: Qt.alpha(notify_root.theme.on_background, 0.15)
-                                Rectangle {
-                                    height: parent.height
-                                    radius: 5
-                                    color: notify_root.theme.source_color
-                                    width: parent.width * Math.min(1, Math.max(0, notify_root.cpuPercent / 100))
-                                    Behavior on width {
-                                        NumberAnimation {
-                                            duration: 300
-                                            easing.type: Easing.OutCubic
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // ---- Memory ----
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.maximumHeight: implicitHeight
-                            Layout.alignment: Qt.AlignTop
-                            spacing: 6
-
-                            RowLayout {
-                                spacing: 6
-                                Image {
-                                    source: "../assets/memory.svg"
-                                    sourceSize.width: 22
-                                    sourceSize.height: 22
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    fillMode: Image.PreserveAspectFit
-                                    layer.enabled: true
-                                    layer.effect: MultiEffect {
-                                        colorization: 1.0
-                                        colorizationColor: notify_root.theme.source_color   // any matugen color
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "RAM"
-                                    color: notify_root.theme.on_background
-                                    opacity: 0.7
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: notify_root.theme.fontsize
-                                    font.bold: true
-                                }
-                                Text {
-                                    text: Math.round(notify_root.memPercent) + "%"
-                                    color: notify_root.theme.on_background
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: notify_root.theme.fontsize
-                                    font.bold: true
-                                }
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 5
-                                radius: 5
-                                color: Qt.alpha(notify_root.theme.on_background, 0.15)
-                                Rectangle {
-                                    height: parent.height
-                                    radius: 5
-                                    color: notify_root.theme.source_color
-                                    width: parent.width * Math.min(1, Math.max(0, notify_root.memPercent / 100))
-                                    Behavior on width {
-                                        NumberAnimation {
-                                            duration: 300
-                                            easing.type: Easing.OutCubic
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // ---- WiFi ----
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.maximumHeight: implicitHeight
-                            Layout.alignment: Qt.AlignTop
-                            spacing: 6
-
-                            RowLayout {
-                                spacing: 6
-                                Image {
-                                    source: notify_root.wifiIcon
-                                    sourceSize.width: 22
-                                    sourceSize.height: 22
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    fillMode: Image.PreserveAspectFit
-                                    layer.enabled: true
-                                    layer.effect: MultiEffect {
-                                        colorization: 1.0
-                                        colorizationColor: notify_root.theme.source_color   // any matugen color
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "NET"
-                                    color: notify_root.theme.on_background
-                                    opacity: 0.7
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: notify_root.theme.fontsize
-                                    font.bold: true
-                                    /* renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferFullHinting */
-                                }
-                                Text {
-                                    text: "↓ " + notify_root.formatSpeed(notify_root.netDown) + "  ↑ " + notify_root.formatSpeed(notify_root.netUp)
-                                    color: Qt.alpha(notify_root.theme.on_background, 0.75)
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    /* renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferFullHinting */
-                                }
-                                Text {
-                                    text: Math.round(notify_root.wifiPercent) + "%"
-                                    color: notify_root.theme.on_background
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: notify_root.theme.fontsize
-                                    font.bold: true
-                                    /* renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferFullHinting */
-                                }
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 5
-                                radius: 5
-                                color: Qt.alpha(notify_root.theme.on_background, 0.15)
-                                Rectangle {
-                                    height: parent.height
-                                    radius: 5
-                                    color: notify_root.theme.source_color
-                                    width: parent.width * Math.min(1, Math.max(0, notify_root.wifiPercent / 100))
-                                    Behavior on width {
-                                        NumberAnimation {
-                                            duration: 300
-                                            easing.type: Easing.OutCubic
-                                        }
-                                    }
-                                }
-                            }
-                            MouseArea {
-                                cursorShape: Qt.PointingHandCursor
-                                anchors.fill: parent
-                                onClicked: {
-                                    if (wifiMenu.wifiMenu_open)
-                                        notify_root.scan();
-                                    wifiMenu.wifiMenu_open = !wifiMenu.wifiMenu_open;
-                                }
-                            }
-                        }
-                        // Wifi Menu
-                        ColumnLayout {
-                            id: wifiMenu
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: wifiMenu_open ? implicitHeight : 0
-                            Layout.maximumHeight: implicitHeight
-                            clip: true
-                            spacing: 6
-
-                            property bool wifiMenu_open: false
-
-                            Behavior on Layout.preferredHeight {
-                                NumberAnimation {
-                                    duration: 400
-                                    easing.type: Easing.InOutCubic
-                                }
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: "WiFi Networks:"
-                                font.bold: true
-                                color: notify_root.theme.on_background
-                            }
-
-                            ListView {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Math.min(contentHeight, 150)
+                                Layout.preferredHeight: wifiMenu_open ? implicitHeight : 0
                                 clip: true
-                                spacing: 4
-                                model: notify_root.networks
-                                delegate: Rectangle {
-                                    id: netCard
-                                    required property var modelData
-                                    property bool expanded: notify_root.expandedSsid === modelData.ssid
+                                spacing: 6
 
-                                    width: ListView.view.width
-                                    height: contentCol.implicitHeight + 12
-                                    radius: 18
-                                    color: netCard.expanded ? Qt.alpha(notify_root.theme.on_background, 0.05) : (headerMouse.containsMouse ? Qt.alpha(notify_root.theme.on_background, 0.05) : "transparent")
+                                property bool wifiMenu_open: false
+
+                                Behavior on Layout.preferredHeight {
+                                    NumberAnimation {
+                                        duration: 400
+                                        easing.type: Easing.InOutCirc
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "WiFi Networks:"
+                                    font.bold: true
+                                    color: notify_root.theme.on_background
+                                }
+
+                                ListView {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Math.min(contentHeight, 170)
                                     clip: true
+                                    spacing: 10
+                                    model: notify_root.networks
+                                    delegate: Rectangle {
+                                        id: netCard
+                                        border.width: 2
+                                        border.color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.source_color : notify_root.theme.surface_bright
+                                        required property var modelData
+                                        property bool expanded: notify_root.expandedSsid === modelData.name
 
-                                    Behavior on height {
-                                        NumberAnimation {
-                                            duration: 150
-                                            easing.type: Easing.InOutCubic
-                                        }
-                                    }
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            duration: 100
-                                        }
-                                    }
+                                        
 
-                                    ColumnLayout {
-                                        id: contentCol
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.top: parent.top
-                                        anchors.margins: 6
-                                        spacing: 6
-
-                                        Item {
-                                            Layout.fillWidth: true
-                                            Layout.preferredHeight: 28
-
-                                            RowLayout {
-                                                anchors.fill: parent
-                                                anchors.leftMargin: 4
-                                                anchors.rightMargin: 4
-                                                spacing: 8
-
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: netCard.modelData.ssid
-                                                    color: netCard.modelData.active ? notify_root.theme.source_color : Qt.alpha(notify_root.theme.on_background, 0.7)
-                                                    font.family: notify_root.theme.fontdefault
-                                                    font.pixelSize: notify_root.theme.fontsize + 2
-                                                    font.bold: true
-                                                    elide: Text.ElideRight
-                                                }
-                                                Text {
-                                                    text: netCard.modelData.signal + "%"
-                                                    color: notify_root.theme.on_background
-                                                    opacity: 0.6
-                                                    font.pixelSize: notify_root.theme.fontsize
-                                                }
+                                        Connections {
+                                            target: netCard.modelData
+                                            function onConnectionFailed(reason) {
+                                                console.log("connectionFailed fired:", reason);
+                                                Quickshell.execDetached(["sh", "-c", `notify-send -i "/home/niconico/.config/quickshell/assets/wifi-x.svg" -a "" 'Connect failed' '${notify_root.reasonText(reason)}'`]);
                                             }
+                                        }
+                                        Component.onCompleted: console.log("Connections target is:", netCard.modelData)
 
-                                            MouseArea {
-                                                id: headerMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: notify_root.expandedSsid = netCard.expanded ? "" : netCard.modelData.ssid
+                                        width: ListView.view.width
+                                        height: contentCol.implicitHeight + 12
+                                        radius: 10
+                                        color: netCard.expanded ? Qt.alpha(notify_root.theme.on_background, 0.05) : (headerMouse.containsMouse ? Qt.alpha(notify_root.theme.on_background, 0.05) : "transparent")
+                                        clip: true
+
+                                        Behavior on height {
+                                            NumberAnimation {
+                                                duration: 150
+                                                easing.type: Easing.InOutCubic
+                                            }
+                                        }
+                                        Behavior on color {
+                                            ColorAnimation {
+                                                duration: 100
                                             }
                                         }
 
                                         ColumnLayout {
-                                            Layout.fillWidth: true
+                                            id: contentCol
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: 6
                                             spacing: 6
-                                            visible: netCard.expanded
 
-                                            TextField {
-                                                id: netPasswordField
+                                            Item {
                                                 Layout.fillWidth: true
-                                                placeholderText: "Password"
-                                                echoMode: TextInput.Password
-                                                onAccepted: {
-                                                    notify_root.connectTo(netCard.modelData.ssid, text);
-                                                    text = "";
-                                                }
-                                            }
-                                            Button {
-                                                id: connectBtn
-                                                text: "Connect"
-                                                Layout.fillWidth: true
-                                                onClicked: notify_root.connectTo(netCard.modelData.ssid, netPasswordField.text)
+                                                Layout.preferredHeight: 28
 
-                                                background: Rectangle {
-                                                    radius: 6
-                                                    color: connectBtn.pressed ? Qt.darker(notify_root.theme.source_color, 1.2) : (connectBtn.hovered ? Qt.lighter(notify_root.theme.source_color, 1.1) : notify_root.theme.source_color)
-                                                    Behavior on color {
-                                                        ColorAnimation {
-                                                            duration: 100
-                                                        }
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 4
+                                                    anchors.rightMargin: 4
+                                                    spacing: 8
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: netCard.modelData.name
+                                                        color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.source_color : Qt.alpha(notify_root.theme.on_background, 0.7)
+                                                        font.family: notify_root.theme.fontdefault
+                                                        font.pixelSize: notify_root.theme.fontsize + 2
+                                                        font.bold: true
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Text {
+                                                        text: Math.round((netCard.modelData.signalStrength ?? 0) * 100) + "%"
+                                                        color: notify_root.theme.on_background
+                                                        opacity: 0.6
+                                                        font.pixelSize: notify_root.theme.fontsize
                                                     }
                                                 }
 
-                                                contentItem: Text {
-                                                    text: connectBtn.text
-                                                    color: notify_root.theme.on_background  // or on_background, whatever fits your theme
-                                                    font.family: notify_root.theme.fontdefault
-                                                    font.pixelSize: notify_root.theme.fontsize
-                                                    font.bold: true
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    verticalAlignment: Text.AlignVCenter
+                                                MouseArea {
+                                                    id: headerMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: notify_root.expandedSsid = netCard.expanded ? "" : netCard.modelData.name
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+                                                visible: netCard.expanded
+
+                                                TextField {
+                                                    id: netPasswordField
+                                                    Layout.fillWidth: true
+                                                    placeholderText: "Password"
+                                                    echoMode: TextInput.Password
+                                                    onAccepted: {
+                                                        notify_root.connectTo(netCard.modelData, text);
+                                                        text = "";
+                                                    }
+                                                }
+                                                Button {
+                                                    id: connectBtn
+                                                    text: "Connect"
+                                                    Layout.fillWidth: true
+                                                    onClicked: notify_root.connectTo(netCard.modelData, netPasswordField.text)
+
+                                                    background: Rectangle {
+                                                        radius: 6
+                                                        color: connectBtn.pressed ? Qt.darker(notify_root.theme.source_color, 1.2) : (connectBtn.hovered ? Qt.lighter(notify_root.theme.source_color, 1.1) : notify_root.theme.source_color)
+                                                        Behavior on color {
+                                                            ColorAnimation {
+                                                                duration: 100
+                                                            }
+                                                        }
+                                                    }
+
+                                                    contentItem: Text {
+                                                        text: connectBtn.text
+                                                        color: notify_root.theme.on_background  // or on_background, whatever fits your theme
+                                                        font.family: notify_root.theme.fontdefault
+                                                        font.pixelSize: notify_root.theme.fontsize
+                                                        font.bold: true
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
                                                 }
                                             }
                                         }
@@ -891,324 +882,324 @@ Scope {
                             }
                         }
                     }
-                }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: "Notifications"
-                        color: notify_root.theme.on_background
-                        font {
-                            family: notify_root.theme.fontdefault
-                            pixelSize: notify_root.theme.fontsize + 2
-                            bold: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Notifications"
+                            color: notify_root.theme.on_background
+                            font {
+                                family: notify_root.theme.fontdefault
+                                pixelSize: notify_root.theme.fontsize + 2
+                                bold: true
+                            }
                         }
-                    }
-                    Image {
-                        source: "../assets/trash-simple-bold.svg"
-                        sourceSize.width: 20
-                        sourceSize.height: 20
-                        opacity: notify_root.hasNotifications ? 0.9 : 0
-                        visible: true
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: notify_root.theme.source_color
-                        }
-                        MouseArea {
-                            cursorShape: Qt.PointingHandCursor
-                            anchors.fill: parent
-                            onClicked: history.clear()
-                        }
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: 120
+                        Image {
+                            source: "../assets/trash-simple-bold.svg"
+                            sourceSize.width: 20
+                            sourceSize.height: 20
+                            opacity: notify_root.hasNotifications ? 0.9 : 0
+                            visible: true
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                colorization: 1.0
+                                colorizationColor: notify_root.theme.source_color
+                            }
+                            MouseArea {
+                                cursorShape: Qt.PointingHandCursor
+                                anchors.fill: parent
+                                onClicked: history.clear()
+                            }
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: 120
+                                }
                             }
                         }
                     }
-                }
 
-                ListView {
-                    id: historyList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredHeight: contentHeight
-                    clip: true
-                    spacing: 8
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
-                    }
-
-                    add: Transition {
-                        NumberAnimation {
-                            property: "opacity"
-                            from: 0
-                            to: 1
-                            duration: 200
-                        }
-                        NumberAnimation {
-                            property: "y"
-                            from: target.y - 24
-                            duration: 220
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                    remove: Transition {
-                        NumberAnimation {
-                            property: "opacity"
-                            to: 0
-                            duration: 220
-                        }
-                        NumberAnimation {
-                            property: "x"
-                            to: -historyList.width
-                            duration: 2200
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                    displaced: Transition {
-                        NumberAnimation {
-                            properties: "y"
-                            duration: 200
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    model: history
-
-                    delegate: Rectangle {
-                        id: card
-                        z: 1
-                        required property string summary
-                        required property string body
-                        required property string appName
-                        required property var urgency
-                        required property string time
-                        required property string image
-                        required property int index
-
-                        width: historyList.width
-                        height: entryLayout.implicitHeight + 20
-                        radius: 18
+                    ListView {
+                        id: historyList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: contentHeight
                         clip: true
-                        color: notify_root.theme.background
-                        border.width: 1
-                        border.color: Qt.alpha(notify_root.theme.on_background, 0.2)
-
-                        RowLayout {
-                            id: entryLayout
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 10
-                            z: 1
-
-                            Image {
-                                Layout.preferredHeight: 32
-                                Layout.preferredWidth: 32
-                                Layout.alignment: Qt.AlignTop
-                                fillMode: Image.PreserveAspectFit
-                                visible: source.toString() !== ""
-                                source: card.image || ""
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: card.summary
-                                        color: notify_root.theme.on_background
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting */
-                                        elide: Text.ElideRight
-                                        z: 0
-                                    }
-                                    Text {
-                                        text: card.time
-                                        color: notify_root.theme.on_background
-                                        opacity: 0.6
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting */
-                                    }
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: text !== ""
-                                    text: card.body
-                                    color: notify_root.theme.on_background
-                                    font.family: notify_root.theme.fontdefault
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                    opacity: 0.5
-                                    /* renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting */
-                                    wrapMode: Text.WordWrap
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: card.appName
-                                        color: notify_root.theme.on_background
-                                        opacity: 0.5
-                                        font.family: notify_root.theme.fontdefault
-                                    }
-                                }
-                            }
-                        }
-
-                        MouseArea {
-                            cursorShape: Qt.PointingHandCursor
-                            anchors.fill: parent
-                            z: -1
-                            onClicked: history.remove(card.index)
-                        }
-                    }
-                }
-
-                // ---- calendar, pinned at the bottom (Windows-notification-center
-                // style), reusing shell.qml's own state rather than a second
-                // independent calendar ----
-                Rectangle {
-                    id: calendarCard
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: calendarCol.implicitHeight + 24
-                    radius: 18
-                    color: "transparent"
-                    border.width: 0
-                    border.color: Qt.alpha(notify_root.theme.on_background, 0)
-                    visible: !!notify_root.shellRoot
-
-                    ColumnLayout {
-                        id: calendarCol
-                        anchors.fill: parent
-                        anchors.margins: 12
                         spacing: 8
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                        }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: "\u2039"
-                                color: notify_root.theme.on_background
-                                font.pixelSize: 16
-                                font.bold: true
-                                font.family: notify_root.theme.fontdefault
-                                renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting
-                                MouseArea {
-                                    cursorShape: Qt.PointingHandCursor
-                                    anchors.fill: parent
-                                    anchors.margins: -6
-                                    onClicked: notify_root.shellRoot.shiftMonth(-1)
-                                }
+                        add: Transition {
+                            NumberAnimation {
+                                property: "opacity"
+                                from: 0
+                                to: 1
+                                duration: 200
                             }
-                            Text {
-                                Layout.fillWidth: true
-                                horizontalAlignment: Text.AlignHCenter
-                                text: notify_root.shellRoot ? Qt.formatDate(notify_root.shellRoot.viewDate, "MMMM yyyy") : ""
-                                color: notify_root.theme.on_background
-                                font.pixelSize: 13
-                                font.bold: true
-                                font.family: notify_root.theme.fontdefault
-                                renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting
+                            NumberAnimation {
+                                property: "y"
+                                from: target.y - 24
+                                duration: 220
+                                easing.type: Easing.OutCubic
                             }
-                            Text {
-                                text: "\u203A"
-                                color: notify_root.theme.on_background
-                                font.pixelSize: 16
-                                font.bold: true
-                                font.family: notify_root.theme.fontdefault
-                                renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting
-                                MouseArea {
-                                    cursorShape: Qt.PointingHandCursor
-                                    anchors.fill: parent
-                                    anchors.margins: -6
-                                    onClicked: notify_root.shellRoot.shiftMonth(1)
-                                }
+                        }
+                        remove: Transition {
+                            NumberAnimation {
+                                property: "opacity"
+                                to: 0
+                                duration: 220
+                            }
+                            NumberAnimation {
+                                property: "x"
+                                to: -historyList.width
+                                duration: 2200
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                        displaced: Transition {
+                            NumberAnimation {
+                                properties: "y"
+                                duration: 200
+                                easing.type: Easing.OutCubic
                             }
                         }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
+                        model: history
 
-                            Repeater {
-                                model: ["S", "M", "T", "W", "T", "F", "S"]
-                                delegate: Text {
-                                    required property string modelData
-                                    Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    text: modelData
-                                    color: notify_root.theme.on_background
-                                    opacity: 0.5
-                                    font.pixelSize: 10
-                                    font.family: notify_root.theme.fontdefault
-                                    renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting
-                                    font.bold: true
+                        delegate: Rectangle {
+                            id: card
+                            z: 1
+                            required property string summary
+                            required property string body
+                            required property string appName
+                            required property var urgency
+                            required property string time
+                            required property string image
+                            required property int index
+
+                            width: historyList.width
+                            height: entryLayout.implicitHeight + 20
+                            radius: 18
+                            clip: true
+                            color: notify_root.theme.background
+                            border.width: 1
+                            border.color: Qt.alpha(notify_root.theme.on_background, 0.2)
+
+                            RowLayout {
+                                id: entryLayout
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 10
+                                z: 1
+
+                                Image {
+                                    Layout.preferredHeight: 32
+                                    Layout.preferredWidth: 32
+                                    Layout.alignment: Qt.AlignTop
+                                    fillMode: Image.PreserveAspectFit
+                                    visible: source.toString() !== ""
+                                    source: card.image || ""
                                 }
-                            }
-                        }
 
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 7
-                            rowSpacing: 3
-                            columnSpacing: 3
-
-                            Repeater {
-                                model: notify_root.shellRoot ? notify_root.shellRoot.gridCells : []
-
-                                delegate: Rectangle {
-                                    id: dayCell
-                                    required property var modelData
-
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 26
-                                    radius: 13
-                                    opacity: modelData.inMonth ? 1.0 : 0.35
-                                    color: notify_root.shellRoot.isHighlighted(modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.source_color : "transparent"
-                                    border.width: (notify_root.shellRoot.isToday(modelData.date) && !notify_root.shellRoot.isHighlighted(modelData.date)) ? 2 : 0
-                                    border.color: notify_root.theme.source_color
+                                    spacing: 2
 
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            duration: 120
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: card.summary
+                                            color: notify_root.theme.on_background
+                                            font.family: notify_root.theme.fontdefault
+                                            font.pixelSize: 14
+                                            font.bold: true
+                                            /* renderType: Text.NativeRendering
+                                            font.hintingPreference: Font.PreferVerticalHinting */
+                                            elide: Text.ElideRight
+                                            z: 0
+                                        }
+                                        Text {
+                                            text: card.time
+                                            color: notify_root.theme.on_background
+                                            opacity: 0.6
+                                            font.family: notify_root.theme.fontdefault
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            /* renderType: Text.NativeRendering
+                                            font.hintingPreference: Font.PreferVerticalHinting */
                                         }
                                     }
 
                                     Text {
-                                        anchors.centerIn: parent
-                                        text: dayCell.modelData.date.getDate()
-                                        color: notify_root.shellRoot.isHighlighted(dayCell.modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.on_primary : notify_root.theme.on_background
-                                        font.pixelSize: 11
-                                        font.bold: true
+                                        Layout.fillWidth: true
+                                        visible: text !== ""
+                                        text: card.body
+                                        color: notify_root.theme.on_background
                                         font.family: notify_root.theme.fontdefault
-                                        renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        opacity: 0.5
+                                        /* renderType: Text.NativeRendering
+                                        font.hintingPreference: Font.PreferVerticalHinting */
+                                        wrapMode: Text.WordWrap
                                     }
 
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: card.appName
+                                            color: notify_root.theme.on_background
+                                            opacity: 0.5
+                                            font.family: notify_root.theme.fontdefault
+                                        }
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                cursorShape: Qt.PointingHandCursor
+                                anchors.fill: parent
+                                z: -1
+                                onClicked: history.remove(card.index)
+                            }
+                        }
+                    }
+
+                    // ---- calendar, pinned at the bottom (Windows-notification-center
+                    // style), reusing shell.qml's own state rather than a second
+                    // independent calendar ----
+                    Rectangle {
+                        id: calendarCard
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: calendarCol.implicitHeight + 24
+                        radius: 18
+                        color: "transparent"
+                        border.width: 0
+                        border.color: Qt.alpha(notify_root.theme.on_background, 0)
+                        visible: !!notify_root.shellRoot
+
+                        ColumnLayout {
+                            id: calendarCol
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Text {
+                                    text: "\u2039"
+                                    color: notify_root.theme.on_background
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                    font.family: notify_root.theme.fontdefault
+                                    renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferVerticalHinting
                                     MouseArea {
                                         cursorShape: Qt.PointingHandCursor
                                         anchors.fill: parent
-                                        enabled: dayCell.modelData.inMonth
-                                        onClicked: notify_root.shellRoot.toggleDay(dayCell.modelData.date)
+                                        anchors.margins: -6
+                                        onClicked: notify_root.shellRoot.shiftMonth(-1)
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: notify_root.shellRoot ? Qt.formatDate(notify_root.shellRoot.viewDate, "MMMM yyyy") : ""
+                                    color: notify_root.theme.on_background
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    font.family: notify_root.theme.fontdefault
+                                    renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferVerticalHinting
+                                }
+                                Text {
+                                    text: "\u203A"
+                                    color: notify_root.theme.on_background
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                    font.family: notify_root.theme.fontdefault
+                                    renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferVerticalHinting
+                                    MouseArea {
+                                        cursorShape: Qt.PointingHandCursor
+                                        anchors.fill: parent
+                                        anchors.margins: -6
+                                        onClicked: notify_root.shellRoot.shiftMonth(1)
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                Repeater {
+                                    model: ["S", "M", "T", "W", "T", "F", "S"]
+                                    delegate: Text {
+                                        required property string modelData
+                                        Layout.fillWidth: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                        text: modelData
+                                        color: notify_root.theme.on_background
+                                        opacity: 0.5
+                                        font.pixelSize: 10
+                                        font.family: notify_root.theme.fontdefault
+                                        renderType: Text.NativeRendering
+                                        font.hintingPreference: Font.PreferVerticalHinting
+                                        font.bold: true
+                                    }
+                                }
+                            }
+
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 7
+                                rowSpacing: 3
+                                columnSpacing: 3
+
+                                Repeater {
+                                    model: notify_root.shellRoot ? notify_root.shellRoot.gridCells : []
+
+                                    delegate: Rectangle {
+                                        id: dayCell
+                                        required property var modelData
+
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 26
+                                        radius: 13
+                                        opacity: modelData.inMonth ? 1.0 : 0.35
+                                        color: notify_root.shellRoot.isHighlighted(modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.source_color : "transparent"
+                                        border.width: (notify_root.shellRoot.isToday(modelData.date) && !notify_root.shellRoot.isHighlighted(modelData.date)) ? 2 : 0
+                                        border.color: notify_root.theme.source_color
+
+                                        Behavior on color {
+                                            ColorAnimation {
+                                                duration: 120
+                                            }
+                                        }
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: dayCell.modelData.date.getDate()
+                                            color: notify_root.shellRoot.isHighlighted(dayCell.modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.on_primary : notify_root.theme.on_background
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            font.family: notify_root.theme.fontdefault
+                                            renderType: Text.NativeRendering
+                                            font.hintingPreference: Font.PreferVerticalHinting
+                                        }
+
+                                        MouseArea {
+                                            cursorShape: Qt.PointingHandCursor
+                                            anchors.fill: parent
+                                            enabled: dayCell.modelData.inMonth
+                                            onClicked: notify_root.shellRoot.toggleDay(dayCell.modelData.date)
+                                        }
                                     }
                                 }
                             }

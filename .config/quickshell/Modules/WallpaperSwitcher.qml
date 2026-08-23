@@ -222,6 +222,7 @@ Item {
                 anchors.leftMargin: 50
                 anchors.rightMargin: 50
                 orientation: ListView.Horizontal
+                reuseItems: true
                 model: wallpaperModel
                 spacing: 40
                 focus: root.isOpen
