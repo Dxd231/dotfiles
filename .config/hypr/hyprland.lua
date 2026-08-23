@@ -124,7 +124,8 @@ hl.config({
   misc = {
     disable_hyprland_logo = true,
     on_focus_under_fullscreen = 1,
-    font_family = "QuickSand"
+    font_family = "QuickSand",
+    key_press_enables_dpms  = true,
   }
 })
 -- ~/.config/hypr/hyprland.lua

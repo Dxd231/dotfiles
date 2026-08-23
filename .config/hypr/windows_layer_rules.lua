@@ -37,7 +37,6 @@ hl.window_rule({ match = { class = "steam_app_3224770" }, fullscreen = true })
 
 -- kitty: transparency
 hl.window_rule({ match = { class = "kitty" }, opacity = "0.8 override 0.8 override 0.8 override" })
-hl.window_rule({ match = { class = ".*\\.exe$|wine|winehq|steam_app_.*" }, opacity = "0.8 override 0.8 override 0.8 override" })
 hl.window_rule({ match = { class = "^th" }, opacity = "1 override 1 override 1 override" })
 -- Fullscreen apps
 hl.window_rule({ match = { class = "org.vinegarhq.Sober" },   fullscreen = true })
