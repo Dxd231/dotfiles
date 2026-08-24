@@ -37,6 +37,7 @@ Item {
         JsonAdapter {
             id: pinsAdapter
             property list<string> pinnedIds: []
+            property var launchCounts: ({})
         }
     }
 
@@ -52,14 +53,29 @@ Item {
             list.splice(idx, 1);
         pinsAdapter.pinnedIds = list;
     }
+    function launchCount(id) {
+        return pinsAdapter.launchCounts[id] || 0;
+    }
+    function recordLaunch(id) {
+        const counts = Object.assign({}, pinsAdapter.launchCounts);
+        counts[id] = (counts[id] || 0) + 1;
+        pinsAdapter.launchCounts = counts;
+    }
 
     property var allApps: {
         const apps = [...DesktopEntries.applications.values].filter(e => e.name && !e.noDisplay);
-        apps.sort((a, b) => {
+
+            apps.sort((a, b) => {
             const aPinned = root.isPinned(a.id);
             const bPinned = root.isPinned(b.id);
             if (aPinned !== bPinned)
                 return aPinned ? -1 : 1;
+
+            const aCount = root.launchCount(a.id);
+            const bCount = root.launchCount(b.id);
+            if (aCount !== bCount)
+                return bCount - aCount;
+
             return a.name.localeCompare(b.name);
         });
         return apps;
@@ -91,6 +107,7 @@ Item {
     function launch(entry) {
         if (!entry)
             return;
+        root.recordLaunch(entry.id);
         entry.execute();
         root.query = "";
         root.isOpenLauncher = false;
@@ -140,14 +157,14 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 60
-            height: 40
+            width: 200
+            height: 200
             x: 1920 / 2 - width / 2
-            y: -100
+            y: -250
             radius: 18
             border.width: 1
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.8)
+            color: Qt.alpha(root.theme.background, 0.95)
             clip: true
             transformOrigin: Item.Top
 
@@ -161,11 +178,11 @@ Item {
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
 
                 ParallelAnimation {
-                    NumberAnimation { target: panelBg; property: "width"; to: 60; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "height"; to: 40; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 200; duration: 260; easing.type: Easing.InBack }
                 }
 
-                NumberAnimation { target: panelBg; property: "y"; to: -100; duration: 220; easing.type: Easing.InCirc }
+                NumberAnimation { target: panelBg; property: "y"; to: -250; duration: 220; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
@@ -175,7 +192,7 @@ Item {
                     target: panelBg
                     property: "y"
                     to: 6
-                    duration: 180
+                    duration: 240
                     easing.type: Easing.OutCirc
                 }
 
@@ -185,7 +202,7 @@ Item {
                         target: panelBg
                         properties: "width"
                         to: 630   // (height needs its own NumberAnimation to a different target value)
-                        duration: 380
+                        duration: 300
                         easing.type: Easing.OutBack
                         easing.overshoot: 1.5
                     }
@@ -193,7 +210,7 @@ Item {
                         target: panelBg
                         properties: "height"
                         to: 400   // (height needs its own NumberAnimation to a different target value)
-                        duration: 380
+                        duration: 300
                         easing.type: Easing.OutBack
                         easing.overshoot: 1.5
                     }
@@ -201,7 +218,7 @@ Item {
                         target: content
                         property: "opacity"
                         to: 1
-                        duration: 200
+                        duration: 100
                         // starts partway into phase 2, once the box is big enough to hold content legibly
                     }
                 }

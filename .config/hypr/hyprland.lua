@@ -99,18 +99,18 @@ hl.curve("niri_spring", { type = "spring", mass = 1, stiffness = 1000, dampening
 
 hl.curve("easeoutCubic", { type = "bezier", points = { {0.33, 1}, {0.68, 1} } })
 
-hl.curve("snappy", { type = "spring", mass = 0.95, stiffness = 1200, dampening = 69.3 })
+hl.curve("snappy", { type = "spring", mass = 1, stiffness = 900, dampening = 40.3 })
 
 hl.curve("easy", { type = "spring", mass = 1, stiffness = 800, dampening = 56.6 })
 
-hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",       style = "popin 50%" })
-hl.animation({ leaf = "windowsOut",               enabled = true, speed = 5, bezier = "easeOutBack",  style = "popin 10%" })
-hl.animation({ leaf = "workspaces",               enabled = true, speed = 1, spring = "niri_spring",         style = "slidevert" })
+hl.animation({ leaf = "windowsIn",                enabled = true, speed = 1, spring = "smooth",               style = "popin 50%" })
+hl.animation({ leaf = "windowsOut",               enabled = true, speed = 1, bezier = "easeOutBack",          style = "popin 10%" })
+hl.animation({ leaf = "workspaces",               enabled = true, speed = 1, spring = "niri_spring",          style = "slidevert" })
 hl.animation({ leaf = "border",                   enabled = true, speed = 3, bezier = "easeoutCubic" })
-hl.animation({ leaf = "specialWorkspace",         enabled = true, speed = 1, spring = "snappy",       style =  "slidevert -100%" })
-hl.animation({ leaf = "windowsMove",              enabled = true, speed = 4, spring = "easy",         style = "slide" })
-hl.animation({ leaf = "layers",                   enabled = true, speed = 4, spring = "easy",         style = "slide" })
-hl.animation({ leaf = "layersOut",                enabled = true, speed = 5, spring = "easy",         style = "slide" })
+hl.animation({ leaf = "specialWorkspace",         enabled = true, speed = 1, spring = "snappy",               style =  "slidevert -100%" })
+hl.animation({ leaf = "windowsMove",              enabled = true, speed = 4, spring = "easy",                 style = "slide" })
+hl.animation({ leaf = "layers",                   enabled = true, speed = 4, spring = "easy",                 style = "slide" })
+hl.animation({ leaf = "layersOut",                enabled = true, speed = 5, spring = "easy",                 style = "slide" })
 
 hl.config({
   scrolling = {
@@ -124,7 +124,7 @@ hl.config({
   misc = {
     disable_hyprland_logo = true,
     on_focus_under_fullscreen = 1,
-    font_family = "QuickSand",
+    font_family = "Google Sans Code",
     key_press_enables_dpms  = true,
   }
 })
@@ -135,7 +135,6 @@ hl.config({
       follow_mouse = 1,
   },
 })
--- Plugin Configurations
 
 hl.config({
   plugin = {
@@ -154,25 +153,7 @@ hl.config({
   },
 })
 
--- hl.config({
---     plugin = {
---         scrolloverview = {
---             gesture_distance = 300, -- how far is the "max" for the gesture
---             scale = 0.7, -- preferred overview scale
---             workspace_gap = 100,
---             layout = "vertical", -- vertical or horizontal
---             wallpaper = 0, -- 0: global only, 1: per-workspace only, 2: both
---             blur = false, -- blur only the main overview wallpaper
---
---             shadow = {
---                 enabled = false,
---                 range = 50,
---                 render_power = 3,
---                 color = shadow,
---             },
---         },
---     },
--- })
-local active_border_timer = nil
+
+
 
 

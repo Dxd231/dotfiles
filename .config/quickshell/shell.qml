@@ -200,6 +200,37 @@ ShellRoot {
         }
     }
 
+    PanelWindow {
+        id: archlinux_backdrop
+        width: backdrop.width
+        height: backdrop.height
+        color: "transparent"
+
+        WlrLayershell.layer: WlrLayer.Bottom
+
+        MultiEffect {
+            source: backdrop
+            anchors.fill: backdrop
+            shadowEnabled: true
+            shadowColor: "#000000"
+            shadowOpacity: 5
+            shadowBlur: 1.0
+            shadowVerticalOffset: 0
+            shadowHorizontalOffset: 0
+        }
+
+        Image {
+            id: backdrop
+            anchors.centerIn: parent
+            source: "./assets/archbtw.svg"
+            width: 500
+            height: 500
+            sourceSize.width: width
+            sourceSize.height: height
+            fillMode: Image.PreserveAspectFit
+        }
+    }
+
     //Actual Bar
     PanelWindow {
         id: panelbar
@@ -234,7 +265,7 @@ ShellRoot {
                     left: parent.left
                 }
                 implicitSize: parent.height
-                color: Qt.alpha(root.theme.background, 0.8)         
+                color: Qt.alpha(root.theme.background, 1)         
                 corner: RoundCorner.CornerEnum.TopLeft 
             }
 
@@ -246,9 +277,31 @@ ShellRoot {
                     right: parent.right
                 }
                 implicitSize: parent.height
-                color: Qt.alpha(root.theme.background, 0.8)
+                color: Qt.alpha(root.theme.background, 1)
                 corner: RoundCorner.CornerEnum.TopRight
             }
+        }
+
+        MultiEffect {
+            source: roundDecorators
+            anchors.fill: roundDecorators
+            shadowEnabled: true
+            shadowColor: "#000000"
+            shadowOpacity: 0.35
+            shadowBlur: 1.0
+            shadowVerticalOffset: 2
+            shadowHorizontalOffset: 0
+        }
+
+        MultiEffect {
+            source: realbar
+            anchors.fill: realbar
+            shadowEnabled: true
+            shadowColor: "#000000"
+            shadowOpacity: 0.35
+            shadowBlur: 1.0
+            shadowVerticalOffset: 1
+            shadowHorizontalOffset: 0
         }
 
         Rectangle {
@@ -264,7 +317,10 @@ ShellRoot {
             bottomRightRadius: 0
             border.width: 0
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.8)
+            color: Qt.alpha(root.theme.background, 1)
+
+            
+            
 
             //Time Module
             Rectangle {
@@ -593,8 +649,8 @@ ShellRoot {
                 property bool isOpen: false 
                 property int refreshTrigger: 0
 
-                width: 360
-                height: 530
+                width: mprispopup.width
+                height: mprispopup.height + 30
                 color: "transparent"
                 visible: isOpen && root.hasPlayer || mprispopup.opacity > 0 && root.hasPlayer
 
@@ -624,10 +680,10 @@ ShellRoot {
 
                 Rectangle {
                     id: mprispopup
-                    width: 360
+                    width: 380
                     height: 500
                     x: 0
-                    color: Qt.alpha(root.theme.background, 0.8)
+                    color: Qt.alpha(root.theme.background, 1)
                     radius: 18
                     border.color: root.theme.surface_bright
                     border.width: 1
@@ -694,12 +750,12 @@ ShellRoot {
                             id: discImage
                             anchors.fill: parent
                             radius: 320
-                            antialiasing: true
                             color: "transparent"
 
+                            antialiasing: true
                             layer.enabled: true
                             layer.smooth: true
-                            layer.samples: 8
+                            layer.samples: 10
 
                             Image {
                                 id: art
@@ -721,12 +777,12 @@ ShellRoot {
                         // 1. Smooth, interruptible rotation timer during playback
                         Timer {
                             id: rotateTimer
-                            interval: 40 // 25fps for smooth rotation with low CPU usage
+                            interval: 1 // 25fps for smooth rotation with low CPU usage
                             running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing && !discMouseArea.isDragging
                             repeat: true
                             onTriggered: {
                                 // 360 degrees / 20000ms = 0.018 deg/ms. 0.018 * 40ms = 0.72 deg per tick
-                                discImage.rotation = (discImage.rotation + 0.72) % 360;
+                                discImage.rotation = (discImage.rotation + 0.5) % 360;
                             }
                         }
 
@@ -793,7 +849,7 @@ ShellRoot {
 
                                 // Update visual preview position without flooding DBus with SetPosition calls
                                 if (shell.activePlayer.length > 0) {
-                                    var targetTime = startPosition + (accumulatedDelta / 360.0) * shell.activePlayer.length;
+                                    let targetTime = startPosition + (accumulatedDelta / 720.0) * shell.activePlayer.length;
                                     previewPosition = Math.max(0, Math.min(targetTime, shell.activePlayer.length));
                                 }
                             }

@@ -234,20 +234,20 @@ end
 hl.bind(mod .. " + F11", gamma(5))
 hl.bind(mod .. " + F10", gamma(-5))
 
-hl.bind(mod .. " + X", function()
-    local ws = hl.get_active_workspace()
-    if ws == nil then return end
-
-    local current = ws.tiled_layout
-    local next_layout = current == "dwindle" and "scrolling" or "dwindle"
-
-    hl.workspace_rule({
-        workspace = tostring(ws.id),
-        layout = next_layout
-    })
-    os.execute("notify-send 'Layout:' '" .. next_layout .. "' &")
-end)
-
+-- hl.bind(mod .. " + X", function()
+--     local ws = hl.get_active_workspace()
+--     if ws == nil then return end
+--
+--     local current = ws.tiled_layout
+--     local next_layout = current == "dwindle" and "scrolling" or "dwindle"
+--
+--     hl.workspace_rule({
+--         workspace = tostring(ws.id),
+--         layout = next_layout
+--     })
+--     os.execute("notify-send 'Layout:' '" .. next_layout .. "' &")
+-- end)
+--
 -- hyprland.lua
 -- hl.bind("SUPER + D", function()
 --     hl.plugin.scrolloverview.overview("toggle")

@@ -8,7 +8,6 @@ import Quickshell.Services.Mpris
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
-import Quickshell.Hyprland
 import Quickshell.Networking
 
 Scope {
@@ -18,14 +17,6 @@ Scope {
     property var theme
     property var settings
     property bool calendarOpen: false
-    property bool onEmptyWorkspace: {
-        const wsId = Hyprland.focusedWorkspace?.id
-        if (wsId === undefined) return true
-        return Hyprland.toplevels.values.filter(t => t.workspace?.id === wsId).length === 0
-    }
-    onOnEmptyWorkspaceChanged: {
-        notify_root.centerOpen = onEmptyWorkspace
-    }
     property bool centerOpen: false
 
     readonly property bool hasNotifications: history.count > 0
@@ -251,7 +242,7 @@ Scope {
             bottom: true
         }
         margins {
-            top: -12
+            top: 0
         }
         implicitHeight: panelBg.height + 30
         implicitWidth: 550
@@ -271,14 +262,14 @@ Scope {
 
         Rectangle {
             id: panelBg
-            width: 30
-            height: 100
+            width: 300
+            height: 400
             radius: 18
             color: Qt.alpha(notify_root.theme.background, 0.8)
             border.width: 1
             border.color: Qt.alpha(notify_root.theme.surface_bright, 0.8)
-            x: -100
-            y: 1080 / 2 - height / 2
+            x: -350
+            y: (1080 / 2 - height / 2) - 20
             clip: true
             transformOrigin: Item.Right
 
@@ -288,14 +279,14 @@ Scope {
                 onStarted: centerPanel.animatingClosed = true
                 onStopped: centerPanel.animatingClosed = false
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 180 }
 
                 ParallelAnimation {
-                    NumberAnimation { target: panelBg; property: "width"; to: 60; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "height"; to: 40; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "width"; to: 300; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2; }
+                    NumberAnimation { target: panelBg; property: "height"; to: 400; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2 }
                 }
 
-                NumberAnimation { target: panelBg; property: "x"; to: -100; duration: 220; easing.type: Easing.InCirc }
+                NumberAnimation { target: panelBg; property: "x"; to: -350; duration: 300; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
@@ -313,23 +304,23 @@ Scope {
                         target: panelBg
                         properties: "width"
                         to: 380   
-                        duration: 380
+                        duration: 300
                         easing.type: Easing.OutBack
-                        easing.overshoot: 1.5
+                        easing.overshoot: 1.2
                     }
                     NumberAnimation {
                         target: panelBg
                         properties: "height"
                         to: 1000   
-                        duration: 380
+                        duration: 300
                         easing.type: Easing.OutBack
-                        easing.overshoot: 1.5
+                        easing.overshoot: 1.2
                     }
                     NumberAnimation {
                         target: content
                         property: "opacity"
                         to: 1
-                        duration: 200
+                        duration: 300
                     }
                 }
             }
@@ -408,6 +399,14 @@ Scope {
                     sourceSize.width: 200
                     sourceSize.height: 200
                     asynchronous: true
+                    opacity: notify_root.hasNotifications ? 0.5 : 1
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 200
+                            easing.type: Easing.OutCirc
+                        }
+                    }
 
                     // Only play when this item is visible and music is playing
                     playing: visible && (!shellRoot.activePlayer || shellRoot.activePlayer.playbackState === MprisPlaybackState.Playing)
@@ -448,12 +447,12 @@ Scope {
                 ColumnLayout {
                     id: centerCol
                     anchors.fill: parent
-                    anchors.margins: 12
                     spacing: 10
 
                     Rectangle {
                         id: statsCard
                         Layout.fillWidth: true
+                        Layout.margins: 12
                         Layout.preferredHeight: statsRow.implicitHeight + 24
                         radius: 18
                         color: Qt.alpha(notify_root.theme.background, 1)
@@ -1245,7 +1244,6 @@ Scope {
 
                     function startClose() {
                         if (card.closing)
-                            // don't double-trigger from timer + click both firing
                             return;
                         card.closing = true;
                     }

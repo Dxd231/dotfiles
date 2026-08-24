@@ -77,14 +77,31 @@ Item {
         listProc.running = true;
     }
 
+    property int _decodeToken: 0 
+
     function selectEntry(entry) {
         root.selectedEntry = entry;
         if (entry.isImage) {
             root.previewMode = "image";
             root.previewImagePath = "";  
             const path = "/tmp/qs-clip-" + entry.id + "." + entry.ext;
+
+            root._decodeToken += 1;
+            const myToken = root._decodeToken;
+
+
+            function onDone() {
+                decodeToFileProc.exited.disconnect(onDone);
+                // Only the most recent request is allowed to update the UI.
+                // If a newer selection has started since this one began,
+                // this exit belongs to a run we already killed — ignore it.
+                if (myToken === root._decodeToken) {
+                    root.previewImagePath = path;
+                }
+            }
+            decodeToFileProc.exited.connect(onDone);
+
             decodeToFileProc.command = ["sh", "-c", "cliphist decode > '" + path + "'"];
-            decodeToFileProc.pendingPath = path;
             decodeToFileProc.stdinEnabled = true;
             decodeToFileProc.running = false;
             decodeToFileProc.running = true;
@@ -187,9 +204,7 @@ Item {
 
     Process {
         id: decodeToFileProc
-        property string pendingPath: ""
         command: ["true"]
-        onExited: root.previewImagePath = decodeToFileProc.pendingPath
     }
 
     Process {
@@ -263,15 +278,15 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 60
-            height: 40
+            width: 200
+            height: 200
             x: 1920 / 2 - width / 2
             radius: 18
             border.width: 1
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.8)
+            color: Qt.alpha(root.theme.background, 0.95)
             clip: true
-            y: -100
+            y: -250
             transformOrigin: Item.Top
 
             SequentialAnimation {
@@ -283,11 +298,11 @@ Item {
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
 
                 ParallelAnimation {
-                    NumberAnimation { target: panelBg; property: "width"; to: 60; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "height"; to: 40; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 200; duration: 260; easing.type: Easing.InBack }
                 }
 
-                NumberAnimation { target: panelBg; property: "y"; to: -100; duration: 220; easing.type: Easing.InCirc }
+                NumberAnimation { target: panelBg; property: "y"; to: -250; duration: 220; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
@@ -297,7 +312,7 @@ Item {
                     target: panelBg
                     property: "y"
                     to: 6
-                    duration: 120
+                    duration: 280
                     easing.type: Easing.OutCirc
                 }
 
