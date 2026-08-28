@@ -147,7 +147,7 @@ Item {
         margins.top: -1
         margins.left: 0
         margins.right: 0
-        implicitHeight: 550
+        implicitHeight: 1000
         property bool animatingClosed: false
         visible: root.isOpenLauncher || animatingClosed
         MouseArea {
@@ -158,7 +158,7 @@ Item {
         Rectangle {
             id: panelBg
             width: 200
-            height: 200
+            height: 100
             x: 1920 / 2 - width / 2
             y: -250
             radius: 18
@@ -178,8 +178,9 @@ Item {
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
 
                 ParallelAnimation {
+                    NumberAnimation { target: panelBg; property: "topRightRadius"; to: 18; duration: 260; easing.type: Easing.InBack }
                     NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "height"; to: 200; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 260; easing.type: Easing.InBack }
                 }
 
                 NumberAnimation { target: panelBg; property: "y"; to: -250; duration: 220; easing.type: Easing.InCirc }
@@ -198,6 +199,13 @@ Item {
 
                 // Phase 2: box bounces open to full size, content fades in alongside
                 ParallelAnimation {
+                    NumberAnimation { 
+                        target: panelBg
+                        property: "topRightRadius" 
+                        to: 40
+                        duration: 260 
+                        easing.type: Easing.InBack 
+                    }
                     NumberAnimation {
                         target: panelBg
                         properties: "width"

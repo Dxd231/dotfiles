@@ -39,20 +39,43 @@ Item {
         return root.entries.filter(e => e.preview.toLowerCase().includes(q));
     }
 
+    // How long the selection has to stay put before we actually decode/preview it.
+    // Prevents spamming `cliphist decode` processes when scrolling/arrow-keying fast.
+    property int selectionDebounceMs: 120
+
     onQueryChanged: root.selectedIndex = 0
     onFilteredEntriesChanged: {
         if (root.selectedIndex >= root.filteredEntries.length)
             root.selectedIndex = Math.max(0, root.filteredEntries.length - 1);
         if (root.filteredEntries.length > 0)
-            root.selectEntry(root.filteredEntries[root.selectedIndex]);
+            root.queueSelectEntry(root.filteredEntries[root.selectedIndex]);
         else {
+            selectionDebounceTimer.stop();
             root.selectedEntry = null;
             root.previewMode = "none";
         }
     }
     onSelectedIndexChanged: {
         if (root.filteredEntries.length > 0 && root.selectedIndex >= 0)
-            root.selectEntry(root.filteredEntries[root.selectedIndex]);
+            root.queueSelectEntry(root.filteredEntries[root.selectedIndex]);
+    }
+
+    // Debounced entry point: call this instead of selectEntry() directly from
+    // anything that can fire rapidly (keyboard nav, scroll, filtering).
+    function queueSelectEntry(entry) {
+        selectionDebounceTimer.pendingEntry = entry;
+        selectionDebounceTimer.restart();
+    }
+
+    Timer {
+        id: selectionDebounceTimer
+        interval: root.selectionDebounceMs
+        repeat: false
+        property var pendingEntry: null
+        onTriggered: {
+            if (pendingEntry)
+                root.selectEntry(pendingEntry);
+        }
     }
 
     function parseLine(line) {
@@ -279,7 +302,7 @@ Item {
         Rectangle {
             id: panelBg
             width: 200
-            height: 200
+            height: 100
             x: 1920 / 2 - width / 2
             radius: 18
             border.width: 1
@@ -298,8 +321,9 @@ Item {
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
 
                 ParallelAnimation {
+                    NumberAnimation { target: panelBg; property: "topRightRadius"; to: 18; duration: 260; easing.type: Easing.InBack }
                     NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "height"; to: 200; duration: 260; easing.type: Easing.InBack }
+                    NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 260; easing.type: Easing.InBack }
                 }
 
                 NumberAnimation { target: panelBg; property: "y"; to: -250; duration: 220; easing.type: Easing.InCirc }
@@ -318,6 +342,13 @@ Item {
 
                 // Phase 2: box bounces open to full size, content fades in alongside
                 ParallelAnimation {
+                    NumberAnimation { 
+                        target: panelBg 
+                        property: "topRightRadius" 
+                        to: 50 
+                        duration: 260 
+                        easing.type: Easing.InBack 
+                    }
                     NumberAnimation {
                         target: panelBg
                         properties: "width"

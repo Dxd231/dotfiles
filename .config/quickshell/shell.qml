@@ -147,8 +147,6 @@ ShellRoot {
 
     QtObject {
         id: root
-        property string fontdefault: "Google Sans"
-        property string fontjp: "Zen Maru Gothic Medium"
         property int fontsize: 12
         property var settings: Settings {}
         readonly property bool hasPlayer: shell.activePlayer !== null && shell.activePlayer !== undefined
@@ -362,7 +360,7 @@ ShellRoot {
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: root.theme.source_color   // any matugen color
+                            colorizationColor: root.theme.primary   // any matugen color
                         }
                     } */
 
@@ -425,13 +423,13 @@ ShellRoot {
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: root.theme.source_color   // any matugen color
+                            colorizationColor: root.theme.primary   // any matugen color
                         }
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.memPercent ? "Mem: " + root.memoryUsage : root.memformat
-                        color: root.memCount > 12000 ? root.theme.source_color : root.theme.on_background
+                        color: root.memCount > 12000 ? root.theme.primary : root.theme.on_background
                         font.pixelSize: 14
                         font.family: root.settings.fontdefault
                         font.bold: true
@@ -454,7 +452,7 @@ ShellRoot {
                 width: mprisContent.width + 24
                 radius: root.global_radius
                 color: "transparent"
-                border.color: root.theme.source_color
+                border.color: root.theme.primary
                 border.width: 0
                 anchors.right: parent.right
                 anchors.rightMargin: 10
@@ -481,7 +479,7 @@ ShellRoot {
                                 required property int index
                                 width: 3
                                 radius: 1.5
-                                color: root.theme.source_color
+                                color: root.theme.primary
                                 anchors.bottom: parent.bottom
                                 height: 4
 
@@ -629,6 +627,7 @@ ShellRoot {
                     }
                 }
             }
+            // Mpris Panel
             PanelWindow {
                 id: albumPopup
                 WlrLayershell.namespace: "quickshell:mpris_popup"
@@ -649,10 +648,10 @@ ShellRoot {
                 property bool isOpen: false 
                 property int refreshTrigger: 0
 
-                width: mprispopup.width
+                width: mprispopup.width + 20
                 height: mprispopup.height + 30
                 color: "transparent"
-                visible: isOpen && root.hasPlayer || mprispopup.opacity > 0 && root.hasPlayer
+                visible: (isOpen || mprispopup.opacity > 0) && root.hasPlayer
 
 
                 IpcHandler {
@@ -676,20 +675,21 @@ ShellRoot {
                     right: true
                 }
                 margins.top: -1
-                margins.right: 6
+                margins.right: 0
+
 
                 Rectangle {
                     id: mprispopup
-                    width: 380
-                    height: 500
-                    x: 0
+                    width: 640
+                    height: 380
+                    y: 8
                     color: Qt.alpha(root.theme.background, 1)
                     radius: 18
+                    topRightRadius: 50
                     border.color: root.theme.surface_bright
                     border.width: 1
-                    transformOrigin: Item.Top
                     opacity: 0
-                    y: -270
+                    x: width
 
                     states: [
                         State {
@@ -697,7 +697,7 @@ ShellRoot {
                             when: albumPopup.isOpen
                             PropertyChanges {
                                 target: mprispopup
-                                y: 8
+                                x: 15
                                 opacity: 1
                             }
                         },
@@ -706,7 +706,7 @@ ShellRoot {
                             when: !albumPopup.isOpen
                             PropertyChanges {
                                 target: mprispopup
-                                y: -270
+                                x: 620
                                 opacity: 0
                             }
                         }
@@ -718,10 +718,9 @@ ShellRoot {
                             to: "open"
 
                             NumberAnimation {
-                                properties: "y,opacity"
-                                duration: 280
-                                easing.type: Easing.OutBack
-                                easing.overshoot: 1.5
+                                properties: "x,opacity"
+                                duration: 380
+                                easing.type: Easing.OutCirc
                             }
                         },
                         Transition {
@@ -729,21 +728,21 @@ ShellRoot {
                             to: "closed"
 
                             NumberAnimation {
-                                properties: "y,opacity"
-                                duration: 240
-                                easing.type: Easing.InBack
-                                easing.overshoot: 1.5
+                                properties: "x,opacity"
+                                duration: 340
+                                easing.type: Easing.InCirc
                             }
                         }
                     ]
+
                     //Album Art Container
                     Item {
                         id: discContainer
-                        width: 320
-                        height: 320
-                        anchors.top: parent.top
-                        anchors.topMargin: 12
-                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: 300
+                        height: 300
+                        anchors.left: parent.left
+                        anchors.leftMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
 
                         // The visual rotating disc
                         ClippingRectangle {
@@ -751,6 +750,8 @@ ShellRoot {
                             anchors.fill: parent
                             radius: 320
                             color: "transparent"
+                            border.color: Qt.alpha(root.theme.surface_bright, 0.8)
+                            border.width: 1
 
                             antialiasing: true
                             layer.enabled: true
@@ -760,8 +761,8 @@ ShellRoot {
                             Image {
                                 id: art
                                 anchors.fill: parent
-                                sourceSize.width: 320
-                                sourceSize.height: 320
+                                sourceSize.width: discContainer.width
+                                sourceSize.height: discContainer.height
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 source: {
@@ -883,9 +884,10 @@ ShellRoot {
                     // Track info
                     Column {
                         id: infoColumn
-                        anchors.top: discContainer.bottom
-                        anchors.topMargin: 14
-                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.right: parent.right
+                        anchors.rightMargin: 20
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: -70
                         width: 280
                         spacing: 4
 
@@ -1041,17 +1043,34 @@ ShellRoot {
                         }
                     }
 
+                    function formatTime(seconds) {
+                        if (isNaN(seconds) || seconds < 0) return "0:00"
+                        const m = Math.floor(seconds / 60)
+                        const s = Math.floor(seconds % 60)
+                        return m + ":" + (s < 10 ? "0" + s : s)
+                    }
+
+                    Text {
+                        id: timeStamps
+                        color: Qt.alpha(root.theme.on_background, 0.3)
+                        text: mprispopup.formatTime(shell.activePlayer.position) + "/" + mprispopup.formatTime(shell.activePlayer.length)
+                        anchors.right: seekBar.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: -20
+                    }
+
+
                     // Seek Bar
                     Rectangle {
                         id: seekBar
-                        anchors.top: infoColumn.bottom
-                        anchors.topMargin: 14
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 200
+                        anchors.right: parent.right
+                        anchors.rightMargin: 40
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 240
                         height: 7
                         radius: 2
 
-                        color: Qt.alpha(root.theme.source_color, 0.2)
+                        color: Qt.alpha(root.theme.primary, 0.2)
 
                         Rectangle {
                             y: progress_bar.height - 9
@@ -1059,7 +1078,7 @@ ShellRoot {
                             width: 11
                             height: 11
                             radius: 11
-                            color: root.theme.source_color
+                            color: Qt.alpha(root.theme.primary, 1)
                         }
 
                         Rectangle {
@@ -1077,8 +1096,10 @@ ShellRoot {
                             }
                             height: parent.height
                             radius: parent.radius
+                            topRightRadius: 0
+                            bottomRightRadius: 0
 
-                            color: root.theme.source_color
+                            color: Qt.alpha(root.theme.primary, 1)
 
                             Behavior on width {
                                 enabled: !seekMouseArea.pressed && !discMouseArea.isDragging
@@ -1142,13 +1163,15 @@ ShellRoot {
                     //Control Dock
                     Item {
                         id: controlDock
-                        anchors.top: infoColumn.bottom
-                        anchors.bottom: parent.bottom
+                        width: 250
+                        anchors.top: seekBar.bottom
+                        anchors.centerIn: seekBar
                         anchors.bottomMargin: -10
-                        anchors.left: parent.left
                         anchors.leftMargin: 30
                         anchors.right: parent.right
-                        anchors.rightMargin: 30
+                        anchors.rightMargin: 50
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: 50
 
                         Rectangle {
                             id: playButtonContainer
@@ -1161,15 +1184,15 @@ ShellRoot {
 
                             Image {
                                 id: playbutton
-                                width: 20
-                                height: 20
-                                sourceSize.width: 22
-                                sourceSize.height: 22
+                                width: 30
+                                height: 30
+                                sourceSize.width: 30
+                                sourceSize.height: 30
                                 fillMode: Image.PreserveAspectFit
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.source_color
+                                    colorizationColor: Qt.alpha(root.theme.on_background, 0.8)
                                 }
                                 source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
                                 property real rotAngle: playButtonContainer.pressed ? 10 : 0
@@ -1225,7 +1248,7 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.source_color
+                                    colorizationColor: Qt.alpha(root.theme.on_background, 0.8)
                                 }
                             }
 
@@ -1258,7 +1281,7 @@ ShellRoot {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.source_color   // any matugen color
+                                    colorizationColor: Qt.alpha(root.theme.on_background, 0.8)                                
                                 }
                             }
 
@@ -1334,6 +1357,14 @@ ShellRoot {
                             color: "transparent"
 
                             property bool occupied: modelData.lastIpcObject ? modelData.lastIpcObject.windows > 0 : false
+
+                            Connections {
+                                target: Hyprland
+                                function onRawEvent(event) {
+                                    if (event.name === "openwindow" || event.name === "closewindow" || event.name === "movewindow")
+                                        Hyprland.refreshWorkspaces();
+                                }
+                            }
                             property bool isCurrent: rect.modelData.active || rect.modelData.id < 0
 
                             onIsCurrentChanged: if (isCurrent)
@@ -1349,7 +1380,7 @@ ShellRoot {
                                         return root.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
                                     return String(rect.modelData.id);
                                 }
-                                color: rect.isCurrent ? root.theme.background : rect.occupied ? root.theme.source_color : root.theme.on_surface
+                                color: rect.isCurrent ? root.theme.background : rect.occupied ? root.theme.on_background : Qt.lighter(root.theme.background, 2.5)
                                 font.family: root.settings.fontjp
                                 font.pixelSize: 18
                                 font.bold: true
@@ -1385,7 +1416,7 @@ ShellRoot {
                     for (var i = 0; i < wsRepeater.count; i++) {
                         var item = wsRepeater.itemAt(i);
                         if (item && item.visible && item.isCurrent) {
-                            activePill.color = root.theme.source_color;
+                            activePill.color = root.theme.primary;
                             activePill.width = 35;
                             activePill.x = item.x - (activePill.width - item.width) / 2;
                             workspacemodule.pillInitialized = true;
@@ -1418,7 +1449,7 @@ ShellRoot {
                 anchors.right: mprisModule.left
                 anchors.rightMargin: 5
                 anchors.verticalCenter: parent.verticalCenter
-                property color transparentColor: Qt.alpha(root.theme.source_color, 0)
+                property color transparentColor: Qt.alpha(root.theme.primary, 0)
 
                 RowLayout {
                     id: rowlayout
@@ -1454,7 +1485,7 @@ ShellRoot {
                                 sourceComponent: Component {
                                     ColorOverlay {
                                         source: trayIcon
-                                        color: root.theme.source_color 
+                                        color: root.theme.primary 
                                     }
                                 }
                             }          
@@ -1645,7 +1676,7 @@ ShellRoot {
                     implicitWidth: 8
                     radius: 8
                     anchors.left: tux_image.right
-                    color: notifications.hasNotifications === true ? root.theme.source_color : "transparent"
+                    color: notifications.hasNotifications === true ? root.theme.primary : "transparent"
                     visible: notifications.hasNotifications === true
                 }
 
@@ -1662,7 +1693,7 @@ ShellRoot {
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: root.theme.source_color
+                        colorizationColor: root.theme.primary
                     }
 
                     Behavior on source {
@@ -1723,7 +1754,7 @@ ShellRoot {
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: root.theme.source_color
+                        colorizationColor: root.theme.primary
                     }
 
                     transform: Scale {
@@ -1788,7 +1819,7 @@ ShellRoot {
             visible: !entryDelegate.modelData.isSeparator
             anchors.fill: parent
             radius: 4
-            color: itemHover.hovered ? root.theme.source_color : "transparent"
+            color: itemHover.hovered ? root.theme.primary : "transparent"
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter

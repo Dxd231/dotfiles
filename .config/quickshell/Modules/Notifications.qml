@@ -37,6 +37,7 @@ Scope {
             _prevTx = 0;
             netDown = 0;
             netUp = 0;
+            wifiMenu.wifiMenu_open = false;
         }
         if (centerOpen) {
             closeAnim.stop();
@@ -239,13 +240,12 @@ Scope {
         anchors {
             top: true
             left: true
-            bottom: true
         }
         margins {
             top: 0
         }
-        implicitHeight: panelBg.height + 30
-        implicitWidth: 550
+        implicitHeight: 1080
+        implicitWidth: 1920
         color: "transparent"
         exclusionMode: ExclusionMode.Auto
         property bool animatingClosed: false
@@ -260,18 +260,25 @@ Scope {
             }
         }
 
+        MouseArea {
+            anchors.fill: parent
+            onClicked: notify_root.centerOpen = false
+        }
+
         Rectangle {
             id: panelBg
-            width: 300
-            height: 400
+            width: 150
+            height: 500
             radius: 18
-            color: Qt.alpha(notify_root.theme.background, 0.8)
+            color: Qt.alpha(notify_root.theme.background, 0.95)
             border.width: 1
             border.color: Qt.alpha(notify_root.theme.surface_bright, 0.8)
             x: -350
-            y: (1080 / 2 - height / 2) - 20
+            y: (1080 / 16 - height / 16) -10
             clip: true
             transformOrigin: Item.Right
+
+            
 
             SequentialAnimation {
                 id: closeAnim
@@ -282,11 +289,12 @@ Scope {
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 180 }
 
                 ParallelAnimation {
-                    NumberAnimation { target: panelBg; property: "width"; to: 300; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2; }
-                    NumberAnimation { target: panelBg; property: "height"; to: 400; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2 }
+                    NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2; }
+                    NumberAnimation { target: panelBg; property: "height"; to: 500; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2 }
                 }
 
                 NumberAnimation { target: panelBg; property: "x"; to: -350; duration: 300; easing.type: Easing.InCirc }
+
             }
 
             SequentialAnimation {
@@ -303,7 +311,7 @@ Scope {
                     NumberAnimation {
                         target: panelBg
                         properties: "width"
-                        to: 380   
+                        to: 400   
                         duration: 300
                         easing.type: Easing.OutBack
                         easing.overshoot: 1.2
@@ -311,7 +319,7 @@ Scope {
                     NumberAnimation {
                         target: panelBg
                         properties: "height"
-                        to: 1000   
+                        to: 800   
                         duration: 300
                         easing.type: Easing.OutBack
                         easing.overshoot: 1.2
@@ -339,48 +347,12 @@ Scope {
                 artist.includes("少女フラクタル");
             }
 
-            property bool isDeltarune: {
-                if (!shellRoot.activePlayer) return false;
-                var artist = (shellRoot.activePlayer.trackArtist || "").toLowerCase();
-                var title = (shellRoot.activePlayer.trackTitle || "").toLowerCase();
-                return artist.includes("toby fox") || title.includes("deltarune") || title.includes("undertale");
-            }
-
-            // Your two GIF paths
             property var gifsTH: [  "../assets/reimu-touhou.gif",
                                     "../assets/marisa-touhou.gif",
                                     "../assets/reimu-touhou.gif2.gif"]
 
             // The currently chosen GIF
-            property string currentGifTou: pickRandomTH()
-
-            function pickRandomTH() {
-                let next
-                do {
-                    next = gifsTH[Math.floor(Math.random() * gifsTH.length)]
-                } while (next === currentGifTou && gifsTH.length > 1)
-                return next
-            }
-            
-
-            property var gifsDR: [  "../assets/deltarune-icegif-2.gif",
-                                    "../assets/deltarune-icegif.gif",
-                                    "../assets/deltarune3.gif",
-                                    "../assets/deltarune-knight.gif",
-                                    "../assets/deltarune-roaring-knight.gif"]
-
-            // The currently chosen GIF
-            property string currentGifDel: pickRandomDel()
-
-            function pickRandomDel() {
-                let next
-                do {
-                    next = gifsDR[Math.floor(Math.random() * gifsDR.length)]
-                } while (next === currentGifDel && gifsDR.length > 1)
-                return next
-            }
-
-
+            property string currentGifTou: "../assets/reimu-touhou.gif"
 
             Item {
                 id: content
@@ -410,7 +382,7 @@ Scope {
 
                     // Only play when this item is visible and music is playing
                     playing: visible && (!shellRoot.activePlayer || shellRoot.activePlayer.playbackState === MprisPlaybackState.Playing)
-                    visible: panelBg.isTouhou
+                    visible: panelBg.isTouhou && openAnim.stopped
 
                     // When it becomes visible (and starts playing), pick a new random GIF
                     onVisibleChanged: {
@@ -420,30 +392,6 @@ Scope {
                     }
                 }
 
-                AnimatedImage {
-                    id: animDelta
-                    source: panelBg.isDeltarune ? panelBg.currentGifDel : ""
-                    anchors.centerIn: parent
-                    width: 200
-                    height: 200 
-                    sourceSize.width: 200
-                    sourceSize.height: 200
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-
-                    // Only play when this item is visible and music is playing
-                    playing: visible && (!shellRoot.activePlayer || shellRoot.activePlayer.playbackState === MprisPlaybackState.Playing)
-                    visible: panelBg.isDeltarune
-
-                    // When it becomes visible (and starts playing), pick a new random GIF
-                    onVisibleChanged: {
-                        if (visible) {
-                            panelBg.currentGifDel = panelBg.pickRandomDel()
-                        }
-                    }
-                }
-
-
                 ColumnLayout {
                     id: centerCol
                     anchors.fill: parent
@@ -452,18 +400,23 @@ Scope {
                     Rectangle {
                         id: statsCard
                         Layout.fillWidth: true
-                        Layout.margins: 12
-                        Layout.preferredHeight: statsRow.implicitHeight + 24
+                        Layout.margins: 4
+                        Layout.preferredHeight: statsRow.implicitHeight
                         radius: 18
                         color: Qt.alpha(notify_root.theme.background, 1)
-                        border.width: 0
-                        border.color: Qt.alpha(notify_root.theme.on_background, 0)
                         clip: true
+
+                        Behavior on height {
+                            NumberAnimation {
+                                duration: 300
+                                easing.type: Easing.InOutCirc
+                            }
+                        }
 
                         ColumnLayout {
                             id: statsRow
                             anchors.fill: parent
-                            anchors.margins: 14
+                            anchors.margins: 4
                             spacing: 10
 
                             // Powerprofiles
@@ -483,7 +436,7 @@ Scope {
                                             required property var modelData
                                             width: 50
                                             height: 28
-                                            color: (modelData === notify_root.current_profile) ? notify_root.theme.source_color : notify_root.theme.background
+                                            color: (modelData === notify_root.current_profile) ? notify_root.theme.primary : notify_root.theme.background
                                             radius: 4
 
                                             Behavior on color {
@@ -504,7 +457,7 @@ Scope {
                                                 layer.enabled: true
                                                 layer.effect: MultiEffect {
                                                     colorization: 1.0
-                                                    colorizationColor: (modelData === notify_root.current_profile) ? notify_root.theme.background : notify_root.theme.source_color   // any matugen color
+                                                    colorizationColor: (modelData === notify_root.current_profile) ? notify_root.theme.background : notify_root.theme.primary   // any matugen color
                                                 }
                                                 source: {
                                                     if (profiles_rect.modelData === "performance")
@@ -544,7 +497,7 @@ Scope {
                                         layer.enabled: true
                                         layer.effect: MultiEffect {
                                             colorization: 1.0
-                                            colorizationColor: notify_root.theme.source_color   // any matugen color
+                                            colorizationColor: notify_root.theme.primary   // any matugen color
                                         }
                                     }
                                     Text {
@@ -572,7 +525,7 @@ Scope {
                                     Rectangle {
                                         height: parent.height
                                         radius: 5
-                                        color: notify_root.theme.source_color
+                                        color: notify_root.theme.primary
                                         width: parent.width * Math.min(1, Math.max(0, notify_root.cpuPercent / 100))
                                         Behavior on width {
                                             NumberAnimation {
@@ -603,7 +556,7 @@ Scope {
                                         layer.enabled: true
                                         layer.effect: MultiEffect {
                                             colorization: 1.0
-                                            colorizationColor: notify_root.theme.source_color   // any matugen color
+                                            colorizationColor: notify_root.theme.primary
                                         }
                                     }
                                     Text {
@@ -631,7 +584,7 @@ Scope {
                                     Rectangle {
                                         height: parent.height
                                         radius: 5
-                                        color: notify_root.theme.source_color
+                                        color: notify_root.theme.primary
                                         width: parent.width * Math.min(1, Math.max(0, notify_root.memPercent / 100))
                                         Behavior on width {
                                             NumberAnimation {
@@ -662,7 +615,7 @@ Scope {
                                         layer.enabled: true
                                         layer.effect: MultiEffect {
                                             colorization: 1.0
-                                            colorizationColor: notify_root.theme.source_color   // any matugen color
+                                            colorizationColor: notify_root.theme.primary
                                         }
                                     }
                                     Text {
@@ -703,7 +656,7 @@ Scope {
                                     Rectangle {
                                         height: parent.height
                                         radius: 5
-                                        color: notify_root.theme.source_color
+                                        color: notify_root.theme.primary
                                         width: parent.width * Math.min(1, Math.max(0, notify_root.wifiPercent / 100))
                                         Behavior on width {
                                             NumberAnimation {
@@ -727,13 +680,18 @@ Scope {
                             ColumnLayout {
                                 id: wifiMenu
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: wifiMenu_open ? implicitHeight : 0
+                                Layout.preferredHeight: wifiExpand * (content.height - 40) 
                                 clip: true
-                                spacing: 6
+                                spacing: 2
+
+                                property real wifiExpand: wifiMenu.wifiMenu_open ? 1 : 0
+                                Behavior on wifiExpand {
+                                    NumberAnimation { duration: 400; easing.type: Easing.InOutCubic }
+                                }
 
                                 property bool wifiMenu_open: false
 
-                                Behavior on Layout.preferredHeight {
+                                Behavior on height {
                                     NumberAnimation {
                                         duration: 400
                                         easing.type: Easing.InOutCirc
@@ -749,14 +707,14 @@ Scope {
 
                                 ListView {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: Math.min(contentHeight, 170)
+                                    Layout.fillHeight: true
                                     clip: true
                                     spacing: 10
                                     model: notify_root.networks
                                     delegate: Rectangle {
                                         id: netCard
                                         border.width: 2
-                                        border.color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.source_color : notify_root.theme.surface_bright
+                                        border.color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : notify_root.theme.surface_bright
                                         required property var modelData
                                         property bool expanded: notify_root.expandedSsid === modelData.name
 
@@ -766,15 +724,14 @@ Scope {
                                             target: netCard.modelData
                                             function onConnectionFailed(reason) {
                                                 console.log("connectionFailed fired:", reason);
-                                                Quickshell.execDetached(["sh", "-c", `notify-send -i "/home/niconico/.config/quickshell/assets/wifi-x.svg" -a "" 'Connect failed' '${notify_root.reasonText(reason)}'`]);
+                                                Quickshell.execDetached(["sh", "-c", `notify-send -i "/home/niconico/.config/quickshell/assets/wifi-x.svg" -a "" 'Connect failed'`]);
                                             }
                                         }
-                                        Component.onCompleted: console.log("Connections target is:", netCard.modelData)
 
                                         width: ListView.view.width
                                         height: contentCol.implicitHeight + 12
                                         radius: 10
-                                        color: netCard.expanded ? Qt.alpha(notify_root.theme.on_background, 0.05) : (headerMouse.containsMouse ? Qt.alpha(notify_root.theme.on_background, 0.05) : "transparent")
+                                        color: Qt.alpha(notify_root.theme.background, 1)
                                         clip: true
 
                                         Behavior on height {
@@ -810,7 +767,7 @@ Scope {
                                                     Text {
                                                         Layout.fillWidth: true
                                                         text: netCard.modelData.name
-                                                        color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.source_color : Qt.alpha(notify_root.theme.on_background, 0.7)
+                                                        color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.7)
                                                         font.family: notify_root.theme.fontdefault
                                                         font.pixelSize: notify_root.theme.fontsize + 2
                                                         font.bold: true
@@ -884,6 +841,10 @@ Scope {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        opacity: 1 - wifiMenu.wifiExpand
+                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)  // e.g. calendarCol.implicitHeight + 4
+                        clip: true
+                        visible: wifiMenu.wifiExpand < 1   
                         Text {
                             Layout.fillWidth: true
                             text: "Notifications"
@@ -903,7 +864,7 @@ Scope {
                             layer.enabled: true
                             layer.effect: MultiEffect {
                                 colorization: 1.0
-                                colorizationColor: notify_root.theme.source_color
+                                colorizationColor: notify_root.theme.primary
                             }
                             MouseArea {
                                 cursorShape: Qt.PointingHandCursor
@@ -922,7 +883,9 @@ Scope {
                         id: historyList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredHeight: contentHeight
+                        opacity: 1 - wifiMenu.wifiExpand
+                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)
+                        visible: wifiMenu.wifiExpand < 1
                         clip: true
                         spacing: 8
                         boundsBehavior: Flickable.StopAtBounds
@@ -1068,18 +1031,16 @@ Scope {
                         }
                     }
 
-                    // ---- calendar, pinned at the bottom (Windows-notification-center
-                    // style), reusing shell.qml's own state rather than a second
-                    // independent calendar ----
                     Rectangle {
                         id: calendarCard
                         Layout.fillWidth: true
-                        Layout.preferredHeight: calendarCol.implicitHeight + 24
                         radius: 18
                         color: "transparent"
                         border.width: 0
                         border.color: Qt.alpha(notify_root.theme.on_background, 0)
-                        visible: !!notify_root.shellRoot
+                        opacity: 1 - wifiMenu.wifiExpand
+                        Layout.preferredHeight: (calendarCol.implicitHeight + 24) * (1 - wifiMenu.wifiExpand)
+                        visible: wifiMenu.wifiExpand < 1
 
                         ColumnLayout {
                             id: calendarCol
@@ -1172,9 +1133,9 @@ Scope {
                                         Layout.preferredHeight: 26
                                         radius: 13
                                         opacity: modelData.inMonth ? 1.0 : 0.35
-                                        color: notify_root.shellRoot.isHighlighted(modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.source_color : "transparent"
+                                        color: notify_root.shellRoot.isHighlighted(modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.primary : "transparent"
                                         border.width: (notify_root.shellRoot.isToday(modelData.date) && !notify_root.shellRoot.isHighlighted(modelData.date)) ? 2 : 0
-                                        border.color: notify_root.theme.source_color
+                                        border.color: notify_root.theme.primary
 
                                         Behavior on color {
                                             ColorAnimation {
@@ -1296,7 +1257,7 @@ Scope {
                     color: Qt.alpha(notify_root.theme.background, 0.8)
                     clip: true
                     border.width: 1
-                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.source_color, 0.5) : Qt.alpha(notify_root.theme.surface_bright, 0.5)
+                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.primary, 0.5) : Qt.alpha(notify_root.theme.surface_bright, 0.5)
 
                     RowLayout {
                         id: layout
@@ -1342,9 +1303,22 @@ Scope {
                                 cursorShape: Qt.PointingHandCursor
                                 anchors.fill: parent
                                 hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onEntered: card.hovered = true
                                 onExited: card.hovered = false
-                                onClicked: card.startClose()   // was: card.modelData.dismiss()
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton) {
+                                        card.startClose();
+                                        return;
+                                    }
+                                    // Left click: invoke the default action if the app provided one
+                                    const actions = card.modelData.actions;
+                                    if (actions && actions.length > 0) {
+                                        const defaultAction = actions.find(a => a.identifier === "default") || actions[0];
+                                        defaultAction.invoke();
+                                    }
+                                    card.startClose();
+                                }
                             }
                         }
                     }
