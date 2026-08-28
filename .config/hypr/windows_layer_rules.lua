@@ -78,6 +78,7 @@ hl.workspace_rule({ workspace = "10", monitor = "DP-3", persistent = true })
 hl.workspace_rule({ workspace = "s[1]",
     layout   = "scrolling",
     gaps_out = 70,
+    gaps_in = 20,
 })
 
 -- hl.workspace_rule({ workspace = "1",
@@ -190,7 +191,7 @@ hl.layer_rule({
     match = { namespace = "quickshell:osd" },
     blur = true,
     ignore_alpha = 0.3,
-    animation = "popin 80%"
+    no_anim = true
 })
 
 hl.layer_rule({

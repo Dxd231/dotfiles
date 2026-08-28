@@ -46,9 +46,9 @@ end, {
 })
 
 -- === Audio Controls ===
-hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 10%+"),             { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 19%-"),            { locked = true, repeating = true })
-hl.bind("XF86AudioMute",            hl.dsp.exec_cmd("swayosd-client --output-volume mute-toggle"),   { locked = true })
+hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("qs ipc call osd volumeUp"),             { locked = true, repeating = true })
+hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("qs ipc call osd volumeDown"),            { locked = true, repeating = true })
+hl.bind("XF86AudioMute",            hl.dsp.exec_cmd("qs ipc call osd mute"),   { locked = true })
 
 
 -- === Window Management ===
@@ -76,10 +76,10 @@ hl.bind(mod .. " + U",              hl.dsp.focus({ window = "floating" }))
 -- Focus Navigation
 -- =============================================================================
 
-hl.bind(mod .. " + left",           hl.dsp.focus({ direction = "left"}))
+hl.bind(mod .. " + left",           hl.dsp.layout("move -col"))
 hl.bind(mod .. " + down",           hl.dsp.focus({ direction = "down"}))
 hl.bind(mod .. " + up",             hl.dsp.focus({ direction = "up"}))
-hl.bind(mod .. " + right",          hl.dsp.focus({ direction = "right"}))
+hl.bind(mod .. " + right",          hl.dsp.layout("move +col"))
 
 hl.bind(mod .. " + ALT + right",    hl.dsp.layout("cyclenext"))
 hl.bind(mod .. " + ALT + left",     hl.dsp.layout("cycleprev"))
