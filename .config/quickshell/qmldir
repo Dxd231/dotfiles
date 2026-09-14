@@ -1,0 +1,2 @@
+singleton Colors Colors.qml
+singleton Settings Settings.qml

@@ -138,7 +138,7 @@ Scope {
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: osdroot.theme.source_color
+                        colorizationColor: osdroot.theme.primary
                     }
                     source: {
                         if (Pipewire.defaultAudioSink?.audio.muted || Pipewire.defaultAudioSink?.audio.volume <= 0.01) {
@@ -166,7 +166,7 @@ Scope {
                         }
                         width: parent.width * Math.min(1, Math.max(0, Pipewire.defaultAudioSink?.audio.volume ?? 0))
                         radius: parent.radius
-                        color: osdroot.theme.source_color
+                        color: osdroot.theme.primary
 
                         Behavior on width {
                             NumberAnimation {

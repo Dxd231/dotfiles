@@ -64,7 +64,7 @@ hl.config({
 -- ==================
 hl.config({
   decoration = {
-    rounding              = 18,
+    rounding              = 28,
     rounding_power        = 4.0,
     dim_special           = 0.2,
     dim_inactive          = false,
@@ -84,6 +84,7 @@ hl.config({
         size          = 3,
         passes        = 3,
         vibrancy      = 0.1696,
+        -- variant       = "acrylic",
     },
   }
 })
@@ -125,7 +126,9 @@ hl.config({
     disable_hyprland_logo = true,
     on_focus_under_fullscreen = 1,
     font_family = "Google Sans Code",
-    key_press_enables_dpms  = true,
+  },
+  render = {
+    expand_undersized_textures = false,
   }
 })
 -- ~/.config/hypr/hyprland.lua
@@ -135,25 +138,5 @@ hl.config({
       follow_mouse = 1,
   },
 })
-
-hl.config({
-  plugin = {
-    hypr_autoscroll = {
-      enabled = true,
-      direct_activation = false,
-      button = 274,
-      dead_zone = 12.0,
-      sensitivity = 2.0,
-      acceleration = 1.005,
-      max_speed = 1000.0,
-      horizontal = true,
-      vertical = true,
-      frame_interval_ms = 16,
-    },
-  },
-})
-
-
-
 
 

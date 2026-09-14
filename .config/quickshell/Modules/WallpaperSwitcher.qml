@@ -88,10 +88,7 @@ Item {
         // fire wallpaper change immediately, don't wait on color extraction
         var cmd =
             "awww img '" + safePath + "' --transition-type grow --transition-fps 100 --transition-duration 1 >/dev/null 2>&1 & " +
-            "tmp=$(mktemp --suffix=.png); " +
-            "magick '" + safePath + "' -resize 128x128 \"$tmp\" 2>/dev/null && " +
-            "matugen image \"$tmp\" --prefer " + root.colorPreference + " >/dev/null 2>&1; " +
-            "rm -f \"$tmp\" &";
+            "matugen image '" + safePath + "' --prefer " + root.colorPreference + " >/dev/null 2>&1 &";
 
         applyProc.command = ["sh", "-c", cmd];
         applyProc.running = true;
@@ -126,7 +123,7 @@ Item {
         anchors.bottom: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 0
+        margins.bottom: 0
         margins.left: 0
         margins.right: 0
         implicitHeight: root.cardHeight + 100
@@ -144,12 +141,12 @@ Item {
             width: 1920
             height: 280
             x: 0
-            radius: 18
+            radius: 0
             border.width: 0
             border.color: root.theme.surface_bright
             color: Qt.alpha(root.theme.background, 0.8)
             clip: true
-            y: 0
+            y: 280
 
             states: [
                 State {
@@ -157,7 +154,7 @@ Item {
                     when: root.isOpen
                     PropertyChanges {
                         target: panelBg
-                        y: 35
+                        y: 45
                         opacity: 1
                     }
                 },
@@ -166,7 +163,7 @@ Item {
                     when: !root.isOpen
                     PropertyChanges {
                         target: panelBg
-                        y: 1950
+                        y: 280
                         opacity: 0
                     }
                 }

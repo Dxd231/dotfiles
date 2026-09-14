@@ -1,11 +1,13 @@
+pragma Singleton
 import QtQuick
+import Quickshell
 
-QtObject {
-    property string fontdefault: "Readex Pro"
+Singleton {
+    property string fontdefault: "Google Sans"
 
-    property string fontmedium: "Readex Pro Medium"
+    property string fontmedium: "Google Sans Medium"
 
     property string fontjp: "Zen Maru Gothic Medium"
 
-    property int fontsize: 12
+    property int fontsize: 14
 }

@@ -120,7 +120,7 @@ Scope {
                 radius: 18
                 color: Qt.alpha(root.theme.background, 0.8)
                 border.width: 1
-                border.color: root.theme.surface_bright
+                border.color: root.theme.outline_variant
                 clip: true
                 transformOrigin: Item.Top
 
@@ -309,7 +309,7 @@ Scope {
                                     height: icon.sourceSize.height
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     colorization: 1.0
-                                    colorizationColor: root.theme.source_color
+                                    colorizationColor: root.theme.primary
                                 }
 
                                 Text {

@@ -163,7 +163,7 @@ Scope {
             radius: 18
             color: Qt.alpha(emojiRoot.theme.background, 0.8)
             border.width: 1
-            border.color: Qt.alpha(emojiRoot.theme.surface_bright, 0.8)
+            border.color: Qt.alpha(emojiRoot.theme.outline_variant, 0.8)
             opacity: 0
             x: -270
 

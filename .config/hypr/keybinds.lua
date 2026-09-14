@@ -23,7 +23,6 @@ hl.bind(mod ..  " + H",             hl.dsp.exec_cmd("killall -s SIGUSR1 waifulan
 hl.bind(mod ..  "+ W",              hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call wallpaper toggle"))
 hl.bind(mod ..  "+ M",              hl.dsp.exec_cmd("qs ipc call mprispopup toggle"))
 hl.bind(mod ..  "+ C",              hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call notifications toggle"))
-hl.bind(mod ..  "+ SHIFT + N",      hl.dsp.exec_cmd("gnome-calculator"))
 hl.bind(mod ..  " + Tab",           hl.dsp.exec_cmd("snappy-switcher next"))
 hl.bind(mod ..  " + SHIFT + Tab",   hl.dsp.exec_cmd("snappy-switcher prev"))
 hl.bind("CTRL + ALT + Delete",      hl.dsp.exec_cmd("qs ipc call powermenu toggle"))
@@ -34,6 +33,8 @@ hl.bind(mod .. "+ SHIFT + V",       hl.dsp.exec_cmd("pidof clipse && pkill clips
 hl.bind(mod .. "+ SHIFT + F11",     hl.dsp.exec_cmd("killall hyprsunset || hyprsunset &"))
 hl.bind(mod .. "+ SHIFT + X",       hl.dsp.exec_cmd("wl-freeze -a"))
 hl.bind(mod .. " + A",              hl.dsp.exec_cmd("~/scripts/manga-ocr.sh && ~/.local/bin/paddle-ocr"))
+
+hl.bind("XF86Calculator",           hl.dsp.exec_cmd("gnome-calculator"))
 
 local autoscroll_shortcut = "SUPER + H"
 
@@ -116,7 +117,7 @@ hl.bind(mod .. " + End",            hl.dsp.focus({ window = "last" }))
 
 hl.bind(mod .. " + Page_Down", function()
     local current = hl.get_active_workspace().id
-    if current < 10 then
+    if current < 8 then
         hl.dispatch(hl.dsp.focus({ workspace = current + 1 }))
     end
 end)
@@ -130,7 +131,7 @@ end)
 
 hl.bind(mod .. " + SHIFT + Page_Down", function()
     local current = hl.get_active_workspace().id
-    if current < 10 then
+    if current < 8 then
         hl.dispatch(hl.dsp.window.move({ workspace = current + 1 }))
     end
 end)
@@ -206,8 +207,15 @@ hl.bind("ALT + Print",              hl.dsp.exec_cmd("grimblast copy active"))
 -- === System Controls ===
 
 
-hl.bind(mod .. " + S",             hl.dsp.workspace.toggle_special("box"))
-hl.bind(mod .. " + SHIFT + S",     hl.dsp.window.move({ workspace = "special:box", follow = false }))
+hl.bind(mod .. " + S",             hl.dsp.workspace.toggle_special("music"))
+hl.bind(mod .. " + SHIFT + S",     hl.dsp.window.move({ workspace = "special:music", follow = false }))
+
+hl.bind(mod .. " + D",             hl.dsp.workspace.toggle_special("texthooker"))
+hl.bind(mod .. " + SHIFT + D",     hl.dsp.window.move({ workspace = "special:texthooker", follow = false }))
+
+hl.bind(mod .. " + N",             hl.dsp.workspace.toggle_special("note"))
+hl.bind(mod .. " + SHIFT + N",     hl.dsp.window.move({ workspace = "special:note", follow = false }))
+
  
 -- DPMS toggle: wrapped in a timer per wiki recommendation to avoid undefined behavior
 hl.bind(mod .. " + SHIFT + P",     function()

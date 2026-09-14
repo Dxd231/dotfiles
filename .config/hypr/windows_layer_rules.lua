@@ -195,6 +195,19 @@ hl.layer_rule({
 })
 
 hl.layer_rule({
+    match = { namespace = "arch_logo" },
+    blur = false,
+    ignore_alpha = 0.3,
+})
+
+hl.layer_rule({
+    match = { namespace = "quickshell-share-picker" },
+    blur = false,
+    ignore_alpha = 0.3,
+    animation = "popin 50%"
+})
+
+hl.layer_rule({
     match = { namespace = "quickshell:clipboardmanager" },
     blur = true,
     ignore_alpha = 0.3,

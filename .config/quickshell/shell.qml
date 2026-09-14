@@ -11,12 +11,12 @@ import Quickshell.Wayland
 import QtQuick.Effects
 import Quickshell.Widgets
 import Qt5Compat.GraphicalEffects
-import "Colors.qml"
-import "Settings.qml"
 import "./Modules"
 
 ShellRoot {
     id: shell
+
+    
 
     Notifications {
         id: notifications
@@ -148,9 +148,9 @@ ShellRoot {
     QtObject {
         id: root
         property int fontsize: 12
-        property var settings: Settings {}
+        property var settings: Settings
         readonly property bool hasPlayer: shell.activePlayer !== null && shell.activePlayer !== undefined
-        property var theme: Colors {}
+        property var theme: Colors
         property int global_radius: 10
         readonly property var kanjiNumbers: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
@@ -200,18 +200,23 @@ ShellRoot {
 
     PanelWindow {
         id: archlinux_backdrop
-        width: backdrop.width
-        height: backdrop.height
+        WlrLayershell.namespace: "arch_logo"
+        width: backdrop.width + 20
+        height: backdrop.height + 20
         color: "transparent"
+        anchors.left: true
+        anchors.bottom: true
 
         WlrLayershell.layer: WlrLayer.Bottom
+
 
         MultiEffect {
             source: backdrop
             anchors.fill: backdrop
             shadowEnabled: true
-            shadowColor: "#000000"
+            shadowColor: '#e1000000'
             shadowOpacity: 5
+            opacity: 0.8
             shadowBlur: 1.0
             shadowVerticalOffset: 0
             shadowHorizontalOffset: 0
@@ -221,11 +226,12 @@ ShellRoot {
             id: backdrop
             anchors.centerIn: parent
             source: "./assets/archbtw.svg"
-            width: 500
-            height: 500
+            width: 300
+            height: 300
             sourceSize.width: width
             sourceSize.height: height
             fillMode: Image.PreserveAspectFit
+            visible: false
         }
     }
 
@@ -304,7 +310,7 @@ ShellRoot {
 
         Rectangle {
             id: realbar
-            height: 36
+            height: 42
             anchors {
                 top: parent.top
                 left: parent.left
@@ -314,7 +320,7 @@ ShellRoot {
             bottomLeftRadius: 0
             bottomRightRadius: 0
             border.width: 0
-            border.color: root.theme.surface_bright
+            border.color: root.theme.outline_variant
             color: Qt.alpha(root.theme.background, 1)
 
             
@@ -328,8 +334,8 @@ ShellRoot {
                 radius: root.global_radius
                 anchors.rightMargin: 0
                 color: "transparent"
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.leftMargin: 0
+                anchors.left: mprisModule.right
+                anchors.leftMargin: 35
                 anchors.verticalCenter: parent.verticalCenter
 
                 Text {
@@ -337,7 +343,7 @@ ShellRoot {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "時"
                     color: Qt.alpha(root.theme.on_background, 0.6)
-                    rightPadding: 100
+                    rightPadding: 160
                     font.pixelSize: 18
                     font.family: root.settings.fontjp
                     font.bold: true
@@ -349,42 +355,24 @@ ShellRoot {
                     anchors.centerIn: parent
                     spacing: 6
 
-                    /* Image {
-                        anchors.verticalCenter: parent.verticalCenter
-                        source: "./assets/clock.svg"
-                        width: 20
-                        height: 20
-                        sourceSize.width: 22
-                        sourceSize.height: 22
-                        fillMode: Image.PreserveAspectFit
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: root.theme.primary   // any matugen color
-                        }
-                    } */
+                    Text {
 
-                    ColumnLayout {
-                        spacing: 0
-                        Text {
-                            Layout.alignment: Qt.AlignHCenter
-                            text: root.time
-                            color: root.theme.on_background
-                            font.pixelSize: 16
-                            font.family: root.settings.fontdefault
-                            font.bold: true
-                            /* renderType: Text.NativeRendering
-                            font.hintingPreference: Font.PreferVerticalHinting */
-                        }
-                        Text {
-                            text: root.dateString
-                            color: Qt.alpha(root.theme.on_background, 0.6)
-                            font.pixelSize: 12
-                            font.family: root.settings.fontdefault
-                            font.bold: true
-                            /* renderType: Text.NativeRendering
-                            font.hintingPreference: Font.PreferVerticalHinting */
-                        }
+                        text: root.time
+                        color: Qt.alpha(root.theme.on_background, 0.6)
+                        font.pixelSize: 16
+                        font.family: root.settings.fontdefault
+                        font.bold: true
+                        /* renderType: Text.NativeRendering
+                        font.hintingPreference: Font.PreferVerticalHinting */
+                    }
+                    Text {
+                        text: root.dateString
+                        color: Qt.alpha(root.theme.on_background, 0.6)
+                        font.pixelSize: 16
+                        font.family: root.settings.fontdefault
+                        font.bold: true
+                        /* renderType: Text.NativeRendering
+                        font.hintingPreference: Font.PreferVerticalHinting */
                     }
                 }
             }
@@ -398,8 +386,76 @@ ShellRoot {
                 radius: 12
                 color: "transparent"
                 anchors.right: tray_module.left
-                anchors.rightMargin: 5
+                anchors.rightMargin: 15
                 anchors.verticalCenter: parent.verticalCenter
+
+                Item {
+                    id: memCirc
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 30
+                    height: 30
+
+                    property real percent: {
+                        var n = parseFloat(root.memformat);
+                        return isNaN(n) ? 0 : n / 100;
+                    }
+                    Behavior on percent {
+                        NumberAnimation {
+                            duration: 500
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+                    property color trackColor: "#333333"
+                    property color fillColor: root.theme.primary
+                    property real strokeWidth: 3
+
+                    Canvas {
+                        id: memCanvas
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+
+                            var cx = width / 2;
+                            var cy = height / 2;
+                            var radius = Math.min(width, height) / 2 - memCirc.strokeWidth / 2;
+                            var startAngle = -Math.PI / 2; // start at top
+                            var endAngle = startAngle + (2 * Math.PI * memCirc.percent);
+
+                        // background track
+                            ctx.beginPath();
+                            ctx.arc(cx, cy, radius, 0, 2 * Math.PI, false);
+                            ctx.lineWidth = memCirc.strokeWidth;
+                            ctx.strokeStyle = memCirc.strokeWidth;
+                            ctx.stroke();
+
+                        // filled portion
+                            ctx.beginPath();
+                            ctx.arc(cx, cy, radius, startAngle, endAngle, false);
+                            ctx.lineWidth = memCirc.strokeWidth;
+                            ctx.strokeStyle = memCirc.fillColor;
+                            ctx.lineCap = "round";
+                            ctx.stroke();
+                        }
+                    }
+                    onPercentChanged: memCanvas.requestPaint()
+
+                    Image {
+                        anchors.centerIn: parent
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "./assets/memory.svg"
+                        width: parent.width - (memCirc.strokeWidth * 2) - 8
+                        height: parent.height - (memCirc.strokeWidth * 2) - 8                        
+                        sourceSize.width: 22
+                        sourceSize.height: 22
+                        fillMode: Image.PreserveAspectFit
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: root.theme.primary   // any matugen color
+                        }
+                    }
+                }
 
                 Behavior on width {
                     NumberAnimation {
@@ -412,25 +468,13 @@ ShellRoot {
                     anchors.centerIn: parent
                     spacing: 6
 
-                    Image {
-                        anchors.verticalCenter: parent.verticalCenter
-                        source: "./assets/memory.svg"
-                        width: 20
-                        height: 20
-                        sourceSize.width: 22
-                        sourceSize.height: 22
-                        fillMode: Image.PreserveAspectFit
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: root.theme.primary   // any matugen color
-                        }
-                    }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.memPercent ? "Mem: " + root.memoryUsage : root.memformat
+                        opacity: 0.7
                         color: root.memCount > 12000 ? root.theme.primary : root.theme.on_background
-                        font.pixelSize: 14
+                        font.pixelSize: 16
+                        leftPadding: 30
                         font.family: root.settings.fontdefault
                         font.bold: true
                         /* renderType: Text.NativeRendering
@@ -445,18 +489,24 @@ ShellRoot {
                     }
                 }
             }
-            //Mpris
+            //Mpris_Module
             Rectangle {
                 id: mprisModule
                 height: 30
-                width: mprisContent.width + 24
+                width: mprisContent.width + 31
                 radius: root.global_radius
-                color: "transparent"
-                border.color: root.theme.primary
-                border.width: 0
-                anchors.right: parent.right
-                anchors.rightMargin: 10
+                color: Qt.alpha(root.theme.source_color, 0.1)
+                anchors.horizontalCenterOffset: -100
+                anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter
+                clip: true
+
+                Behavior on width {
+                    NumberAnimation {
+                        easing.type: Easing.OutCirc
+                        duration: 100
+                    }
+                }
 
                 Row {
                     id: mprisContent
@@ -515,10 +565,19 @@ ShellRoot {
                         }
                     }
 
+                    Text {
+                        text: "•"
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.theme.primary
+                        font.pixelSize: 18
+                        visible: shell.activePlayer && shell.activePlayer.loopState === MprisLoopState.Track ? true : false
+                    }
+                    
+
                     // ---- scrolling title, fixed-width instead of growing/eliding ----
                     Item {
                         id: marqueeClip
-                        width: 120
+                        width: marqueeText.width < 180 ? marqueeText.width : 180 
                         height: 18
                         clip: true
                         anchors.verticalCenter: parent.verticalCenter
@@ -537,9 +596,11 @@ ShellRoot {
                                 return shell.activePlayer.trackTitle || "";
                             }
                             color: root.theme.on_background
-                            font.pixelSize: 12
+                            font.pixelSize: 16
                             font.family: root.settings.fontjp
-                            font.bold: shell.activePlayer && shell.activePlayer.loopState === MprisLoopState.Track ? true : false
+                            opacity: 0.8
+                            //font.bold: 
+                            font.bold: true
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
 
@@ -579,8 +640,8 @@ ShellRoot {
                                     target: marqueeText
                                     property: "x"
                                     to: 0
-                                    duration: 600
-                                    easing.type: Easing.InOutCubic
+                                    duration: 3000
+                                    easing.type: Easing.Linear
                                 }
                                 PauseAnimation {
                                     duration: 500
@@ -588,7 +649,10 @@ ShellRoot {
                             }
                         }
                     }
+                    
                 }
+
+
 
                 function toggleLoop() {
                     if (!shell.activePlayer || !shell.activePlayer.loopSupported || !shell.activePlayer.canControl)
@@ -631,27 +695,29 @@ ShellRoot {
             PanelWindow {
                 id: albumPopup
                 WlrLayershell.namespace: "quickshell:mpris_popup"
+                
+                property bool animatingClosed: false
+                visible: (isOpen || animatingClosed) && root.hasPlayer
 
-                property bool onEmptyWorkspace: {
-                    const wsId = Hyprland.focusedWorkspace?.id
-                    if (wsId === undefined) return true
-                    return Hyprland.toplevels.values.filter(t => t.workspace?.id === wsId).length === 0
-                }
-                onOnEmptyWorkspaceChanged: {
-                    isOpen = onEmptyWorkspace
+                onIsOpenChanged: {
+                    if (isOpen) {
+                        closeAnim.stop();
+                        openAnim.restart();
+                    } else {
+                        openAnim.stop();
+                        closeAnim.restart();
+                    }
                 }
 
                 WlrLayershell.layer: WlrLayer.Overlay
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-                exclusionMode: ExclusionMode.Auto
 
                 property bool isOpen: false 
                 property int refreshTrigger: 0
 
-                width: mprispopup.width + 20
-                height: mprispopup.height + 30
+                width: mprispopup.width + 40
+                height: mprispopup.height + 40
                 color: "transparent"
-                visible: (isOpen || mprispopup.opacity > 0) && root.hasPlayer
 
 
                 IpcHandler {
@@ -672,624 +738,609 @@ ShellRoot {
 
                 anchors {
                     top: true
-                    right: true
                 }
+                exclusiveZone: 0
                 margins.top: -1
                 margins.right: 0
 
 
                 Rectangle {
+                    // no opacity = 0 next time
                     id: mprispopup
-                    width: 640
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 600
                     height: 380
-                    y: 8
+                    y: -200
+                    scale: 1
+                    border.color: Qt.alpha(root.theme.primary, 0.09)
+                    border.width: 2            
                     color: Qt.alpha(root.theme.background, 1)
-                    radius: 18
-                    topRightRadius: 50
-                    border.color: root.theme.surface_bright
-                    border.width: 1
-                    opacity: 0
-                    x: width
+                    radius: 20
+                    clip: true
+                    transformOrigin: Item.Top
 
-                    states: [
-                        State {
-                            name: "open"
-                            when: albumPopup.isOpen
-                            PropertyChanges {
-                                target: mprispopup
-                                x: 15
-                                opacity: 1
-                            }
-                        },
-                        State {
-                            name: "closed"
-                            when: !albumPopup.isOpen
-                            PropertyChanges {
-                                target: mprispopup
-                                x: 620
-                                opacity: 0
-                            }
-                        }
-                    ]
 
-                    transitions: [
-                        Transition {
-                            from: "closed"
-                            to: "open"
+                    SequentialAnimation {
+                        id: closeAnim
 
-                            NumberAnimation {
-                                properties: "x,opacity"
-                                duration: 380
-                                easing.type: Easing.OutCirc
-                            }
-                        },
-                        Transition {
-                            from: "open"
-                            to: "closed"
+                        onStarted: albumPopup.animatingClosed = true
+                        onStopped: albumPopup.animatingClosed = false
 
-                            NumberAnimation {
-                                properties: "x,opacity"
-                                duration: 340
-                                easing.type: Easing.InCirc
-                            }
-                        }
-                    ]
-
-                    //Album Art Container
-                    Item {
-                        id: discContainer
-                        width: 300
-                        height: 300
-                        anchors.left: parent.left
-                        anchors.leftMargin: 12
-                        anchors.verticalCenter: parent.verticalCenter
-
-                        // The visual rotating disc
-                        ClippingRectangle {
-                            id: discImage
-                            anchors.fill: parent
-                            radius: 320
-                            color: "transparent"
-                            border.color: Qt.alpha(root.theme.surface_bright, 0.8)
-                            border.width: 1
-
-                            antialiasing: true
-                            layer.enabled: true
-                            layer.smooth: true
-                            layer.samples: 10
-
-                            Image {
-                                id: art
-                                anchors.fill: parent
-                                sourceSize.width: discContainer.width
-                                sourceSize.height: discContainer.height
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                source: {
-                                    if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
-                                        return shell.activePlayer.trackArtUrl;
-                                    } else {
-                                        return "";
-                                    }
-                                }
-                            }
-                        }
-
-                        // 1. Smooth, interruptible rotation timer during playback
-                        Timer {
-                            id: rotateTimer
-                            interval: 1 // 25fps for smooth rotation with low CPU usage
-                            running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing && !discMouseArea.isDragging
-                            repeat: true
-                            onTriggered: {
-                                // 360 degrees / 20000ms = 0.018 deg/ms. 0.018 * 40ms = 0.72 deg per tick
-                                discImage.rotation = (discImage.rotation + 0.5) % 360;
-                            }
-                        }
-
-                        // 2. Interactive Spin-to-Seek MouseArea (Static sibling to discImage to avoid coordinate oscillation)
-                        MouseArea {
-                            id: discMouseArea
-                            anchors.fill: parent
-                            cursorShape: Qt.OpenHandCursor
-                            property real lastAngle: 0
-                            property real initialRotation: 0
-                            property real accumulatedDelta: 0
-                            property int startPosition: 0
-                            property int previewPosition: 0
-                            property bool isDragging: false
-                            property bool wasPlaying: false
-
-                            function getAngle(x, y) {
-                                var cx = discContainer.width / 2;
-                                var cy = discContainer.height / 2;
-                                var angle = Math.atan2(y - cy, x - cx) * 180 / Math.PI;
-                                return angle < 0 ? angle + 360 : angle;
-                            }
-
-                            onPressed: function(mouse) {
-                                isDragging = true;
-                                cursorShape = Qt.ClosedHandCursor;
-                                lastAngle = getAngle(mouse.x, mouse.y);
-                                initialRotation = discImage.rotation;
-                                accumulatedDelta = 0;
-                                startPosition = shell.activePlayer ? shell.activePlayer.position : 0;
-                                previewPosition = startPosition;
-                                
-                                // Pause playback while scrubbing for better control
-                                if (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) {
-                                    wasPlaying = true;
-                                    if (shell.activePlayer.canPause) {
-                                        shell.activePlayer.pause();
-                                    }
-                                } else {
-                                    wasPlaying = false;
-                                }
-                            }
-
-                            onPositionChanged: function(mouse) {
-                                if (!isDragging || !shell.activePlayer) return;
-                                
-                                var currentAngle = getAngle(mouse.x, mouse.y);
-                                var delta = currentAngle - lastAngle;
-                                
-                                // Handle wrap-around crossing the 0°/360° boundary between mouse events
-                                if (delta > 180) {
-                                    delta -= 360;
-                                } else if (delta < -180) {
-                                    delta += 360;
-                                }
-                                
-                                lastAngle = currentAngle;
-                                accumulatedDelta += delta;
-                                
-                                // Smoothly rotate disc relative to initial touch rotation
-                                var rot = (initialRotation + accumulatedDelta) % 360;
-                                if (rot < 0) rot += 360;
-                                discImage.rotation = rot;
-
-                                // Update visual preview position without flooding DBus with SetPosition calls
-                                if (shell.activePlayer.length > 0) {
-                                    let targetTime = startPosition + (accumulatedDelta / 720.0) * shell.activePlayer.length;
-                                    previewPosition = Math.max(0, Math.min(targetTime, shell.activePlayer.length));
-                                }
-                            }
-
-                            onReleased: function() {
-                                // Send seek command exactly once on release to prevent playback delay
-                                if (shell.activePlayer && shell.activePlayer.length > 0) {
-                                    shell.activePlayer.position = previewPosition;
-                                }
-                                isDragging = false;
-                                cursorShape = Qt.OpenHandCursor;
-                                // Resume playback if it was playing before the drag
-                                if (shell.activePlayer && wasPlaying && shell.activePlayer.canPlay) {
-                                    shell.activePlayer.play();
-                                }
-                            }
-                            
-                            onCanceled: {
-                                if (shell.activePlayer && shell.activePlayer.length > 0) {
-                                    shell.activePlayer.position = previewPosition;
-                                }
-                                isDragging = false;
-                                cursorShape = Qt.OpenHandCursor;
-                                if (shell.activePlayer && wasPlaying && shell.activePlayer.canPlay) {
-                                    shell.activePlayer.play();
-                                }
-                            }
-                        }
+                        NumberAnimation { target: content; property: "opacity"; to: 0; duration: 100 }
+                        NumberAnimation { target: mprispopup; property: "y"; to: -200; duration: 300; easing.type: Easing.InCirc }
                     }
 
-                    // Track info
-                    Column {
-                        id: infoColumn
-                        anchors.right: parent.right
-                        anchors.rightMargin: 20
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: -70
-                        width: 280
-                        spacing: 4
+                    SequentialAnimation {
+                        id: openAnim
+                        // Phase 1: empty small box slides down
+                        NumberAnimation {
+                            target: mprispopup
+                            property: "y"
+                            to: 10
+                            duration: 300
+                            easing.type: Easing.OutCirc
+                        }
+                        NumberAnimation {
+                            target: content
+                            property: "opacity"
+                            to: 1
+                            duration: 100
+                        }
+                    }
+                    ColumnLayout {
+                        id: content
+                        anchors.fill: parent
+                        opacity: 0
 
-                        // ---- title, marquee if it overflows ----
                         Item {
-                            id: titleClip
-                            width: parent.width
-                            height: 20
-                            clip: true
-
-                            property int marqueeThreshold: 10
-                            readonly property real overflow: Math.max(0, titleText.implicitWidth - width)
-                            readonly property bool shouldScroll: overflow > marqueeThreshold
-
-                            Text {
-                                id: titleText
-                                anchors.verticalCenter: parent.verticalCenter
-                                x: titleClip.shouldScroll ? 0 : Math.max(0, (titleClip.width - implicitWidth) / 2)
-
-                                text: shell.activePlayer && shell.activePlayer.trackTitle ? shell.activePlayer.trackTitle : "No Media"
-                                color: root.theme.on_background
-                                font.family: root.settings.fontjp
-                                font.pixelSize: 15
-                                font.bold: false
-                                /* renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferFullHinting */
-
-                                transform: Translate {
-                                    id: titleTrans
-                                    x: 0
-                                }
-
-                                onTextChanged: {
-                                    titleMarqueeAnim.stop();
-                                    titleTrans.x = 0;
-                                    if (titleClip.shouldScroll) {
-                                        titleMarqueeAnim.restart();
-                                    }
-                                }
-
-                                SequentialAnimation {
-                                    id: titleMarqueeAnim
-                                    loops: Animation.Infinite
-                                    running: titleClip.shouldScroll && !!shell.activePlayer
-
-                                    onRunningChanged: {
-                                        if (!running) {
-                                            titleTrans.x = 0;
-                                        }
-                                    }
-
-                                    PauseAnimation {
-                                        duration: 1800
-                                    }
-                                    NumberAnimation {
-                                        target: titleTrans
-                                        property: "x"
-                                        to: -titleClip.overflow
-                                        duration: Math.max(2000, titleClip.overflow * 32)
-                                        easing.type: Easing.Linear
-                                    }
-                                    PauseAnimation {
-                                        duration: 1400
-                                    }
-                                    NumberAnimation {
-                                        target: titleTrans
-                                        property: "x"
-                                        to: 0
-                                        duration: 600
-                                        easing.type: Easing.InOutCubic
-                                    }
-                                    PauseAnimation {
-                                        duration: 500
-                                    }
-                                }
-                            }
-                        }
-
-                        // ---- artist, marquee if it overflows ----
-                        Item {
-                            id: artistClip
-                            width: parent.width
-                            height: 16
-                            clip: true
-                            visible: !!(shell.activePlayer && shell.activePlayer.trackArtist)
-
-                            property int marqueeThreshold: 10
-                            readonly property real overflow: Math.max(0, artistText.implicitWidth - width)
-                            readonly property bool shouldScroll: overflow > marqueeThreshold
-
-                            Text {
-                                id: artistText
-                                anchors.verticalCenter: parent.verticalCenter
-                                x: artistClip.shouldScroll ? 0 : Math.max(0, (artistClip.width - implicitWidth) / 2)
-
-                                text: shell.activePlayer ? (shell.activePlayer.trackArtist || "") : ""
-                                color: root.theme.on_background
-                                opacity: 0.6
-                                font.family: root.settings.fontjp
-                                font.pixelSize: 12
-                                /* renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferFullHinting */
-
-                                transform: Translate {
-                                    id: artistTrans
-                                    x: 0
-                                }
-
-                                onTextChanged: {
-                                    artistMarqueeAnim.stop();
-                                    artistTrans.x = 0;
-                                    if (artistClip.shouldScroll) {
-                                        artistMarqueeAnim.restart();
-                                    }
-                                }
-
-                                SequentialAnimation {
-                                    id: artistMarqueeAnim
-                                    loops: Animation.Infinite
-                                    running: artistClip.shouldScroll && !!shell.activePlayer
-
-                                    onRunningChanged: {
-                                        if (!running) {
-                                            artistTrans.x = 0;
-                                        }
-                                    }
-
-                                    PauseAnimation {
-                                        duration: 1800
-                                    }
-                                    NumberAnimation {
-                                        target: artistTrans
-                                        property: "x"
-                                        to: -artistClip.overflow
-                                        duration: Math.max(2000, artistClip.overflow * 32)
-                                        easing.type: Easing.Linear
-                                    }
-                                    PauseAnimation {
-                                        duration: 1400
-                                    }
-                                    NumberAnimation {
-                                        target: artistTrans
-                                        property: "x"
-                                        to: 0
-                                        duration: 600
-                                        easing.type: Easing.InOutCubic
-                                    }
-                                    PauseAnimation {
-                                        duration: 500
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    function formatTime(seconds) {
-                        if (isNaN(seconds) || seconds < 0) return "0:00"
-                        const m = Math.floor(seconds / 60)
-                        const s = Math.floor(seconds % 60)
-                        return m + ":" + (s < 10 ? "0" + s : s)
-                    }
-
-                    Text {
-                        id: timeStamps
-                        color: Qt.alpha(root.theme.on_background, 0.3)
-                        text: mprispopup.formatTime(shell.activePlayer.position) + "/" + mprispopup.formatTime(shell.activePlayer.length)
-                        anchors.right: seekBar.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: -20
-                    }
-
-
-                    // Seek Bar
-                    Rectangle {
-                        id: seekBar
-                        anchors.right: parent.right
-                        anchors.rightMargin: 40
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 240
-                        height: 7
-                        radius: 2
-
-                        color: Qt.alpha(root.theme.primary, 0.2)
-
-                        Rectangle {
-                            y: progress_bar.height - 9
-                            x: progress_bar.width - 2
-                            width: 11
-                            height: 11
-                            radius: 11
-                            color: Qt.alpha(root.theme.primary, 1)
-                        }
-
-                        Rectangle {
-                            id: progress_bar
-                            width: {
-                                if (!root.hasPlayer || shell.activePlayer.length <= 0)
-                                    return 0;
-                                if (seekMouseArea.pressed) {
-                                    return Math.max(0, Math.min(seekBar.width, seekMouseArea.mouseX));
-                                }
-                                if (discMouseArea.isDragging) {
-                                    return Math.min(seekBar.width, seekBar.width * (discMouseArea.previewPosition / shell.activePlayer.length));
-                                }
-                                return Math.min(seekBar.width, seekBar.width * (shell.activePlayer.position / shell.activePlayer.length));
-                            }
-                            height: parent.height
-                            radius: parent.radius
-                            topRightRadius: 0
-                            bottomRightRadius: 0
-
-                            color: Qt.alpha(root.theme.primary, 1)
-
-                            Behavior on width {
-                                enabled: !seekMouseArea.pressed && !discMouseArea.isDragging
-                                NumberAnimation {
-                                    duration: 80
-                                    easing.type: Easing.OutBack
-                                }
-                            }
-                        }
-
-                        MouseArea {
-                            id: seekMouseArea
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-
-                            property bool savedPlayingState: false
-
-                            function updateSeekPosition(mouse) {
-                                if (root.hasPlayer && shell.activePlayer.length > 0) {
-                                    const clampedX = Math.max(0, Math.min(mouse.x, seekBar.width));
-                                    shell.activePlayer.position = shell.activePlayer.length * (clampedX / seekBar.width);
-                                }
-                            }
-
-                            onPressed: mouse => {
-                                if (root.hasPlayer) {
-                                    savedPlayingState = (shell.activePlayer.playbackState === MprisPlaybackState.Playing);
-                                    if (savedPlayingState && shell.activePlayer.canPause) {
-                                        shell.activePlayer.pause();
-                                    }
-                                }
-                                updateSeekPosition(mouse);
-                            }
-
-                            onReleased: mouse => {
-                                updateSeekPosition(mouse);   // send the seek exactly once, here
-                                if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
-                                    shell.activePlayer.play();
-                                }
-                                savedPlayingState = false;
-                            }
-
-                            onCanceled: {
-                                if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
-                                    shell.activePlayer.play();
-                                }
-                                savedPlayingState = false;
-                            }
-                        }
-
-                        Timer {
-                            running: root.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed && !discMouseArea.isDragging && albumPopup.isOpen
-                            interval: 150
-                            repeat: true
-
-                            onTriggered: if (root.hasPlayer)
-                                shell.activePlayer.positionChanged()
-                        }
-                    }
-
-                    //Control Dock
-                    Item {
-                        id: controlDock
-                        width: 250
-                        anchors.top: seekBar.bottom
-                        anchors.centerIn: seekBar
-                        anchors.bottomMargin: -10
-                        anchors.leftMargin: 30
-                        anchors.right: parent.right
-                        anchors.rightMargin: 50
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: 50
-
-                        Rectangle {
-                            id: playButtonContainer
-                            property bool pressed: false
-                            width: 40
-                            height: 40
-                            radius: 40
-                            color: Qt.alpha(root.theme.on_background, 0)
-                            anchors.centerIn: parent
-
-                            Image {
-                                id: playbutton
-                                width: 30
-                                height: 30
-                                sourceSize.width: 30
-                                sourceSize.height: 30
-                                fillMode: Image.PreserveAspectFit
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    colorization: 1.0
-                                    colorizationColor: Qt.alpha(root.theme.on_background, 0.8)
-                                }
-                                source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
-                                property real rotAngle: playButtonContainer.pressed ? 10 : 0
-                                rotation: rotAngle
-
-                                Behavior on rotation {
-                                    NumberAnimation {
-                                        duration: 100
-                                        easing.type: Easing.InOutQuad
-                                    }
-                                }
-                                opacity: playButtonContainer.pressed ? 0.7 : 1.0
-                                Behavior on opacity {
-                                    NumberAnimation {
-                                        duration: 120
-                                    }
-                                }
-                                anchors.centerIn: parent
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                // Nudges the play triangle slightly right so it centers perfectly by eye
-                                anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
-                            }
-
-                            MouseArea {
-                                cursorShape: Qt.PointingHandCursor
-                                anchors.fill: parent
-                                onPressed: playButtonContainer.pressed = true
-                                onReleased: playButtonContainer.pressed = false
-                                onCanceled: playButtonContainer.pressed = false
-                                onClicked: if (shell.activePlayer)
-                                    shell.activePlayer.togglePlaying()
-                            }
-                        }
-                        Rectangle {
-                            id: nextButtonContainer
-                            width: 38
-                            height: 28
-                            radius: 4
-                            color: "transparent"
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.rightMargin: 15
-
-                            Image {
-                                id: nextbutton
-                                source: "./assets/skip-forward-bold.svg"
-                                width: 20
-                                height: 20
-                                sourceSize.width: 22
-                                sourceSize.height: 22
-                                fillMode: Image.PreserveAspectFit
-                                anchors.centerIn: parent
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    colorization: 1.0
-                                    colorizationColor: Qt.alpha(root.theme.on_background, 0.8)
-                                }
-                            }
-
-                            MouseArea {
-                                cursorShape: Qt.PointingHandCursor
-                                anchors.fill: parent
-                                onClicked: if (shell.activePlayer)
-                                    shell.activePlayer.next()
-                            }
-                        }
-                        Rectangle {
-                            id: prevButtonContainer
-                            width: 38
-                            height: 28
-                            radius: 4
-                            color: "transparent"
+                            id: discContainer
+                            width: 300
+                            height: 300
                             anchors.left: parent.left
+                            anchors.leftMargin: 12
                             anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: 15
 
-                            Image {
-                                id: prevbutton
-                                source: "./assets/skip-back-bold.svg"
-                                width: 20
-                                height: 20
-                                sourceSize.width: 22
-                                sourceSize.height: 22
-                                fillMode: Image.PreserveAspectFit
-                                anchors.centerIn: parent
+                            // The visual rotating disc
+                            ClippingRectangle {
+                                id: discImage
+                                anchors.fill: parent
+                                radius: 320
+                                color: "transparent"
+                                border.color: Qt.alpha(root.theme.outline_variant, 0.8)
+                                border.width: 1
+
+                                antialiasing: true
                                 layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    colorization: 1.0
-                                    colorizationColor: Qt.alpha(root.theme.on_background, 0.8)                                
+                                layer.smooth: true
+
+                                Image {
+                                    id: art
+                                    anchors.fill: parent
+                                    sourceSize.width: discContainer.width + 100
+                                    sourceSize.height: discContainer.height + 100
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    source: {
+                                        if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
+                                            return shell.activePlayer.trackArtUrl;
+                                        } else {
+                                            return "";
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 1. Smooth, interruptible rotation timer during playback
+                            Timer {
+                                id: rotateTimer
+                                interval: 30 // 25fps for smooth rotation with low CPU usage
+                                running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing && !discMouseArea.isDragging
+                                repeat: true
+                                onTriggered: {
+                                    // 360 degrees / 20000ms = 0.018 deg/ms. 0.018 * 40ms = 0.72 deg per tick
+                                    discImage.rotation = (discImage.rotation + 0.54) % 360;
+                                }
+                            }
+
+                            // 2. Interactive Spin-to-Seek MouseArea (Static sibling to discImage to avoid coordinate oscillation)
+                            MouseArea {
+                                id: discMouseArea
+                                anchors.fill: parent
+                                cursorShape: Qt.OpenHandCursor
+                                property real lastAngle: 0
+                                property real initialRotation: 0
+                                property real accumulatedDelta: 0
+                                property int startPosition: 0
+                                property int previewPosition: 0
+                                property bool isDragging: false
+                                property bool wasPlaying: false
+
+                                function getAngle(x, y) {
+                                    var cx = discContainer.width / 2;
+                                    var cy = discContainer.height / 2;
+                                    var angle = Math.atan2(y - cy, x - cx) * 180 / Math.PI;
+                                    return angle < 0 ? angle + 360 : angle;
+                                }
+
+                                onPressed: function(mouse) {
+                                    isDragging = true;
+                                    cursorShape = Qt.ClosedHandCursor;
+                                    lastAngle = getAngle(mouse.x, mouse.y);
+                                    initialRotation = discImage.rotation;
+                                    accumulatedDelta = 0;
+                                    startPosition = shell.activePlayer ? shell.activePlayer.position : 0;
+                                    previewPosition = startPosition;
+                                    
+                                    // Pause playback while scrubbing for better control
+                                    if (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) {
+                                        wasPlaying = true;
+                                        if (shell.activePlayer.canPause) {
+                                            shell.activePlayer.pause();
+                                        }
+                                    } else {
+                                        wasPlaying = false;
+                                    }
+                                }
+
+                                onPositionChanged: function(mouse) {
+                                    if (!isDragging || !shell.activePlayer) return;
+                                    
+                                    var currentAngle = getAngle(mouse.x, mouse.y);
+                                    var delta = currentAngle - lastAngle;
+                                    
+                                    // Handle wrap-around crossing the 0°/360° boundary between mouse events
+                                    if (delta > 180) {
+                                        delta -= 360;
+                                    } else if (delta < -180) {
+                                        delta += 360;
+                                    }
+                                    
+                                    lastAngle = currentAngle;
+                                    accumulatedDelta += delta;
+                                    
+                                    // Smoothly rotate disc relative to initial touch rotation
+                                    var rot = (initialRotation + accumulatedDelta) % 360;
+                                    if (rot < 0) rot += 360;
+                                    discImage.rotation = rot;
+
+                                    // Update visual preview position without flooding DBus with SetPosition calls
+                                    if (shell.activePlayer.length > 0) {
+                                        let targetTime = startPosition + (accumulatedDelta / 720.0) * shell.activePlayer.length;
+                                        previewPosition = Math.max(0, Math.min(targetTime, shell.activePlayer.length));
+                                    }
+                                }
+
+                                onReleased: function() {
+                                    // Send seek command exactly once on release to prevent playback delay
+                                    if (shell.activePlayer && shell.activePlayer.length > 0) {
+                                        shell.activePlayer.position = previewPosition;
+                                    }
+                                    isDragging = false;
+                                    cursorShape = Qt.OpenHandCursor;
+                                    // Resume playback if it was playing before the drag
+                                    if (shell.activePlayer && wasPlaying && shell.activePlayer.canPlay) {
+                                        shell.activePlayer.play();
+                                    }
+                                }
+                                
+                                onCanceled: {
+                                    if (shell.activePlayer && shell.activePlayer.length > 0) {
+                                        shell.activePlayer.position = previewPosition;
+                                    }
+                                    isDragging = false;
+                                    cursorShape = Qt.OpenHandCursor;
+                                    if (shell.activePlayer && wasPlaying && shell.activePlayer.canPlay) {
+                                        shell.activePlayer.play();
+                                    }
+                                }
+                            }
+                        }
+
+                        // Track info
+                        Column {
+                            id: infoColumn
+                            anchors.right: parent.right
+                            anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.verticalCenterOffset: -70
+                            width: 280
+                            spacing: 4
+
+                            // ---- title, marquee if it overflows ----
+                            Item {
+                                id: titleClip
+                                width: parent.width
+                                height: 20
+                                clip: true
+
+                                property int marqueeThreshold: 10
+                                readonly property real overflow: Math.max(0, titleText.implicitWidth - width)
+                                readonly property bool shouldScroll: overflow > marqueeThreshold
+
+                                Text {
+                                    id: titleText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: titleClip.shouldScroll ? 0 : Math.max(0, (titleClip.width - implicitWidth) / 2)
+
+                                    text: shell.activePlayer && shell.activePlayer.trackTitle ? shell.activePlayer.trackTitle : "No Media"
+                                    color: root.theme.on_background
+                                    font.family: root.settings.fontjp
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                    opacity: 0.8
+                                    /* renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferFullHinting */
+
+                                    transform: Translate {
+                                        id: titleTrans
+                                        x: 0
+                                    }
+
+                                    onTextChanged: {
+                                        titleMarqueeAnim.stop();
+                                        titleTrans.x = 0;
+                                        if (titleClip.shouldScroll) {
+                                            titleMarqueeAnim.restart();
+                                        }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: titleMarqueeAnim
+                                        loops: Animation.Infinite
+                                        running: titleClip.shouldScroll && !!shell.activePlayer
+
+                                        onRunningChanged: {
+                                            if (!running) {
+                                                titleTrans.x = 0;
+                                            }
+                                        }
+
+                                        PauseAnimation {
+                                            duration: 1800
+                                        }
+                                        NumberAnimation {
+                                            target: titleTrans
+                                            property: "x"
+                                            to: -titleClip.overflow
+                                            duration: Math.max(2000, titleClip.overflow * 32)
+                                            easing.type: Easing.Linear
+                                        }
+                                        PauseAnimation {
+                                            duration: 1400
+                                        }
+                                        NumberAnimation {
+                                            target: titleTrans
+                                            property: "x"
+                                            to: 0
+                                            duration: 3000
+                                            easing.type: Easing.Linear
+                                        }
+                                        PauseAnimation {
+                                            duration: 500
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ---- artist, marquee if it overflows ----
+                            Item {
+                                id: artistClip
+                                width: parent.width
+                                height: 16
+                                clip: true
+                                visible: !!(shell.activePlayer && shell.activePlayer.trackArtist)
+
+                                property int marqueeThreshold: 10
+                                readonly property real overflow: Math.max(0, artistText.implicitWidth - width)
+                                readonly property bool shouldScroll: overflow > marqueeThreshold
+
+                                Text {
+                                    id: artistText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: artistClip.shouldScroll ? 0 : Math.max(0, (artistClip.width - implicitWidth) / 2)
+
+                                    text: shell.activePlayer ? (shell.activePlayer.trackArtist || "") : ""
+                                    color: root.theme.on_background
+                                    opacity: 0.6
+                                    font.family: root.settings.fontjp
+                                    font.pixelSize: 14
+                                    /* renderType: Text.NativeRendering
+                                    font.hintingPreference: Font.PreferFullHinting */
+
+                                    transform: Translate {
+                                        id: artistTrans
+                                        x: 0
+                                    }
+
+                                    onTextChanged: {
+                                        artistMarqueeAnim.stop();
+                                        artistTrans.x = 0;
+                                        if (artistClip.shouldScroll) {
+                                            artistMarqueeAnim.restart();
+                                        }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: artistMarqueeAnim
+                                        loops: Animation.Infinite
+                                        running: artistClip.shouldScroll && !!shell.activePlayer
+
+                                        onRunningChanged: {
+                                            if (!running) {
+                                                artistTrans.x = 0;
+                                            }
+                                        }
+
+                                        PauseAnimation {
+                                            duration: 1800
+                                        }
+                                        NumberAnimation {
+                                            target: artistTrans
+                                            property: "x"
+                                            to: -artistClip.overflow
+                                            duration: Math.max(2000, artistClip.overflow * 32)
+                                            easing.type: Easing.Linear
+                                        }
+                                        PauseAnimation {
+                                            duration: 1400
+                                        }
+                                        NumberAnimation {
+                                            target: artistTrans
+                                            property: "x"
+                                            to: 0
+                                            duration: 600
+                                            easing.type: Easing.InOutCubic
+                                        }
+                                        PauseAnimation {
+                                            duration: 500
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        function formatTime(seconds) {
+                            if (isNaN(seconds) || seconds < 0) return "0:00"
+                            const m = Math.floor(seconds / 60)
+                            const s = Math.floor(seconds % 60)
+                            return m + ":" + (s < 10 ? "0" + s : s)
+                        }
+
+                        Text {
+                            id: timeStamps
+                            color: Qt.alpha(root.theme.on_background, 0.3)
+                            text: content.formatTime(shell.activePlayer.position) + "/" + content.formatTime(shell.activePlayer.length)
+                            font.family: root.settings.fontdefault
+                            font.pixelSize: 10
+                            font.bold: true
+                            anchors.right: seekBar.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.verticalCenterOffset: -20
+                        }
+
+
+                        // Seek Bar
+                        Rectangle {
+                            id: seekBar
+                            anchors.right: parent.right
+                            anchors.rightMargin: 20
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 240
+                            height: 5
+                            radius: 2
+
+                            color: Qt.alpha(root.theme.primary, 0.2)
+
+                            Rectangle {
+                                id: progress_bar
+                                width: {
+                                    if (!root.hasPlayer || shell.activePlayer.length <= 0)
+                                        return 0;
+                                    if (seekMouseArea.pressed) {
+                                        return Math.max(0, Math.min(seekBar.width, seekMouseArea.mouseX));
+                                    }
+                                    if (discMouseArea.isDragging) {
+                                        return Math.min(seekBar.width, seekBar.width * (discMouseArea.previewPosition / shell.activePlayer.length));
+                                    }
+                                    return Math.min(seekBar.width, seekBar.width * (shell.activePlayer.position / shell.activePlayer.length));
+                                }
+                                height: parent.height
+                                radius: parent.radius
+                                topRightRadius: 0
+                                bottomRightRadius: 0
+
+                                color: Qt.alpha(root.theme.primary, 1)
+
+                                Behavior on width {
+                                    enabled: !seekMouseArea.pressed && !discMouseArea.isDragging
+                                    NumberAnimation {
+                                        duration: 80
+                                        easing.type: Easing.OutBack
+                                    }
                                 }
                             }
 
                             MouseArea {
-                                cursorShape: Qt.PointingHandCursor
+                                id: seekMouseArea
                                 anchors.fill: parent
-                                onClicked: if (shell.activePlayer)
-                                    shell.activePlayer.previous()
+                                cursorShape: Qt.PointingHandCursor
+
+                                property bool savedPlayingState: false
+
+                                function updateSeekPosition(mouse) {
+                                    if (root.hasPlayer && shell.activePlayer.length > 0) {
+                                        const clampedX = Math.max(0, Math.min(mouse.x, seekBar.width));
+                                        shell.activePlayer.position = shell.activePlayer.length * (clampedX / seekBar.width);
+                                    }
+                                }
+
+                                onPressed: mouse => {
+                                    if (root.hasPlayer) {
+                                        savedPlayingState = (shell.activePlayer.playbackState === MprisPlaybackState.Playing);
+                                        if (savedPlayingState && shell.activePlayer.canPause) {
+                                            shell.activePlayer.pause();
+                                        }
+                                    }
+                                    updateSeekPosition(mouse);
+                                }
+
+                                onReleased: mouse => {
+                                    updateSeekPosition(mouse);   // send the seek exactly once, here
+                                    if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                        shell.activePlayer.play();
+                                    }
+                                    savedPlayingState = false;
+                                }
+
+                                onCanceled: {
+                                    if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                        shell.activePlayer.play();
+                                    }
+                                    savedPlayingState = false;
+                                }
+                            }
+
+                            Timer {
+                                running: root.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed && !discMouseArea.isDragging && albumPopup.isOpen
+                                interval: 150
+                                repeat: true
+
+                                onTriggered: if (root.hasPlayer)
+                                    shell.activePlayer.positionChanged()
+                            }
+                        }
+
+                        //Control Dock
+                        Item {
+                            id: controlDock
+                            width: 250
+                            anchors.top: seekBar.bottom
+                            anchors.centerIn: seekBar
+                            anchors.bottomMargin: -10
+                            anchors.leftMargin: 30
+                            anchors.right: parent.right
+                            anchors.rightMargin: 50
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.verticalCenterOffset: 50
+
+                            Rectangle {
+                                id: playButtonContainer
+                                property bool pressed: false
+                                width: 40
+                                height: 40
+                                radius: 40
+                                color: Qt.alpha(root.theme.on_background, 0)
+                                anchors.centerIn: parent
+
+                                Image {
+                                    id: playbutton
+                                    width: 30
+                                    height: 30
+                                    sourceSize.width: 30
+                                    sourceSize.height: 30
+                                    fillMode: Image.PreserveAspectFit
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Qt.alpha(root.theme.on_background, 0.8)
+                                    }
+                                    source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
+                                    property real rotAngle: playButtonContainer.pressed ? 10 : 0
+                                    rotation: rotAngle
+
+                                    Behavior on rotation {
+                                        NumberAnimation {
+                                            duration: 100
+                                            easing.type: Easing.InOutQuad
+                                        }
+                                    }
+                                    opacity: playButtonContainer.pressed ? 0.7 : 1.0
+                                    Behavior on opacity {
+                                        NumberAnimation {
+                                            duration: 120
+                                        }
+                                    }
+                                    anchors.centerIn: parent
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    // Nudges the play triangle slightly right so it centers perfectly by eye
+                                    anchors.horizontalCenterOffset: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? 0 : 1
+                                }
+
+                                MouseArea {
+                                    cursorShape: Qt.PointingHandCursor
+                                    anchors.fill: parent
+                                    onPressed: playButtonContainer.pressed = true
+                                    onReleased: playButtonContainer.pressed = false
+                                    onCanceled: playButtonContainer.pressed = false
+                                    onClicked: if (shell.activePlayer)
+                                        shell.activePlayer.togglePlaying()
+                                }
+                            }
+                            Rectangle {
+                                id: nextButtonContainer
+                                width: 38
+                                height: 28
+                                radius: 4
+                                color: "transparent"
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.rightMargin: 15
+
+                                Image {
+                                    id: nextbutton
+                                    source: "./assets/skip-forward-bold.svg"
+                                    width: 20
+                                    height: 20
+                                    sourceSize.width: 22
+                                    sourceSize.height: 22
+                                    fillMode: Image.PreserveAspectFit
+                                    anchors.centerIn: parent
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Qt.alpha(root.theme.on_background, 0.8)
+                                    }
+                                }
+
+                                MouseArea {
+                                    cursorShape: Qt.PointingHandCursor
+                                    anchors.fill: parent
+                                    onClicked: if (shell.activePlayer)
+                                        shell.activePlayer.next()
+                                }
+                            }
+                            Rectangle {
+                                id: prevButtonContainer
+                                width: 38
+                                height: 28
+                                radius: 4
+                                color: "transparent"
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: 15
+
+                                Image {
+                                    id: prevbutton
+                                    source: "./assets/skip-back-bold.svg"
+                                    width: 20
+                                    height: 20
+                                    sourceSize.width: 22
+                                    sourceSize.height: 22
+                                    fillMode: Image.PreserveAspectFit
+                                    anchors.centerIn: parent
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Qt.alpha(root.theme.on_background, 0.8)                                
+                                    }
+                                }
+
+                                MouseArea {
+                                    cursorShape: Qt.PointingHandCursor
+                                    anchors.fill: parent
+                                    onClicked: if (shell.activePlayer)
+                                        shell.activePlayer.previous()
+                                }
                             }
                         }
                     }
@@ -1297,13 +1348,15 @@ ShellRoot {
             }
 
             // WORKSPACE //
-            Item {
+            Rectangle {
                 id: workspacemodule
                 anchors.left: shell_center.right
                 anchors.leftMargin: 20
                 anchors.verticalCenter: parent.verticalCenter
                 width: dotsRow.width
-                height: parent.height
+                height: 30
+                color: Qt.alpha(root.theme.source_color, 0.15)
+                radius: 50
 
                 property bool pillInitialized: false
 
@@ -1312,7 +1365,7 @@ ShellRoot {
                 Rectangle {
                     id: activePill
                     y: Math.round((workspacemodule.height - height) / 2)
-                    height: 28
+                    height: 30
                     radius: 30
                     z: 0
 
@@ -1320,13 +1373,13 @@ ShellRoot {
                         enabled: workspacemodule.pillInitialized
                         NumberAnimation {
                             duration: 280
-                            easing.type: Easing.OutCubic
+                            easing.type: Easing.OutCirc
                         }
                     }
                     Behavior on width {
                         NumberAnimation {
                             duration: 280
-                            easing.type: Easing.OutCubic
+                            easing.type: Easing.OutCirc
                         }
                     }
                     Behavior on color {
@@ -1376,18 +1429,18 @@ ShellRoot {
                                 id: label
                                 anchors.centerIn: parent
                                 text: {
-                                    if (rect.modelData.id < 9)
+                                    if (rect.modelData.id < 9 && rect.occupied || rect.isCurrent)
                                         return root.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
-                                    return String(rect.modelData.id);
+                                    return "•";
                                 }
-                                color: rect.isCurrent ? root.theme.background : rect.occupied ? root.theme.on_background : Qt.lighter(root.theme.background, 2.5)
+                                color: rect.isCurrent ? root.theme.background : rect.occupied ? root.theme.on_background : Qt.alpha(root.theme.primary, 0.8)
                                 font.family: root.settings.fontjp
-                                font.pixelSize: 18
+                                font.pixelSize: 20
                                 font.bold: true
                                 renderType: Text.QtRendering
                                 renderTypeQuality: Text.HighRenderTypeQuality
 
-                                scale: rect.isCurrent ? 1.0 : 14 / 18
+                                scale: rect.isCurrent ? 1.2 : rect.modelData.id < 9 && rect.occupied || rect.isCurrent ? 0.75 : 1
                                 transformOrigin: Item.Center
 
                                 Behavior on color {
@@ -1416,7 +1469,7 @@ ShellRoot {
                     for (var i = 0; i < wsRepeater.count; i++) {
                         var item = wsRepeater.itemAt(i);
                         if (item && item.visible && item.isCurrent) {
-                            activePill.color = root.theme.primary;
+                            activePill.color = Qt.color(root.theme.primary);
                             activePill.width = 35;
                             activePill.x = item.x - (activePill.width - item.width) / 2;
                             workspacemodule.pillInitialized = true;
@@ -1446,8 +1499,8 @@ ShellRoot {
                 implicitWidth: rowlayout.implicitWidth + 4
                 radius: root.global_radius
                 color: transparentColor
-                anchors.right: mprisModule.left
-                anchors.rightMargin: 5
+                anchors.right: parent.right
+                anchors.rightMargin: -5
                 anchors.verticalCenter: parent.verticalCenter
                 property color transparentColor: Qt.alpha(root.theme.primary, 0)
 
@@ -1582,7 +1635,7 @@ ShellRoot {
                     anchors.fill: parent
                     color: Qt.alpha(root.theme.background, 0.8)
                     radius: 8
-                    border.color: root.theme.surface_bright
+                    border.color: root.theme.outline_variant
                     border.width: 1
 
                     Column {
@@ -1631,7 +1684,7 @@ ShellRoot {
                     anchors.fill: parent
                     color: root.theme.background
                     radius: 8
-                    border.color: root.theme.surface_bright
+                    border.color: root.theme.outline_variant
                     border.width: 1
 
                     Column {
@@ -1827,7 +1880,7 @@ ShellRoot {
                 anchors.leftMargin: 8
                 anchors.right: chevron.left
                 text: entryDelegate.modelData.text
-                color: entryDelegate.modelData.enabled ? root.theme.on_background : root.theme.surface_bright
+                color: entryDelegate.modelData.enabled ? root.theme.on_background : root.theme.outline_variant
                 font.pixelSize: 13
                 elide: Text.ElideRight
             }

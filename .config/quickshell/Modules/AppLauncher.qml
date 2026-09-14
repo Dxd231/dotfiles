@@ -157,13 +157,13 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 200
-            height: 100
+            width: 630
+            height: 400
             x: 1920 / 2 - width / 2
-            y: -250
-            radius: 18
-            border.width: 1
-            border.color: root.theme.surface_bright
+            y: -350
+            radius: 20
+            border.color: Qt.alpha(root.theme.primary, 0.1)
+            border.width: 2            
             color: Qt.alpha(root.theme.background, 0.95)
             clip: true
             transformOrigin: Item.Top
@@ -175,15 +175,8 @@ Item {
                 onStarted: panelWindow.animatingClosed = true
                 onStopped: panelWindow.animatingClosed = false
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
-
-                ParallelAnimation {
-                    NumberAnimation { target: panelBg; property: "topRightRadius"; to: 18; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 260; easing.type: Easing.InBack }
-                    NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 260; easing.type: Easing.InBack }
-                }
-
-                NumberAnimation { target: panelBg; property: "y"; to: -250; duration: 220; easing.type: Easing.InCirc }
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 220 }
+                NumberAnimation { target: panelBg; property: "y"; to: -350; duration: 400; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
@@ -192,43 +185,17 @@ Item {
                 NumberAnimation {
                     target: panelBg
                     property: "y"
-                    to: 6
-                    duration: 240
+                    to: 16
+                    duration: 300
                     easing.type: Easing.OutCirc
                 }
 
-                // Phase 2: box bounces open to full size, content fades in alongside
-                ParallelAnimation {
-                    NumberAnimation { 
-                        target: panelBg
-                        property: "topRightRadius" 
-                        to: 40
-                        duration: 260 
-                        easing.type: Easing.InBack 
-                    }
-                    NumberAnimation {
-                        target: panelBg
-                        properties: "width"
-                        to: 630   // (height needs its own NumberAnimation to a different target value)
-                        duration: 300
-                        easing.type: Easing.OutBack
-                        easing.overshoot: 1.5
-                    }
-                    NumberAnimation {
-                        target: panelBg
-                        properties: "height"
-                        to: 400   // (height needs its own NumberAnimation to a different target value)
-                        duration: 300
-                        easing.type: Easing.OutBack
-                        easing.overshoot: 1.5
-                    }
-                    NumberAnimation {
-                        target: content
-                        property: "opacity"
-                        to: 1
-                        duration: 100
-                        // starts partway into phase 2, once the box is big enough to hold content legibly
-                    }
+                NumberAnimation {
+                    target: content
+                    property: "opacity"
+                    to: 1
+                    duration: 200
+                    // starts partway into phase 2, once the box is big enough to hold content legibly
                 }
             }
 
@@ -413,18 +380,21 @@ Item {
                             color: "transparent"
 
                             Image {
-                                visible: root.isPinned(row.modelData.id) || pinHover.containsMouse 
+                                visible: root.isPinned(row.modelData.id) && pinHover.containsMouse || pinHover.containsMouse 
                                 anchors.centerIn: parent
-                                source: "../assets/push-pin-bold.svg"
+                                source: root.isPinned(row.modelData.id) && pinHover.containsMouse ? "../assets/push-pin-bold.svg" : ""
                                 sourceSize.width: pinButton.width
                                 sourceSize.height: pinButton.height
                                 fillMode: Image.PreserveAspectFit
                                 layer.enabled: visible
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.isPinned(row.modelData.id) || pinHover.containsMouse ? Qt.alpha(root.theme.source_color, 0.5) : root.theme.source_color
+                                    colorizationColor: Qt.alpha(root.theme.source_color, 0.5)
                                 }
                             }                            
+                            HoverHandler{
+                                id: hoverHandler
+                            }
                             MouseArea {
                                 id: pinHover
                                 anchors.fill: parent

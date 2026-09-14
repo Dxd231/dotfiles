@@ -260,25 +260,18 @@ Scope {
             }
         }
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: notify_root.centerOpen = false
-        }
-
         Rectangle {
             id: panelBg
-            width: 150
-            height: 500
-            radius: 18
-            color: Qt.alpha(notify_root.theme.background, 0.95)
-            border.width: 1
-            border.color: Qt.alpha(notify_root.theme.surface_bright, 0.8)
+            width: 400
+            height: 900
+            radius: 20
+            border.color: Qt.alpha(root.theme.primary, 0.4)
+            border.width: 2
+            color: Qt.alpha(notify_root.theme.background, 1)
             x: -350
-            y: (1080 / 16 - height / 16) -10
+            y: 10
             clip: true
             transformOrigin: Item.Right
-
-            
 
             SequentialAnimation {
                 id: closeAnim
@@ -287,12 +280,6 @@ Scope {
                 onStopped: centerPanel.animatingClosed = false
 
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 180 }
-
-                ParallelAnimation {
-                    NumberAnimation { target: panelBg; property: "width"; to: 200; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2; }
-                    NumberAnimation { target: panelBg; property: "height"; to: 500; duration: 300; easing.type: Easing.InBack; easing.overshoot: 1.2 }
-                }
-
                 NumberAnimation { target: panelBg; property: "x"; to: -350; duration: 300; easing.type: Easing.InCirc }
 
             }
@@ -308,22 +295,6 @@ Scope {
                 }
 
                 ParallelAnimation {
-                    NumberAnimation {
-                        target: panelBg
-                        properties: "width"
-                        to: 400   
-                        duration: 300
-                        easing.type: Easing.OutBack
-                        easing.overshoot: 1.2
-                    }
-                    NumberAnimation {
-                        target: panelBg
-                        properties: "height"
-                        to: 800   
-                        duration: 300
-                        easing.type: Easing.OutBack
-                        easing.overshoot: 1.2
-                    }
                     NumberAnimation {
                         target: content
                         property: "opacity"
@@ -361,7 +332,7 @@ Scope {
                 anchors.margins: 14
             
                 
-                AnimatedImage {
+                /* AnimatedImage {
                     id: anim
                     source: panelBg.isTouhou ? panelBg.currentGifTou : ""
                     anchors.centerIn: parent
@@ -390,7 +361,7 @@ Scope {
                             panelBg.currentGifTou = panelBg.pickRandomTH()
                         }
                     }
-                }
+                } */
 
                 ColumnLayout {
                     id: centerCol
@@ -714,7 +685,7 @@ Scope {
                                     delegate: Rectangle {
                                         id: netCard
                                         border.width: 2
-                                        border.color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : notify_root.theme.surface_bright
+                                        border.color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : notify_root.theme.outline_variant
                                         required property var modelData
                                         property bool expanded: notify_root.expandedSsid === modelData.name
 
@@ -851,7 +822,7 @@ Scope {
                             color: notify_root.theme.on_background
                             font {
                                 family: notify_root.theme.fontdefault
-                                pixelSize: notify_root.theme.fontsize + 2
+                                pixelSize: notify_root.settings.fontsize + 2
                                 bold: true
                             }
                         }
@@ -1257,7 +1228,7 @@ Scope {
                     color: Qt.alpha(notify_root.theme.background, 0.8)
                     clip: true
                     border.width: 1
-                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.primary, 0.5) : Qt.alpha(notify_root.theme.surface_bright, 0.5)
+                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.primary, 0.5) : Qt.alpha(notify_root.theme.outline_variant, 0.5)
 
                     RowLayout {
                         id: layout
