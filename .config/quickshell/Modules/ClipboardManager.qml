@@ -305,7 +305,7 @@ Item {
             height: 400
             x: 1920 / 2 - width / 2
             radius: 35
-            border.color: Qt.alpha(root.theme.primary, 0.5)
+            border.color: Qt.alpha(root.theme.primary, 0.1)
             border.width: 2            
             color: Qt.alpha(root.theme.background, 0.95)
             clip: true

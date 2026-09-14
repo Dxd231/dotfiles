@@ -265,7 +265,7 @@ Scope {
             width: 400
             height: 900
             radius: 20
-            border.color: Qt.alpha(root.theme.primary, 0.4)
+            border.color: Qt.alpha(root.theme.primary, 0.1)
             border.width: 2
             color: Qt.alpha(notify_root.theme.background, 1)
             x: -350
