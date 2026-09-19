@@ -286,7 +286,7 @@ Scope {
                             layer.enabled: true
                             layer.effect: MultiEffect {
                                 colorization: 1.0
-                                colorizationColor: emojiRoot.theme.source_color
+                                colorizationColor: emojiRoot.theme.primary
                             }
                         }
                     }
@@ -309,7 +309,7 @@ Scope {
                 highlightResizeDuration: 0
                 highlight: Rectangle {
                     radius: 18
-                    color: Qt.alpha(emojiRoot.theme.source_color, 0.8)
+                    color: Qt.alpha(emojiRoot.theme.primary, 0.8)
                 }
 
                 delegate: Rectangle {

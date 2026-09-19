@@ -266,7 +266,7 @@ Scope {
                                 NumberAnimation { duration: 180; easing.type: Easing.OutCirc }
                             }
 
-                            border.color: isSelected ? root.theme.source_color : "transparent"
+                            border.color: isSelected ? root.theme.primary : "transparent"
                             border.width: 2
                             color: "transparent"
 

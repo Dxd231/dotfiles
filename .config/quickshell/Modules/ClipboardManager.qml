@@ -287,7 +287,7 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: -1
+        margins.top: 10
         margins.left: 0
         margins.right: 0
         implicitHeight: 550
@@ -302,14 +302,14 @@ Item {
         Rectangle {
             id: panelBg
             width: 630
-            height: 400
+            height: 100
             x: 1920 / 2 - width / 2
-            radius: 35
+            radius: 20
             border.color: Qt.alpha(root.theme.primary, 0.1)
             border.width: 2            
             color: Qt.alpha(root.theme.background, 0.95)
             clip: true
-            y: -250
+            y: 0
             transformOrigin: Item.Top
 
             SequentialAnimation {
@@ -319,7 +319,7 @@ Item {
                 onStopped: panelWindow.animatingClosed = false
 
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
-                NumberAnimation { target: panelBg; property: "y"; to: -250; duration: 320; easing.type: Easing.InCirc }
+                NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 320; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
@@ -327,8 +327,8 @@ Item {
                 // Phase 1: empty small box slides down
                 NumberAnimation {
                     target: panelBg
-                    property: "y"
-                    to: 16
+                    property: "height"
+                    to: 400
                     duration: 300
                     easing.type: Easing.OutCirc
                 }
@@ -366,9 +366,9 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         height: 42
                         radius: 50
-                        color: Qt.alpha(root.theme.on_background, 0.08)
+                        color: Qt.alpha(root.theme.on_background, 0)
                         border.width: 0
-                        border.color: searchField.activeFocus ? root.theme.source_color : Qt.alpha(root.theme.surface_bright, 0.6)
+                        border.color: searchField.activeFocus ? root.theme.primary : Qt.alpha(root.theme.surface_bright, 0.6)
 
                         Behavior on border.color {
                             ColorAnimation { duration: 120 }
@@ -391,7 +391,7 @@ Item {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.source_color
+                                    colorizationColor: root.theme.primary
                                 } 
                             }
 
@@ -461,8 +461,8 @@ Item {
                             highlightResizeDuration: 0
 
                             highlight: Rectangle {
-                                radius: 20
-                                color: Qt.alpha(root.theme.source_color, 0.8)
+                                radius: 10
+                                color: Qt.alpha(root.theme.primary, 0.8)
                             }
 
                             delegate: Rectangle {
@@ -499,7 +499,7 @@ Item {
                                             layer.enabled: true
                                             layer.effect: MultiEffect {
                                                 colorization: 1.0
-                                                colorizationColor: entryRow.isSelected ? root.theme.on_background : root.theme.source_color 
+                                                colorizationColor: entryRow.isSelected ? root.theme.on_background : root.theme.primary 
                                             } 
                                         }
                                     }
@@ -515,6 +515,7 @@ Item {
                                             color: entryRow.isSelected ? root.theme.background : root.theme.on_background
                                             font.pixelSize: 16
                                             font.bold: false
+                                            opacity: 0.8
                                             font.family: root.settings.fontmedium
                                             //renderType: Text.NativeRendering
                                             //font.hintingPreference: Font.PreferFullHinting
@@ -600,7 +601,7 @@ Item {
                                 wrapMode: Text.Wrap
                                 readOnly: true
                                 selectByMouse: true
-                                selectionColor: root.theme.source_color
+                                selectionColor: root.theme.primary
                                 persistentSelection: true
                             }
                         }
@@ -632,7 +633,7 @@ Item {
                             Rectangle {
                                 width: parent.width
                                 radius: 2
-                                color: Qt.alpha(root.theme.source_color, 0.5)
+                                color: Qt.alpha(root.theme.primary, 0.5)
                                 y: parent.handleY
                                 height: parent.handleHeight
                             }
@@ -690,9 +691,9 @@ Item {
                                 width: copyLabel.implicitWidth + 22
                                 height: 30
                                 radius: root.global_radius
-                                color: Qt.alpha(root.theme.source_color, copyArea.containsMouse ? 0.8 : 1)
+                                color: Qt.alpha(root.theme.primary, copyArea.containsMouse ? 0.8 : 1)
                                 border.width: 1
-                                border.color: root.theme.source_color
+                                border.color: root.theme.primary
 
                                 Text {
                                     id: copyLabel

@@ -55,7 +55,6 @@ Scope {
     }
 
     PanelWindow {
-        // No screen → compositor usually picks the focused monitor
         WlrLayershell.namespace: "quickshell:osd"
         WlrLayershell.layer: WlrLayer.Overlay
         anchors.top: true
@@ -66,7 +65,6 @@ Scope {
         implicitWidth: 300
         implicitHeight: 70
         color: "transparent"
-        // Empty region = click-through
         mask: Region {}
 
         Rectangle {
@@ -92,7 +90,7 @@ Scope {
                     when: !osdroot.shouldShowOsd
                     PropertyChanges {
                         target: panelBg
-                        scale: 0.1
+                        scale: 0.3
                         opacity: 0
                     }
                 }
@@ -105,7 +103,7 @@ Scope {
 
                     NumberAnimation {
                         properties: "scale,opacity"
-                        duration: 300
+                        duration: 180
                         easing.type: Easing.OutCirc
                     }
                 },
@@ -155,7 +153,7 @@ Scope {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 10
-                    radius: 20
+                    radius: 2
                     color: Qt.alpha(osdroot.theme.scrim, 0.2)
 
                     Rectangle {

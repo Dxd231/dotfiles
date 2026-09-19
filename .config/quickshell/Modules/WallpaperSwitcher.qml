@@ -87,7 +87,7 @@ Item {
 
         // fire wallpaper change immediately, don't wait on color extraction
         var cmd =
-            "awww img '" + safePath + "' --transition-type grow --transition-fps 100 --transition-duration 1 >/dev/null 2>&1 & " +
+            "awww img '" + safePath + "' --transition-type random --transition-fps 100 --transition-duration 2 >/dev/null 2>&1 & " +
             "matugen image '" + safePath + "' --prefer " + root.colorPreference + " >/dev/null 2>&1 &";
 
         applyProc.command = ["sh", "-c", cmd];
@@ -144,7 +144,7 @@ Item {
             radius: 0
             border.width: 0
             border.color: root.theme.surface_bright
-            color: Qt.alpha(root.theme.background, 0.8)
+            color: Qt.alpha(root.theme.background, 1)
             clip: true
             y: 280
 

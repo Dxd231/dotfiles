@@ -48,7 +48,7 @@ hl.device = {
 hl.config({
   general = {
     gaps_in             = 8,
-    gaps_out            = 15,
+    gaps_out            = 18,
     border_size         = 0,
     allow_tearing       = true,
 
@@ -64,7 +64,7 @@ hl.config({
 -- ==================
 hl.config({
   decoration = {
-    rounding              = 28,
+    rounding              = 18,
     rounding_power        = 4.0,
     dim_special           = 0.2,
     dim_inactive          = false,
@@ -76,7 +76,7 @@ hl.config({
         enabled       = true,
         range         = 18,
         render_power  = 4,
-        offset        = "1 1",
+        offset        = "0 0",
         color         = "rgba(00000090)",
     },
     blur = {
@@ -127,16 +127,5 @@ hl.config({
     on_focus_under_fullscreen = 1,
     font_family = "Google Sans Code",
   },
-  render = {
-    expand_undersized_textures = false,
-  }
 })
 -- ~/.config/hypr/hyprland.lua
-
-hl.config({
-  input = {
-      follow_mouse = 1,
-  },
-})
-
-

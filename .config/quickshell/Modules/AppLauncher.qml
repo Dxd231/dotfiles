@@ -144,7 +144,7 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: -1
+        margins.top: 10
         margins.left: 0
         margins.right: 0
         implicitHeight: 1000
@@ -158,12 +158,12 @@ Item {
         Rectangle {
             id: panelBg
             width: 630
-            height: 400
+            height: 100
             x: 1920 / 2 - width / 2
-            y: -350
+            y: 0
             radius: 20
             border.color: Qt.alpha(root.theme.primary, 0.1)
-            border.width: 2            
+            border.width: 1            
             color: Qt.alpha(root.theme.background, 0.95)
             clip: true
             transformOrigin: Item.Top
@@ -176,7 +176,7 @@ Item {
                 onStopped: panelWindow.animatingClosed = false
 
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 220 }
-                NumberAnimation { target: panelBg; property: "y"; to: -350; duration: 400; easing.type: Easing.InCirc }
+                NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 300; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
@@ -184,8 +184,8 @@ Item {
                 // Phase 1: empty small box slides down
                 NumberAnimation {
                     target: panelBg
-                    property: "y"
-                    to: 16
+                    property: "height"
+                    to: 400
                     duration: 300
                     easing.type: Easing.OutCirc
                 }
@@ -215,10 +215,10 @@ Item {
                 Rectangle {
                     width: parent.width
                     height: 45
-                    radius: 50
-                    color: Qt.alpha(root.theme.on_background, 0.08)
+                    radius: 10
+                    color: Qt.alpha(root.theme.on_background, 0)
                     border.width: 0
-                    border.color: Qt.alpha(root.theme.source_color, 0.8)
+                    border.color: Qt.alpha(root.theme.primary, 0.8)
 
                     Row {
                         anchors.fill: parent
@@ -269,7 +269,7 @@ Item {
                                 layer.enabled: true
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: root.theme.source_color
+                                    colorizationColor: root.theme.primary
                                 } 
                             }
                         }
@@ -291,8 +291,8 @@ Item {
                     highlightResizeDuration: 0
 
                     highlight: Rectangle {
-                        radius: 20
-                        color: Qt.alpha(root.theme.source_color, 0.8)
+                        radius: 10
+                        color: Qt.alpha(root.theme.primary, 0.8)
                     }
 
                     delegate: Rectangle {
@@ -327,6 +327,7 @@ Item {
                                     text: row.modelData.name
                                     color: root.selectedIndex === row.index ? root.theme.background : root.theme.on_background
                                     font.pixelSize: 16
+                                    opacity: 0.8
                                     font.bold: false
                                     font.family: root.settings.fontmedium
                                     elide: Text.ElideRight
@@ -389,7 +390,7 @@ Item {
                                 layer.enabled: visible
                                 layer.effect: MultiEffect {
                                     colorization: 1.0
-                                    colorizationColor: Qt.alpha(root.theme.source_color, 0.5)
+                                    colorizationColor: Qt.alpha(root.theme.primary, 0.5)
                                 }
                             }                            
                             HoverHandler{

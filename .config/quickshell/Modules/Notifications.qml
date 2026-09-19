@@ -159,15 +159,6 @@ Scope {
         notify_root.current_profile = profile;
     }
 
-    ///
-    Process {
-        id: cpuStatProc
-        command: ["sh", "-c", "top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{printf \"%.0f\", 100 - $1}'"]
-        stdout: StdioCollector {
-            onStreamFinished: notify_root.cpuPercent = parseFloat(text.trim()) || 0
-        }
-    }
-
     Process {
         id: memStatProc
         command: ["sh", "-c", "free | grep Mem | awk '{printf \"%.0f\", ($3/$2) * 100.0}'"]
@@ -181,8 +172,6 @@ Scope {
     function refreshStats() {
         netSpeedProc.running = false;
         netSpeedProc.running = true;
-        cpuStatProc.running = false;
-        cpuStatProc.running = true;
         memStatProc.running = false;
         memStatProc.running = true;
     }
@@ -242,7 +231,8 @@ Scope {
             left: true
         }
         margins {
-            top: 0
+            top: 20
+            left: 0
         }
         implicitHeight: 1080
         implicitWidth: 1920
@@ -264,14 +254,13 @@ Scope {
             id: panelBg
             width: 400
             height: 900
-            radius: 20
+            radius: 15
             border.color: Qt.alpha(root.theme.primary, 0.1)
-            border.width: 2
+            border.width: 1
             color: Qt.alpha(notify_root.theme.background, 1)
             x: -350
             y: 10
             clip: true
-            transformOrigin: Item.Right
 
             SequentialAnimation {
                 id: closeAnim
@@ -289,7 +278,7 @@ Scope {
                 NumberAnimation {
                     target: panelBg
                     property: "x"
-                    to: 14
+                    to: 10
                     duration: 300
                     easing.type: Easing.OutCirc
                 }
@@ -476,15 +465,15 @@ Scope {
                                         text: "CPU"
                                         color: notify_root.theme.on_background
                                         opacity: 0.7
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
                                         font.bold: true
                                     }
                                     Text {
                                         text: Math.round(notify_root.cpuPercent) + "%"
                                         color: notify_root.theme.on_background
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
                                         font.bold: true
                                     }
                                 }
@@ -535,15 +524,15 @@ Scope {
                                         text: "RAM"
                                         color: notify_root.theme.on_background
                                         opacity: 0.7
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
                                         font.bold: true
                                     }
                                     Text {
                                         text: Math.round(notify_root.memPercent) + "%"
                                         color: notify_root.theme.on_background
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
                                         font.bold: true
                                     }
                                 }
@@ -594,8 +583,8 @@ Scope {
                                         text: "NET"
                                         color: notify_root.theme.on_background
                                         opacity: 0.7
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
                                         font.bold: true
                                         /* renderType: Text.NativeRendering
                                         font.hintingPreference: Font.PreferFullHinting */
@@ -603,7 +592,7 @@ Scope {
                                     Text {
                                         text: "↓ " + notify_root.formatSpeed(notify_root.netDown) + "  ↑ " + notify_root.formatSpeed(notify_root.netUp)
                                         color: Qt.alpha(notify_root.theme.on_background, 0.75)
-                                        font.family: notify_root.theme.fontdefault
+                                        font.family: notify_root.settings.fontdefault
                                         font.pixelSize: 11
                                         font.bold: true
                                         /* renderType: Text.NativeRendering
@@ -612,8 +601,8 @@ Scope {
                                     Text {
                                         text: Math.round(notify_root.wifiPercent) + "%"
                                         color: notify_root.theme.on_background
-                                        font.family: notify_root.theme.fontdefault
-                                        font.pixelSize: notify_root.theme.fontsize
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
                                         font.bold: true
                                         /* renderType: Text.NativeRendering
                                         font.hintingPreference: Font.PreferFullHinting */
@@ -739,8 +728,8 @@ Scope {
                                                         Layout.fillWidth: true
                                                         text: netCard.modelData.name
                                                         color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.7)
-                                                        font.family: notify_root.theme.fontdefault
-                                                        font.pixelSize: notify_root.theme.fontsize + 2
+                                                        font.family: notify_root.settings.fontdefault
+                                                        font.pixelSize: notify_root.settings.fontsize + 2
                                                         font.bold: true
                                                         elide: Text.ElideRight
                                                     }
@@ -748,7 +737,7 @@ Scope {
                                                         text: Math.round((netCard.modelData.signalStrength ?? 0) * 100) + "%"
                                                         color: notify_root.theme.on_background
                                                         opacity: 0.6
-                                                        font.pixelSize: notify_root.theme.fontsize
+                                                        font.pixelSize: notify_root.settings.fontsize
                                                     }
                                                 }
 
@@ -795,8 +784,8 @@ Scope {
                                                     contentItem: Text {
                                                         text: connectBtn.text
                                                         color: notify_root.theme.on_background  // or on_background, whatever fits your theme
-                                                        font.family: notify_root.theme.fontdefault
-                                                        font.pixelSize: notify_root.theme.fontsize
+                                                        font.family: notify_root.settings.fontdefault
+                                                        font.pixelSize: notify_root.settings.fontsize
                                                         font.bold: true
                                                         horizontalAlignment: Text.AlignHCenter
                                                         verticalAlignment: Text.AlignVCenter
@@ -821,7 +810,7 @@ Scope {
                             text: "Notifications"
                             color: notify_root.theme.on_background
                             font {
-                                family: notify_root.theme.fontdefault
+                                family: notify_root.settings.fontdefault
                                 pixelSize: notify_root.settings.fontsize + 2
                                 bold: true
                             }
@@ -946,7 +935,7 @@ Scope {
                                             Layout.fillWidth: true
                                             text: card.summary
                                             color: notify_root.theme.on_background
-                                            font.family: notify_root.theme.fontdefault
+                                            font.family: notify_root.settings.fontdefault
                                             font.pixelSize: 14
                                             font.bold: true
                                             /* renderType: Text.NativeRendering
@@ -958,7 +947,7 @@ Scope {
                                             text: card.time
                                             color: notify_root.theme.on_background
                                             opacity: 0.6
-                                            font.family: notify_root.theme.fontdefault
+                                            font.family: notify_root.settings.fontdefault
                                             font.pixelSize: 11
                                             font.bold: true
                                             /* renderType: Text.NativeRendering
@@ -971,7 +960,7 @@ Scope {
                                         visible: text !== ""
                                         text: card.body
                                         color: notify_root.theme.on_background
-                                        font.family: notify_root.theme.fontdefault
+                                        font.family: notify_root.settings.fontdefault
                                         font.pixelSize: 13
                                         font.bold: true
                                         opacity: 0.5
@@ -987,7 +976,7 @@ Scope {
                                             text: card.appName
                                             color: notify_root.theme.on_background
                                             opacity: 0.5
-                                            font.family: notify_root.theme.fontdefault
+                                            font.family: notify_root.settings.fontdefault
                                         }
                                     }
                                 }
@@ -1027,9 +1016,7 @@ Scope {
                                     color: notify_root.theme.on_background
                                     font.pixelSize: 16
                                     font.bold: true
-                                    font.family: notify_root.theme.fontdefault
-                                    renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting
+                                    font.family: notify_root.settings.fontdefault
                                     MouseArea {
                                         cursorShape: Qt.PointingHandCursor
                                         anchors.fill: parent
@@ -1044,18 +1031,14 @@ Scope {
                                     color: notify_root.theme.on_background
                                     font.pixelSize: 13
                                     font.bold: true
-                                    font.family: notify_root.theme.fontdefault
-                                    renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting
+                                    font.family: notify_root.settings.fontdefault
                                 }
                                 Text {
                                     text: "\u203A"
                                     color: notify_root.theme.on_background
                                     font.pixelSize: 16
                                     font.bold: true
-                                    font.family: notify_root.theme.fontdefault
-                                    renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting
+                                    font.family: notify_root.settings.fontdefault
                                     MouseArea {
                                         cursorShape: Qt.PointingHandCursor
                                         anchors.fill: parent
@@ -1079,9 +1062,7 @@ Scope {
                                         color: notify_root.theme.on_background
                                         opacity: 0.5
                                         font.pixelSize: 10
-                                        font.family: notify_root.theme.fontdefault
-                                        renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting
+                                        font.family: notify_root.settings.fontdefault
                                         font.bold: true
                                     }
                                 }
@@ -1120,9 +1101,7 @@ Scope {
                                             color: notify_root.shellRoot.isHighlighted(dayCell.modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.on_primary : notify_root.theme.on_background
                                             font.pixelSize: 11
                                             font.bold: true
-                                            font.family: notify_root.theme.fontdefault
-                                            renderType: Text.NativeRendering
-                                            font.hintingPreference: Font.PreferVerticalHinting
+                                            font.family: notify_root.settings.fontdefault
                                         }
 
                                         MouseArea {
@@ -1150,7 +1129,7 @@ Scope {
             left: true
         }
         margins {
-            top: 30
+            top: 20
             left: 0
         }
         implicitWidth: 300
@@ -1224,10 +1203,10 @@ Scope {
                         }
                     }
 
-                    radius: 18
-                    color: Qt.alpha(notify_root.theme.background, 0.8)
+                    radius: 10
+                    color: Qt.alpha(notify_root.theme.background, 1)
                     clip: true
-                    border.width: 1
+                    border.width: 2
                     border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.primary, 0.5) : Qt.alpha(notify_root.theme.outline_variant, 0.5)
 
                     RowLayout {
@@ -1252,9 +1231,11 @@ Scope {
                                 Layout.fillWidth: true
                                 text: card.modelData.summary
                                 color: notify_root.theme.on_background
-                                font.family: notify_root.theme.fontdefault
-                                font.pixelSize: 13
+                                font.family: notify_root.settings.fontdefault
+                                font.pixelSize: 16
+                                opacity: 0.8
                                 font.bold: true
+                                leftPadding: 5
                                 elide: Text.ElideRight
                                 /* renderType: Text.NativeRendering
                                 font.hintingPreference: Font.PreferVerticalHinting */
@@ -1264,8 +1245,11 @@ Scope {
                                 visible: text !== ""
                                 text: card.modelData.body
                                 color: notify_root.theme.on_background
-                                font.family: notify_root.theme.fontdefault
+                                font.family: notify_root.settings.fontdefault
+                                leftPadding: 5
                                 font.pixelSize: 12
+                                font.bold: true
+                                opacity: 0.8
                                 wrapMode: Text.WordWrap
                                 //renderType: Text.NativeRendering
                                 //font.hintingPreference: Font.PreferVerticalHinting
