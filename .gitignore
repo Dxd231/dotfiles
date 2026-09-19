@@ -1,0 +1,22 @@
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Build artifacts (if you compile anything, e.g. C++ plugins)
+build/
+*.o
+*.so
+
+# Logs
+*.log
+
+# Local secrets/config overrides
+.env
+*.local.qml
+
+README.md
