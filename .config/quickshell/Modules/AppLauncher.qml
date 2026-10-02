@@ -16,6 +16,9 @@ Item {
     property bool isOpenLauncher: false
     property string query: ""
     property int selectedIndex: 0
+    // last real mouse position (scene coords); used so hover only selects when the mouse actually moves
+    property real lastMouseX: -1
+    property real lastMouseY: -1
 
     onIsOpenLauncherChanged: {
         if (isOpenLauncher) {
@@ -158,13 +161,14 @@ Item {
         Rectangle {
             id: panelBg
             width: 630
-            height: 100
+            height: 420
             x: 1920 / 2 - width / 2
-            y: 0
-            radius: 20
+            y: 300
+            scale: 0
+            radius: 14
             border.color: Qt.alpha(root.theme.primary, 0.1)
-            border.width: 1            
-            color: Qt.alpha(root.theme.background, 0.95)
+            border.width: 0            
+            color: Qt.lighter(root.theme.background, 1.2)
             clip: true
             transformOrigin: Item.Top
 
@@ -175,27 +179,20 @@ Item {
                 onStarted: panelWindow.animatingClosed = true
                 onStopped: panelWindow.animatingClosed = false
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 220 }
-                NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 300; easing.type: Easing.InCirc }
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
+                NumberAnimation { target: panelBg; property: "scale"; to: 0; duration: 180; easing.type: Easing.InCirc }
             }
 
             SequentialAnimation {
                 id: openAnim
                 // Phase 1: empty small box slides down
-                NumberAnimation {
-                    target: panelBg
-                    property: "height"
-                    to: 400
-                    duration: 300
-                    easing.type: Easing.OutCirc
-                }
-
+                NumberAnimation { target: panelBg; property: "scale"; to: 1; duration: 180; easing.type: Easing.OutCirc }
+                // Phase 2: box bounces open to full size, content fades in alongside
                 NumberAnimation {
                     target: content
                     property: "opacity"
                     to: 1
                     duration: 200
-                    // starts partway into phase 2, once the box is big enough to hold content legibly
                 }
             }
 
@@ -276,23 +273,46 @@ Item {
                     }
                 }
 
+                Rectangle {
+                    id: separator
+                    anchors.top: searchField.bottom
+                    height: 2
+                    width: parent.width
+                    color: root.theme.primary
+                    radius: 10
+                }
+
+                
+
                 // ---- results ----
                 ListView {
                     id: resultsList
                     width: parent.width
-                    height: parent.height - 52
+                    focus: true
+                    height: parent.height - 60
                     clip: true
                     reuseItems: true
                     model: root.filteredApps
                     currentIndex: root.selectedIndex
-                    highlightMoveDuration: 200
+                    highlightMoveDuration: 150
                     highlightMoveVelocity: -1
+                    snapMode: ListView.SnapToItem
                     highlightFollowsCurrentItem: true
                     highlightResizeDuration: 0
 
                     highlight: Rectangle {
+                        id: highlightRec
                         radius: 10
-                        color: Qt.alpha(root.theme.primary, 0.8)
+                        color: Qt.alpha(root.theme.on_background, 0.1)
+                        Rectangle {
+                            id: selector
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 5
+                            height: parent.height - 14
+                            color: root.theme.primary
+                            radius: 10
+                        }
                     }
 
                     delegate: Rectangle {
@@ -300,7 +320,7 @@ Item {
                         required property var modelData
                         required property int index
                         width: resultsList.width
-                        height: 46
+                        height: 47
                         radius: root.global_radius
                         color: "transparent"
 
@@ -325,14 +345,12 @@ Item {
                                 Text {
                                     width: parent.width
                                     text: row.modelData.name
-                                    color: root.selectedIndex === row.index ? root.theme.background : root.theme.on_background
+                                    color: root.theme.on_background
                                     font.pixelSize: 16
                                     opacity: 0.8
                                     font.bold: false
                                     font.family: root.settings.fontmedium
                                     elide: Text.ElideRight
-                                    /* renderType: Text.NativeRendering
-                                    font.hintingPreference: Font.PreferVerticalHinting */
 
                                     Behavior on color {
                                         ColorAnimation {
@@ -344,12 +362,10 @@ Item {
                                     width: parent.width
                                     visible: text.length > 0
                                     text: row.modelData.genericName || ""
-                                    color: root.selectedIndex === row.index ? root.theme.background : root.theme.on_background
+                                    color: root.theme.on_background
                                     opacity: 0.55
                                     font.pixelSize: 13
                                     font.family: root.settings.fontdefault
-                                    //renderType: Text.NativeRendering
-                                    //font.hintingPreference: Font.PreferVerticalHinting
                                     elide: Text.ElideRight
 
                                     Behavior on color {
@@ -365,8 +381,17 @@ Item {
                         MouseArea {
                             cursorShape: Qt.PointingHandCursor
                             anchors.fill: parent
-                            onEntered: root.selectedIndex = row.index
                             hoverEnabled: true
+                            // Only select when the cursor really moves. Items scrolling under a
+                            // stationary cursor (keyboard nav) fire enter events but not this.
+                            onPositionChanged: mouse => {
+                                const p = mapToItem(null, mouse.x, mouse.y);
+                                if (p.x === root.lastMouseX && p.y === root.lastMouseY)
+                                    return;
+                                root.lastMouseX = p.x;
+                                root.lastMouseY = p.y;
+                                root.selectedIndex = row.index;
+                            }
                             onClicked: root.launch(row.modelData)
                         }
 
@@ -415,8 +440,6 @@ Item {
                         opacity: 0.4
                         font.pixelSize: 16
                         font.family: root.settings.fontdefault
-                        //renderType: Text.NativeRendering
-                        //font.hintingPreference: Font.PreferVerticalHinting
                     }
                 }
             }

@@ -22,20 +22,34 @@ ShellRoot {
         // topOffset: panelbar.height   // bind directly instead of hardcoding, see below
     } */
 
-    Notifications {
-        id: notifications
-        mainroot: root
+    LockScreen { theme: root.theme; settings: root.settings; player: shell.activePlayer }
+
+    AppDock {
+        id: appdock
         theme: root.theme
         settings: root.settings
-        calendarOpen: shell.calendarOpen
-        shellRoot: shell
+    }
+
+    VolumePopup {
+        theme: root.theme
+        settings: root.settings
+        anchorItem: volumeModule
+        iconHovered: volumeModule.hovered
+    }
+
+    Notifications {
+        id: notifications
+        theme: root.theme
+        settings: root.settings
         cpuPercent: root.cpuPercent
+        memPercent: root.memValue
     }
 
     EmojiPicker {
         id: emojiPicker
         theme: root.theme
         settings: root.settings
+        copyToast: copyToast
     }
 
     PowerMenu {
@@ -47,6 +61,7 @@ ShellRoot {
     WallpaperSwitcher {
         id: wallpaperSwitcher
         theme: root.theme
+        settings: root.settings
         fontdefault: root.settings.fontdefault
     }
 
@@ -62,11 +77,18 @@ ShellRoot {
         theme: root.theme
     }
 
+    CopyToast {
+        id: copyToast
+        theme: root.theme
+        settings: root.settings
+    }
+
     ClipboardManager {
         id: clipboardManager
         theme: root.theme
         settings: root.settings
         global_radius: root.global_radius
+        copyToast: copyToast
     }
 
     ActiveArch {}
@@ -93,63 +115,6 @@ ShellRoot {
         precision: SystemClock.Minutes
     }
 
-    // ---- calendar popup state ----
-    property bool calendarOpen: false
-    property var viewDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-    property var highlightedDays: []
-    property var gridCells: shell.buildCalendarGrid()
-
-    function dateKey(d) {
-        return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
-    }
-    function isHighlighted(d) {
-        return shell.highlightedDays.indexOf(shell.dateKey(d)) !== -1;
-    }
-    function isToday(d) {
-        const t = new Date();
-        return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
-    }
-    function toggleDay(d) {
-        const key = shell.dateKey(d);
-        const idx = shell.highlightedDays.indexOf(key);
-        const arr = shell.highlightedDays.slice();
-        if (idx === -1)
-            arr.push(key);
-        else
-            arr.splice(idx, 1);
-        shell.highlightedDays = arr;
-    }
-    function shiftMonth(delta) {
-        shell.viewDate = new Date(shell.viewDate.getFullYear(), shell.viewDate.getMonth() + delta, 1);
-    }
-    function buildCalendarGrid() {
-        const year = shell.viewDate.getFullYear();
-        const month = shell.viewDate.getMonth();
-        const startWeekday = new Date(year, month, 1).getDay();
-        const daysInThisMonth = new Date(year, month + 1, 0).getDate();
-        var cells = [];
-        for (var i = startWeekday; i > 0; i--)
-            cells.push({
-                "date": new Date(year, month, 1 - i),
-                "inMonth": false
-            });
-        for (var d = 1; d <= daysInThisMonth; d++)
-            cells.push({
-                "date": new Date(year, month, d),
-                "inMonth": true
-            });
-        var next = 1;
-        while (cells.length < 42) {
-            cells.push({
-                "date": new Date(year, month + 1, next),
-                "inMonth": false
-            });
-            next++;
-        }
-        return cells;
-    }
-    onViewDateChanged: shell.gridCells = shell.buildCalendarGrid()
-
     QtObject {
         id: root
         property int fontsize: 12
@@ -159,27 +124,20 @@ ShellRoot {
         property int global_radius: 10
         readonly property var kanjiNumbers: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
-        readonly property string time: {
-            Qt.formatDateTime(clock.date, "hh:mm");
-        }
+        readonly property string time: Qt.formatDateTime(clock.date, "hh:mm")
         readonly property string dateString: Qt.formatDateTime(clock.date, "ddd dd MMM")
 
         property string preferredPlayer: "spotify"
 
-        // ---- live BPM tracking (drives vinyl spin speed) ----
-        property real currentBpm: 120        // last detected tempo
-        Behavior on currentBpm {
-            NumberAnimation { duration: 300; easing.type: Easing.OutQuad }
-        }
-        property real lastBeatTs: 0          // Date.now() of last beat event
-        readonly property real baseBpm: 120  // reference tempo for baseDegPerTick
-        readonly property real baseDegPerTick: 0.54 // deg/tick at baseBpm (existing default speed)
+        // Fixed vinyl spin speed (degrees per rotateTimer tick). No longer BPM-driven.
+        property real discSpinSpeed: 0.62
 
         property string memoryUsage: "0%"
         property string memformat: ""
-        property string memCount: ""
+        readonly property real memValue: parseFloat(memformat) || 0
+        property int memCount: 0
         property bool memPercent: false
-        property string cpuPercent: ""
+        property real cpuPercent: 0
         property string calendar: ""
         property string networkInfo: "Disconnected"
         property string networkType: "disconnected"
@@ -196,54 +154,14 @@ ShellRoot {
         property var prevTotal: 0
         stdout: StdioCollector {
             onStreamFinished: {
-                const line = text.split("\n")[0].trim();
-                const parts = line.split(/\s+/).slice(1).map(Number);
+                const parts = text.split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
                 const idle = parts[3] + parts[4]; // idle + iowait
                 const total = parts.reduce((a, b) => a + b, 0);
-                const idleDelta = idle - cpuStatProc.prevIdle;
                 const totalDelta = total - cpuStatProc.prevTotal;
-                if (cpuStatProc.prevTotal > 0 && totalDelta > 0) {
-                    root.cpuPercent = 100 * (1 - idleDelta / totalDelta);
-                }
+                if (cpuStatProc.prevTotal > 0 && totalDelta > 0)
+                    root.cpuPercent = 100 * (1 - (idle - cpuStatProc.prevIdle) / totalDelta);
                 cpuStatProc.prevIdle = idle;
                 cpuStatProc.prevTotal = total;
-                root.cpuPercent = Math.round(100 * (1 - idleDelta / totalDelta))
-            }
-        }
-    }
-
-    // Live BPM detector — only runs while something is actually playing
-    Process {
-        id: bpmDetector
-        running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
-        command: [
-            "python3",
-            (Quickshell.env("HOME") || "") + "/.config/quickshell/scripts/bpm_detect.py",
-            shell.activePlayer && shell.activePlayer.identity ? shell.activePlayer.identity : ""
-        ]
-
-        stdout: SplitParser {
-            splitMarker: "\n"
-            onRead: line => {
-                if (!line || line.length === 0)
-                    return;
-                try {
-                    const data = JSON.parse(line);
-                    if (data.beat && data.bpm > 0) {
-                        root.currentBpm = data.bpm;
-                        root.lastBeatTs = Date.now();
-                    }
-                } catch (e) {
-                    // ignore partial/malformed lines
-                }
-            }
-        }
-
-        stderr: SplitParser {
-            splitMarker: "\n"
-            onRead: line => {
-                if (line && line.trim().length > 0)
-                    console.info("[bpmDetector]", line.trim());
             }
         }
     }
@@ -251,7 +169,7 @@ ShellRoot {
     //Memory
     Process {
         id: memProcess
-        command: ["sh", "-c", "free -m | awk '/Mem:/ { printf \"%d|%.0f%%|%.0f of %.0fGB\\n\", $3, ($3/$2)*100, $3/1024, $2/1024 }'"]
+        command: ["sh", "-c", "free -m | awk '/M/ { printf \"%d|%.0f%%|%.0f / %.0fGB\\n\", $3, ($3/$2)*100, $3/1024, $2/1024 }'"]
         running: true
 
         stdout: StdioCollector {
@@ -287,17 +205,24 @@ ShellRoot {
     }
 
     PanelWindow {
-        id: archlinux_backdrop
+        id: imageBackdrop
+        visible: false
+        property var images: [
+            "assets/haachama_in_4k.png",
+            "assets/aka-haato.png",
+            "assets/haachama.png",
+        ]
+        property int currentIndex: 0
         WlrLayershell.namespace: "arch_logo"
         width: backdrop.width + 20
         height: backdrop.height + 20
         color: "transparent"
-        anchors.left: true
-        anchors.bottom: true
-        visible: false
-
+        anchors.right: true
+        anchors.top: true
+        margins {
+            top: 20
+        }
         WlrLayershell.layer: WlrLayer.Bottom
-
 
         MultiEffect {
             source: backdrop
@@ -310,17 +235,42 @@ ShellRoot {
             shadowVerticalOffset: 0
             shadowHorizontalOffset: 0
         }
-
-        Image {
-            id: backdrop
-            anchors.centerIn: parent
-            source: "./assets/archbtw.svg"
+        ClippingRectangle {
+            id: haachamaImage
+            border.width: 2
             width: 300
-            height: 300
-            sourceSize.width: width
-            sourceSize.height: height
-            fillMode: Image.PreserveAspectFit
-            visible: false
+            height: 400
+            border.color: Qt.alpha(root.theme.primary, 0.2)
+            color: Qt.alpha(root.theme.background, 0.5)
+            radius: 10
+            z: 0
+            Image {
+                id: backdrop
+                source: imageBackdrop.images[imageBackdrop.currentIndex]
+                width: 300
+                height: 400
+                sourceSize.width: width
+                sourceSize.height: height
+                fillMode: Image.PreserveAspectFit
+            }
+        }
+        Timer {
+            interval: 120000
+            running: true
+            repeat: true
+            onTriggered: fadeCycle.start()
+        }
+
+        SequentialAnimation {
+            id: fadeCycle
+            NumberAnimation { target: backdrop; property: "opacity"; to: 0; duration: 400; easing.type: Easing.InOutQuad }
+            ScriptAction {
+                script: {
+                    imageBackdrop.currentIndex = (imageBackdrop.currentIndex + 1) % imageBackdrop.images.length
+                    backdrop.source = imageBackdrop.images[imageBackdrop.currentIndex]
+                }
+            }
+            NumberAnimation { target: backdrop; property: "opacity"; to: 1; duration: 400; easing.type: Easing.InOutQuad }
         }
     }
 
@@ -337,10 +287,10 @@ ShellRoot {
         anchors.right: true
         implicitHeight: 36 + roundDecorators.height
         color: "transparent"
-        margins.right: 0
-        margins.left: 0
-        margins.top: 0
-        margins.bottom: -20
+        margins.right: 5
+        margins.left: 5
+        margins.top: 5
+        margins.bottom: -15
 
 
         Item {
@@ -350,29 +300,31 @@ ShellRoot {
                 right: parent.right
                 top: realbar.bottom
             }
-            height: 20   // or hardcode e.g. 20–30
+            height: 20  
 
             RoundCorner {
                 id: leftCorner
+                visible: false
                 anchors {
                     top: parent.top
                     bottom: parent.bottom
                     left: parent.left
                 }
                 implicitSize: parent.height
-                color: Qt.alpha(root.theme.background, 1)         
+                color: Qt.alpha(root.theme.background, 0.7)         
                 corner: RoundCorner.CornerEnum.TopLeft 
             }
 
             RoundCorner {
                 id: rightCorner
+                visible: false
                 anchors {
                     top: parent.top
                     bottom: parent.bottom
                     right: parent.right
                 }
                 implicitSize: parent.height
-                color: Qt.alpha(root.theme.background, 1)
+                color: Qt.alpha(root.theme.background, 0.7)
                 corner: RoundCorner.CornerEnum.TopRight
             }
         }
@@ -408,9 +360,10 @@ ShellRoot {
                 right: parent.right
             }
             antialiasing: true
+            radius: 10
             border.width: 0
             border.color: root.theme.outline_variant
-            color: Qt.alpha(root.theme.background, 1)
+            color: Qt.alpha(root.theme.background, 0.9)
 
             //Time Module
             Rectangle {
@@ -462,117 +415,12 @@ ShellRoot {
                 }
             }
 
-            RowLayout {
+            Row {
+                id: sysStatsRow
+                spacing: 5
                 anchors.right: inhibit_module.left
-                anchors.rightMargin: -40
+                anchors.rightMargin: 15
                 anchors.verticalCenter: parent.verticalCenter
-                Rectangle {
-                    id: memModule
-                    visible: true
-                    height: 24
-                    width: memContent.width + 10
-                    radius: 12
-                    color: "transparent"
-                    Item {
-                        id: memCirc
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 30
-                        height: 30
-
-                        property real percent: {
-                            var n = parseFloat(root.memformat);
-                            return isNaN(n) ? 0 : n / 100;
-                        }
-                        Behavior on percent {
-                            NumberAnimation {
-                                duration: 500
-                                easing.type: Easing.OutCubic
-                            }
-                        }
-                        property color trackColor: Qt.alpha(root.theme.primary, 0.2)
-                        property color fillColor: root.theme.primary
-                        property real strokeWidth: 3
-
-                        Canvas {
-                            id: memCanvas
-                            anchors.fill: parent
-                            onPaint: {
-                                var ctx = getContext("2d");
-                                ctx.reset();
-
-                                var cx = width / 2;
-                                var cy = height / 2;
-                                var radius = Math.min(width, height) / 2 - memCirc.strokeWidth / 2;
-                                var startAngle = -Math.PI / 2; // start at top
-                                var endAngle = startAngle + (2 * Math.PI * memCirc.percent);
-
-                            // background track
-                                ctx.beginPath();
-                                ctx.arc(cx, cy, radius, 0, 2 * Math.PI, false);
-                                ctx.lineWidth = memCirc.strokeWidth;
-                                ctx.strokeStyle = memCirc.trackColor;
-                                ctx.stroke();
-
-                            // filled portion
-                                ctx.beginPath();
-                                ctx.arc(cx, cy, radius, startAngle, endAngle, false);
-                                ctx.lineWidth = memCirc.strokeWidth;
-                                ctx.strokeStyle = memCirc.fillColor;
-                                ctx.lineCap = "round";
-                                ctx.stroke();
-                            }
-                        }
-                        onPercentChanged: memCanvas.requestPaint()
-
-                        Image {
-                            anchors.centerIn: parent
-                            anchors.verticalCenter: parent.verticalCenter
-                            source: "./assets/memory.svg"
-                            width: parent.width - (memCirc.strokeWidth * 2) - 8
-                            height: parent.height - (memCirc.strokeWidth * 2) - 8                        
-                            sourceSize.width: 22
-                            sourceSize.height: 22
-                            fillMode: Image.PreserveAspectFit
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                colorization: 1.0
-                                colorizationColor: root.theme.primary   
-                            }
-                        }
-                    }
-
-                    Behavior on width {
-                        NumberAnimation {
-                            duration: 100
-                            easing.type: Easing.InOutQuad
-                        }
-                    }
-                    Row {
-                        id: memContent
-                        anchors.centerIn: parent
-                        spacing: 6
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.memPercent ? "Mem: " + root.memoryUsage : root.memformat
-                            opacity: 0.7
-                            color: root.memCount > 12000 ? root.theme.primary : root.theme.on_background
-                            font.pixelSize: 16
-                            leftPadding: 30
-                            font.family: root.settings.fontdefault
-                            font.bold: true
-                            /* renderType: Text.NativeRendering
-                            font.hintingPreference: Font.PreferVerticalHinting */
-                        }
-                    }
-                    MouseArea {
-                        cursorShape: Qt.PointingHandCursor
-                        anchors.fill: parent
-                        onClicked: {
-                            root.memPercent = !root.memPercent;
-                        }
-                    }
-                }
                 // Cpu Module
                 Rectangle {
                     id: cpuModule
@@ -581,8 +429,6 @@ ShellRoot {
                     width: 80
                     radius: 12
                     color: "transparent"
-                    anchors.right: memModule.left
-                    anchors.rightMargin: 5
 
                     Item {
                         id: cpuCirc
@@ -662,7 +508,7 @@ ShellRoot {
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root.cpuPercent + "%"
+                            text: Math.round(root.cpuPercent) + "%"
                             opacity: 0.7
                             color: root.theme.on_background
                             font.pixelSize: 16
@@ -671,6 +517,112 @@ ShellRoot {
                             font.bold: true
                             /* renderType: Text.NativeRendering
                             font.hintingPreference: Font.PreferVerticalHinting */
+                        }
+                    }
+                }
+                Rectangle {
+                    id: memModule
+                    visible: true
+                    height: 24
+                    width: memContent.width + 10
+                    radius: 12
+                    color: "transparent"
+                    Item {
+                        id: memCirc
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 30
+                        height: 30
+
+                        property real percent: {
+                            var n = parseFloat(root.memformat);
+                            return isNaN(n) ? 0 : n / 100;
+                        }
+                        Behavior on percent {
+                            NumberAnimation {
+                                duration: 500
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                        property color trackColor: Qt.alpha(root.theme.primary, 0.2)
+                        property color fillColor: root.theme.primary
+                        property real strokeWidth: 3
+
+                        Canvas {
+                            id: memCanvas
+                            anchors.fill: parent
+                            onPaint: {
+                                var ctx = getContext("2d");
+                                ctx.reset();
+
+                                var cx = width / 2;
+                                var cy = height / 2;
+                                var radius = Math.min(width, height) / 2 - memCirc.strokeWidth / 2;
+                                var startAngle = -Math.PI / 2; // start at top
+                                var endAngle = startAngle + (2 * Math.PI * memCirc.percent);
+
+                            // background track
+                                ctx.beginPath();
+                                ctx.arc(cx, cy, radius, 0, 2 * Math.PI, false);
+                                ctx.lineWidth = memCirc.strokeWidth;
+                                ctx.strokeStyle = memCirc.trackColor;
+                                ctx.stroke();
+
+                            // filled portion
+                                ctx.beginPath();
+                                ctx.arc(cx, cy, radius, startAngle, endAngle, false);
+                                ctx.lineWidth = memCirc.strokeWidth;
+                                ctx.strokeStyle = memCirc.fillColor;
+                                ctx.lineCap = "round";
+                                ctx.stroke();
+                            }
+                        }
+                        onPercentChanged: memCanvas.requestPaint()
+
+                        Image {
+                            anchors.centerIn: parent
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: "./assets/memory.svg"
+                            width: parent.width - (memCirc.strokeWidth * 2) - 8
+                            height: parent.height - (memCirc.strokeWidth * 2) - 8                        
+                            sourceSize.width: 22
+                            sourceSize.height: 22
+                            fillMode: Image.PreserveAspectFit
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                colorization: 1.0
+                                colorizationColor: root.theme.primary   
+                            }
+                        }
+                    }
+
+                    Behavior on width {
+                        NumberAnimation {
+                            duration: 100
+                            easing.type: Easing.OutCirc
+                        }
+                    }
+                    Row {
+                        id: memContent
+                        anchors.centerIn: parent
+                        spacing: 6
+
+                        Text {
+                            id: mem_text
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.memPercent ? root.memoryUsage : root.memformat
+                            opacity: 0.7
+                            color: root.memCount > 12000 ? root.theme.primary : root.theme.on_background
+                            font.pixelSize: 16
+                            leftPadding: 35
+                            font.family: root.settings.fontdefault
+                            font.bold: true
+                        }
+                    }
+                    MouseArea {
+                        cursorShape: Qt.PointingHandCursor
+                        anchors.fill: parent
+                        onClicked: {
+                            root.memPercent = !root.memPercent;
                         }
                     }
                 }
@@ -1006,18 +958,55 @@ ShellRoot {
                     height: 500
                     y: 10
                     scale: 0.1
-                    border.width: 1
+                    border.width: 0
                     border.color: Qt.alpha(root.theme.primary, 0.1)
-                    color: Qt.alpha(root.theme.background, 1)
+                    property real t: 0
+                    color: "black"
+
+                    ClippingRectangle {
+                        id: backImage
+                        anchors.fill: parent
+                        radius: 20
+                        opacity: 0.3
+                        color: "transparent"
+                        antialiasing: true
+                        layer.enabled: true
+                        layer.smooth: true
+
+                        Image {
+                            id: backArt
+                            anchors.fill: parent
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            source: {
+                                if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
+                                    return shell.activePlayer.trackArtUrl;
+                                } else {
+                                    return "";
+                                }
+                            }
+                        }
+                        MultiEffect {
+                            source: backArt
+                            anchors.fill: parent
+                            blurEnabled: true
+                            blur: 0.5
+                            blurMax: 32
+                            brightness: 0
+                        }
+                    }
+
                     radius: 20
                     clip: true
 
-                    transform: Scale {
+                    transformOrigin: Item.Top
+
+                    /* transform: Scale {
                         origin.x: mprispopup.width / 2
                         origin.y: 0        // grow from the top edge
                         yScale: mprispopup.scale
                         xScale: 1          // keep width constant, only height "grows"
-                    }
+                    } */
 
                     SequentialAnimation {
                         id: closeAnim
@@ -1026,7 +1015,7 @@ ShellRoot {
                         onStopped: albumPopup.animatingClosed = false
 
                         NumberAnimation { target: content; property: "opacity"; to: 0; duration: 100 }
-                        NumberAnimation { target: mprispopup; property: "scale"; to: 0.1; duration: 200; easing.type: Easing.InCirc }
+                        NumberAnimation { target: mprispopup; property: "scale"; to: 0.1; duration: 250; easing.type: Easing.InCirc }
                     }
 
                     SequentialAnimation {
@@ -1092,14 +1081,7 @@ ShellRoot {
                                 running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing && !discMouseArea.isDragging
                                 repeat: true
                                 onTriggered: {
-                                    // Scale spin speed to the live-detected tempo. If we haven't
-                                    // heard a beat in a while (detector still warming up, or
-                                    // silence), fall back to the baseline speed instead of
-                                    // freezing or drifting on a stale reading.
-                                    const stale = (Date.now() - root.lastBeatTs) > 4000;
-                                    const bpm = stale ? root.baseBpm : root.currentBpm;
-                                    const degPerTick = root.baseDegPerTick * (bpm / root.baseBpm);
-                                    discImage.rotation = (discImage.rotation + degPerTick) % 360;
+                                    discImage.rotation = (discImage.rotation + root.discSpinSpeed) % 360;
                                 }
                             }
 
@@ -1369,7 +1351,13 @@ ShellRoot {
                         Text {
                             id: timeStamps
                             color: Qt.alpha(root.theme.on_background, 0.3)
-                            text: content.formatTime(shell.activePlayer.position) + "/" + content.formatTime(shell.activePlayer.length)
+                            text: {
+                                const total = (root.hasPlayer && shell.activePlayer) ? shell.activePlayer.length : 0;
+                                const current = (root.hasPlayer && shell.activePlayer && total > 0)
+                                    ? (seekBar.progressFraction * total)
+                                    : ((root.hasPlayer && shell.activePlayer) ? shell.activePlayer.position : 0);
+                                return content.formatTime(current) + "/" + content.formatTime(total);
+                            }
                             font.family: root.settings.fontdefault
                             font.pixelSize: 12
                             font.bold: true
@@ -1380,18 +1368,18 @@ ShellRoot {
 
 
                         // Seek Bar — original flat track restored, with a scrolling wave
-                        // overlaid only on the played portion. Wave amplitude/speed scale
-                        // with the live-detected BPM (clamped so a bad reading can't spike it).
+                        // overlaid only on the played portion. Wave amplitude, frequency and
+                        // speed are fixed values, set via the properties below.
                         Item {
                             id: seekBar
                             width: 240
-                            height: 20
+                            height: 23
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.verticalCenterOffset: 120
                             Layout.alignment: Qt.AlignHCenter
 
-                            readonly property real progressFraction: {
-                                if (!root.hasPlayer || shell.activePlayer.length <= 0)
+                            readonly property real targetProgress: {
+                                if (!root.hasPlayer || !shell.activePlayer || shell.activePlayer.length <= 0)
                                     return 0;
                                 if (seekMouseArea.pressed)
                                     return Math.max(0, Math.min(1, seekMouseArea.mouseX / seekBar.width));
@@ -1400,31 +1388,39 @@ ShellRoot {
                                 return Math.max(0, Math.min(1, shell.activePlayer.position / shell.activePlayer.length));
                             }
 
-                            readonly property bool isPlaying: root.hasPlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
-
-                            // how "energetic" the wave should look, derived from tempo,
-                            // clamped to 0.6x-1.8x so a bad BPM reading can't spike it
-                            readonly property real speedFactor: {
-                                const stale = (Date.now() - root.lastBeatTs) > 4000;
-                                const bpm = stale ? root.baseBpm : root.currentBpm;
-                                return Math.max(0.6, Math.min(1.8, bpm / root.baseBpm));
+                            property real progressFraction: targetProgress
+                            Behavior on progressFraction {
+                                enabled: !seekMouseArea.isDragging && !discMouseArea.isDragging
+                                NumberAnimation {
+                                    duration: 250
+                                    easing.type: Easing.OutCubic
+                                }
                             }
+
+                            readonly property bool isPlaying: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
+
+                            // Fixed wave amplitude (px), frequency (number of full sine cycles
+                            // across the seek bar's width), and scroll period (ms per cycle).
+                            // Change these three properties to tune the wave's look.
+                            property real waveAmplitude: 5.5
+                            property real waveFrequency: 3.5
+                            property real waveSpeed: 800
 
                             property real amplitude: 0
                             Behavior on amplitude {
                                 NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
                             }
-                            readonly property real targetAmplitude: seekBar.isPlaying ? (6 * seekBar.speedFactor) : 0
+                            // Fades to 0 when nothing is playing, otherwise uses the fixed waveAmplitude above.
+                            readonly property real targetAmplitude: seekBar.isPlaying ? seekBar.waveAmplitude : 0
                             onTargetAmplitudeChanged: seekBar.amplitude = seekBar.targetAmplitude
                             Component.onCompleted: seekBar.amplitude = seekBar.targetAmplitude
 
-                            // scrolling phase — this is what makes the wave move rather than
-                            // sit still. Wiggles a bit faster on higher-tempo tracks too.
+                            // scrolling phase — fixed period, set via waveSpeed above
                             property real phase: 0
                             NumberAnimation on phase {
                                 from: 0
                                 to: Math.PI * 2
-                                duration: 1400 / seekBar.speedFactor
+                                duration: seekBar.waveSpeed
                                 loops: Animation.Infinite
                                 running: seekBar.isPlaying
                             }
@@ -1443,7 +1439,8 @@ ShellRoot {
                             // original flat track — unchanged from before
                             Rectangle {
                                 id: trackBg
-                                width: parent.width
+                                width: Math.max(0, seekBar.width * (1.0 - seekBar.progressFraction))
+                                x: seekBar.width * seekBar.progressFraction
                                 height: 5
                                 radius: 1
                                 anchors.verticalCenter: parent.verticalCenter
@@ -1453,26 +1450,26 @@ ShellRoot {
                             // original filled progress bar — unchanged from before
                             Rectangle {
                                 id: progress_bar
+                                anchors.left: parent.left
                                 width: Math.max(0, Math.min(seekBar.width, seekBar.width * seekBar.progressFraction))
                                 height: trackBg.height
                                 radius: trackBg.radius
                                 anchors.verticalCenter: parent.verticalCenter
-                                color: root.theme.background
+                                color: "transparent"
                             }
 
                             // wave overlay — rides on top of progress_bar, ONLY over the played portion
                             Canvas {
                                 id: waveCanvas
                                 anchors.fill: parent
-                                readonly property int waves: 3
 
                                 onPaint: {
                                     const ctx = getContext("2d");
                                     ctx.clearRect(0, 0, width, height);
                                     const midY = height / 2;
-                                    const amp = seekBar.amplitude * 0.7;
-                                    const freq = (waves * 2 * Math.PI) / width;
-                                    const splitX = width * seekBar.progressFraction;
+                                    const amp = seekBar.amplitude;
+                                    const freq = (seekBar.waveFrequency * 2 * Math.PI) / width;
+                                    const splitX = Math.max(0, Math.min(width, width * seekBar.progressFraction));
 
                                     if (splitX <= 0)
                                         return;
@@ -1499,6 +1496,7 @@ ShellRoot {
                                     function onPhaseChanged() { waveCanvas.requestPaint(); }
                                     function onProgressFractionChanged() { waveCanvas.requestPaint(); }
                                     function onAmplitudeChanged() { waveCanvas.requestPaint(); }
+                                    function onWaveFrequencyChanged() { waveCanvas.requestPaint(); }
                                 }
                             }
 
@@ -1507,17 +1505,19 @@ ShellRoot {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
 
+                                property bool isDragging: false
                                 property bool savedPlayingState: false
 
                                 function updateSeekPosition(mouse) {
-                                    if (root.hasPlayer && shell.activePlayer.length > 0) {
+                                    if (root.hasPlayer && shell.activePlayer && shell.activePlayer.length > 0) {
                                         const clampedX = Math.max(0, Math.min(mouse.x, seekBar.width));
                                         shell.activePlayer.position = shell.activePlayer.length * (clampedX / seekBar.width);
                                     }
                                 }
 
                                 onPressed: mouse => {
-                                    if (root.hasPlayer) {
+                                    isDragging = false;
+                                    if (root.hasPlayer && shell.activePlayer) {
                                         savedPlayingState = (shell.activePlayer.playbackState === MprisPlaybackState.Playing);
                                         if (savedPlayingState && shell.activePlayer.canPause) {
                                             shell.activePlayer.pause();
@@ -1527,20 +1527,24 @@ ShellRoot {
                                 }
 
                                 onPositionChanged: mouse => {
-                                    if (pressed)
+                                    if (pressed) {
+                                        isDragging = true;
                                         waveCanvas.requestPaint();
+                                    }
                                 }
 
                                 onReleased: mouse => {
                                     updateSeekPosition(mouse);   // send the seek exactly once, here
-                                    if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                    isDragging = false;
+                                    if (root.hasPlayer && shell.activePlayer && savedPlayingState && shell.activePlayer.canPlay) {
                                         shell.activePlayer.play();
                                     }
                                     savedPlayingState = false;
                                 }
 
                                 onCanceled: {
-                                    if (root.hasPlayer && savedPlayingState && shell.activePlayer.canPlay) {
+                                    isDragging = false;
+                                    if (root.hasPlayer && shell.activePlayer && savedPlayingState && shell.activePlayer.canPlay) {
                                         shell.activePlayer.play();
                                     }
                                     savedPlayingState = false;
@@ -1548,11 +1552,11 @@ ShellRoot {
                             }
 
                             Timer {
-                                running: root.hasPlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed && !discMouseArea.isDragging && albumPopup.isOpen
+                                running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState == MprisPlaybackState.Playing && !seekMouseArea.pressed && !discMouseArea.isDragging && albumPopup.isOpen
                                 interval: 150
                                 repeat: true
 
-                                onTriggered: if (root.hasPlayer)
+                                onTriggered: if (root.hasPlayer && shell.activePlayer)
                                     shell.activePlayer.positionChanged()
                             }
                         }
@@ -1570,7 +1574,7 @@ ShellRoot {
                                 property bool pressed: false
                                 width: 50
                                 height: 50
-                                radius: 12
+                                radius: 8
                                 color: Qt.alpha(root.theme.primary, 1)
                                 anchors.centerIn: parent
 
@@ -1745,7 +1749,7 @@ ShellRoot {
                         Rectangle {
                             id: rect
                             required property var modelData
-                            visible: modelData.id > 0 && modelData.id <= 8
+                            visible: modelData.id > 0 && modelData.id <= 9
                             width: 30
                             height: 30
                             radius: 30
@@ -1771,7 +1775,7 @@ ShellRoot {
                                 id: label
                                 anchors.centerIn: parent
                                 text: {
-                                    if (rect.modelData.id < 9 && rect.occupied || rect.isCurrent)
+                                    if (rect.modelData.id < 10 && rect.occupied || rect.isCurrent)
                                         return root.kanjiNumbers[rect.modelData.id - 1] || String(rect.modelData.id);
                                     return "•";
                                 }
@@ -1841,7 +1845,7 @@ ShellRoot {
                 implicitWidth: rowlayout.implicitWidth + 14
                 radius: root.global_radius
                 color: Qt.alpha(root.theme.source_color, 0.15)
-                anchors.right: parent.right
+                anchors.right: powerbutton.left
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
                 property color transparentColor: Qt.alpha(root.theme.primary, 0)
@@ -2050,30 +2054,47 @@ ShellRoot {
                 radius: 12
                 color: "transparent"
 
+                // left click: open/close the center, right click: toggle do-not-disturb
                 MouseArea {
                     cursorShape: Qt.PointingHandCursor
                     anchors.fill: parent
-                    onClicked: notifications.centerOpen = !notifications.centerOpen
-
-                    Process {
-                        id: toggleProc
-                        command: ["sh", "-c", "qs -p ~/.config/quickshell/Notifications.qml ipc call notifications toggle"]
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: mouse => {
+                        if (mouse.button === Qt.RightButton)
+                            notifications.dnd = !notifications.dnd;
+                        else
+                            notifications.toggleCenter();
                     }
                 }
 
+                // unread badge
                 Rectangle {
                     id: new_notification
-                    implicitHeight: 8
-                    implicitWidth: 8
-                    radius: 8
-                    anchors.left: tux_image.right
-                    color: notifications.hasNotifications === true ? root.theme.primary : "transparent"
-                    visible: notifications.hasNotifications === true
+                    z: 2
+                    visible: notifications.unread > 0 && !notifications.dnd
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.rightMargin: -10
+                    anchors.topMargin: -5
+                    height: 14
+                    width: Math.max(14, badgeText.implicitWidth + 6)
+                    radius: 7
+                    color: root.theme.primary
+
+                    Text {
+                        id: badgeText
+                        anchors.centerIn: parent
+                        text: notifications.unread > 9 ? "9+" : notifications.unread
+                        color: root.theme.background
+                        font.pixelSize: 9
+                        font.bold: true
+                        font.family: root.settings.fontdefault
+                    }
                 }
 
                 Image {
                     id: tux_image
-                    source: notifications.hasNotifications ? "./assets/bell.svg" : "./assets/linux-logo-bold.svg"
+                    source: notifications.dnd ? "./assets/moon.svg" : (notifications.hasNotifications ? "./assets/bell-ringing-fill.svg" : "./assets/linux-logo-bold.svg")
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 20
@@ -2118,42 +2139,158 @@ ShellRoot {
                     }
                 }
             }
+
+            Rectangle {
+                id: powerbutton
+                implicitWidth: 24
+                implicitHeight: 24
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                radius: 12
+                color: "transparent"
+
+                MouseArea {
+                    cursorShape: Qt.PointingHandCursor
+                    anchors.fill: parent
+                    onClicked: togglePowerMenu.running = !togglePowerMenu.running
+
+                    Process {
+                        id: togglePowerMenu
+                        command: ["sh", "-c", "qs ipc call powermenu toggle"]
+                    }
+                }
+
+                Image {
+                    id: powerButton
+                    source: "./assets/power-fill.svg"
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 26
+                    height: 26
+                    sourceSize.width: 32
+                    sourceSize.height: 32
+                    fillMode: Image.PreserveAspectFit
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: root.theme.error
+                    }
+                }
+            }
+
             IdleInhibitor {
                 id: inhibit
                 window: panelbar
-                enabled: toggleBtn.checked
+                enabled: inhibit_module.active
             }
 
             Rectangle {
                 id: inhibit_module
-                width: 24
+                property int mode: 0
+                property double expiresAt: 0
+                readonly property bool active: mode > 0
+                readonly property bool timed: mode >= 1 && mode <= 4
+                readonly property var durations: [0, 5, 15, 30, 60]
+                property string remainingText: ""
+
+                function formatRemaining(milliseconds) {
+                    const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000))
+                    const minutes = Math.floor(totalSeconds / 60)
+                    const seconds = totalSeconds % 60
+                    return minutes + ":" + (seconds < 10 ? "0" : "") + seconds
+                }
+
+                function updateRemainingTime() {
+                    if (!timed)
+                        return
+
+                    const millisecondsLeft = expiresAt - Date.now()
+                    if (millisecondsLeft <= 0) {
+                        mode = 0
+                        expiresAt = 0
+                        remainingText = ""
+                        inhibitTimer.stop()
+                        return
+                    }
+
+                    remainingText = formatRemaining(millisecondsLeft)
+                }
+
+                function advanceMode() {
+                    mode = (mode + 1) % 6
+
+                    if (mode === 0 || mode === 5) {
+                        expiresAt = 0
+                        remainingText = ""
+                        inhibitTimer.stop()
+                    } else {
+                        expiresAt = Date.now() + durations[mode] * 60 * 1000
+                        updateRemainingTime()
+                        inhibitTimer.start()
+                    }
+
+                    blinkAnimation.restart()
+                }
+
+                width: timed ? 72 : 24
                 height: 24
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.right: tray_module.left
+                anchors.right: volumeModule.left
                 anchors.rightMargin: 15
                 color: "transparent"
                 radius: 6
 
-                Image {
-                    id: inhibit_image
+                Behavior on width {
+                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                }
+
+                Row {
+                    id: inhibitContent
                     anchors.centerIn: parent
-                    source: inhibit.enabled ? "./assets/coffee.svg" : "./assets/moon.svg"
-                    width: 20
+                    spacing: 4
+                    width: inhibit_module.timed ? 64 : 20
                     height: 20
-                    sourceSize.width: 22
-                    sourceSize.height: 22
-                    layer.enabled: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: root.theme.primary
+
+                    Image {
+                        id: inhibit_image
+                        source: inhibit_module.active ? "./assets/coffee.svg" : "./assets/moon.svg"
+                        width: 20
+                        height: 20
+                        sourceSize.width: 22
+                        sourceSize.height: 22
+                        fillMode: Image.PreserveAspectFit
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: root.theme.primary
+                        }
+
+                        transform: Scale {
+                            id: eyeScale
+                            origin.x: inhibit_image.width / 2
+                            origin.y: inhibit_image.height / 2
+                            yScale: 1.0
+                        }
                     }
 
-                    transform: Scale {
-                        id: eyeScale
-                        origin.x: inhibit_image.width / 2
-                        origin.y: inhibit_image.height / 2
-                        yScale: 1.0
+                    Text {
+                        visible: inhibit_module.timed
+                        width: 40
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: inhibit_module.remainingText
+                        color: Qt.alpha(root.theme.on_background, 0.75)
+                        font.pixelSize: 14
+                        font.family: root.settings.fontdefault
+                        font.bold: true
                     }
+                }
+
+                Timer {
+                    id: inhibitTimer
+                    interval: 1000
+                    repeat: true
+                    onTriggered: inhibit_module.updateRemainingTime()
                 }
 
                 SequentialAnimation {
@@ -2175,15 +2312,18 @@ ShellRoot {
                 }
 
                 MouseArea {
-                    id: toggleBtn
                     cursorShape: Qt.PointingHandCursor
-                    property bool checked: false
                     anchors.fill: parent
-                    onClicked: {
-                        checked = !checked;
-                        blinkAnimation.restart();
-                    }
+                    onClicked: inhibit_module.advanceMode()
                 }
+            }
+            VolumeModule {
+                id: volumeModule
+                theme: root.theme
+                settings: root.settings
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: tray_module.left
+                anchors.rightMargin: 15
             }
         }
     }

@@ -13,6 +13,7 @@ Scope {
     property bool pickerOpen: false
     property var theme
     property var settings
+    property var copyToast
     property var emojiList: []
     property string searchQuery: ""
     property var filtered: searchQuery.length === 0
@@ -83,6 +84,8 @@ Scope {
     function copyEmoji(e) {
         copyProc.char = e.emoji;
         copyProc.running = true;
+        if (copyToast)
+            copyToast.showToast("Emoji copied");
 
         let key = emojiRoot.normalizeEmoji(e.emoji);
         let updated = Object.assign({}, emojiRoot.frequency);
@@ -135,11 +138,10 @@ Scope {
             left: true
         }
         margins {
-            top: 6
+            top: 16
             left: 0
-            bottom: -4
         }
-        implicitHeight: panelBg.height + 20
+        implicitHeight: panelBg.height + 40
         implicitWidth: panelBg.width + 50
         color: "transparent"
         exclusionMode: ExclusionMode.Auto
@@ -158,12 +160,11 @@ Scope {
         Rectangle {
             id: panelBg
             width: 340
-            height: 440
-            
+            height: 450
             radius: 18
-            color: Qt.alpha(emojiRoot.theme.background, 0.8)
+            color: Qt.alpha(emojiRoot.theme.background, 1)
             border.width: 1
-            border.color: Qt.alpha(emojiRoot.theme.outline_variant, 0.8)
+            border.color: Qt.alpha(emojiRoot.theme.primary, 0.1)
             opacity: 0
             x: -270
 
@@ -197,7 +198,7 @@ Scope {
                     NumberAnimation {
                         properties: "x,opacity"
                         duration: 300
-                        easing.type: Easing.OutBack
+                        easing.type: Easing.OutCirc
                         easing.overshoot: 1.5
                     }
                 },
@@ -208,7 +209,7 @@ Scope {
                     NumberAnimation {
                         properties: "x,opacity"
                         duration: 300
-                        easing.type: Easing.InBack
+                        easing.type: Easing.InCirc
                         easing.overshoot: 1.5
                     }
                 }
@@ -224,7 +225,7 @@ Scope {
                 width: parent.width
                 height: 40
                 radius: 18
-                color: Qt.alpha(emojiRoot.theme.on_background, 0.08)
+                color: Qt.alpha(emojiRoot.theme.on_background, 0)
 
                 Row {
                     anchors.fill: parent
@@ -237,7 +238,7 @@ Scope {
                         anchors.verticalCenter: parent.verticalCenter
                         focus: true
                         color: emojiRoot.theme.on_background
-                        font.pixelSize: 15
+                        font.pixelSize: 18
                         font.family: emojiRoot.settings.fontdefault
                         clip: true
 
@@ -271,7 +272,7 @@ Scope {
                             text: "Search emoji\u2026"
                             color: emojiRoot.theme.on_background
                             opacity: 0.4
-                            font.pixelSize: 15
+                            font.pixelSize: 16
                             font.family: emojiRoot.settings.fontdefault
                         }
 
@@ -296,19 +297,19 @@ Scope {
                 id: emojiListView
                 anchors.top: searchContainer.bottom
                 width: panelBg.width - 20
+                height: panelBg.height - 60
                 topMargin: 10
                 anchors.horizontalCenter: parent.horizontalCenter
-                height: panelBg.height - 40
                 clip: true
                 reuseItems: true
                 model: emojiRoot.filtered
                 currentIndex: 0
-                highlightMoveDuration: 200
+                highlightMoveDuration: 100
                 highlightMoveVelocity: -1
                 highlightFollowsCurrentItem: true
                 highlightResizeDuration: 0
                 highlight: Rectangle {
-                    radius: 18
+                    radius: 10
                     color: Qt.alpha(emojiRoot.theme.primary, 0.8)
                 }
 
@@ -318,7 +319,7 @@ Scope {
                     required property var index
                     width: emojiListView.width
                     height: 32
-                    radius: 18
+                    radius: 5
                     clip: true
                     color: "transparent"
 
@@ -328,13 +329,13 @@ Scope {
                         spacing: 8
                         Text {
                             text: row.modelData.emoji
-                            font.pixelSize: 16
+                            font.pixelSize: 18
                         }
                         Text {
                             Layout.fillWidth: true
                             text: row.modelData.label
                             color: row.index === emojiListView.currentIndex ? emojiRoot.theme.background : emojiRoot.theme.on_background
-                            font.pixelSize: 16
+                            font.pixelSize: 18
                             font.family: emojiRoot.settings.fontdefault
                             elide: Text.ElideRight
                             Behavior on color {

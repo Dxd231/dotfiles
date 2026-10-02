@@ -36,15 +36,15 @@ Scope {
         repeat: false
         onTriggered: {
             Quickshell.execDetached([
-                "hyprctl", "dispatch",
-                'hl.dsp.dpms({ action = "off" })'
+                "sh", "-c", 'qs ipc call lockscreen lock && sleep 1 && hyprctl dispatch "hl.dsp.dpms({ action = "off" })"'
             ])
         }
     }
 
     property var actions: [
+        { icon: "../assets/lock-fill.svg",                  label: "Lock",     run: () => Quickshell.execDetached(["qs", "ipc", "call", "lockscreen", "lock"]) },
         { icon: "../assets/monitor.svg",                    label: "DPMS",     run: () => dpmsTimer.start() },
-        { icon: "../assets/moon.svg",                       label: "Suspend",  run: () => Quickshell.execDetached(["systemctl", "suspend"]) }, 
+        { icon: "../assets/moon.svg",                       label: "Suspend",  run: () => Quickshell.execDetached(["sh", "-c", "qs ipc call lockscreen lock && sleep 1 && systemctl suspend"]) }, 
         { icon: "../assets/arrow-u-up-right-fill.svg",      label: "Logout",   run: () => Quickshell.execDetached(["hyprshutdown"]) },
         { icon: "../assets/arrow-clockwise-fill.svg",       label: "Reboot",   run: () => Quickshell.execDetached(["sh", "-c", "hyprshutdown --post-cmd 'systemctl reboot'"]) },
         { icon: "../assets/power-fill.svg",                 label: "Shutdown", run: () => Quickshell.execDetached(["sh", "-c", "hyprshutdown --post-cmd 'systemctl poweroff'"]) }
@@ -62,11 +62,9 @@ Scope {
                 ? WlrKeyboardFocus.OnDemand
                 : WlrKeyboardFocus.None
             WlrLayershell.namespace: "quickshell:powermenu"
-            exclusiveZone: 0
-            anchors { top: true; left: true; right: true }
-            margins.top: 0
+            exclusiveZone: -1   // -1 = extend under other windows' exclusive zones (bar/dock)
+            anchors { top: true; bottom: true; left: true; right: true }
             color: "transparent"
-            implicitHeight: 1080
 
             Item {
                 id: keyHandler
@@ -92,7 +90,7 @@ Scope {
                         root.close()
                         event.accepted = true
                     }
-                    else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_4) {
+                    else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_6) {
                         const idx = event.key - Qt.Key_1
                         if (idx < root.actions.length) {
                             root.selectedIndex = idx
@@ -110,19 +108,17 @@ Scope {
                 onClicked: root.close()
             }
 
+
+
             Rectangle {
                 id: panelBg
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: 60
-                height: 40
-                y: -100
+                anchors.fill: parent
+                scale: 0
                 opacity: 0
-                radius: 18
-                color: Qt.alpha(root.theme.background, 0.8)
-                border.width: 1
-                border.color: root.theme.outline_variant
-                clip: true
-                transformOrigin: Item.Top
+                radius: 0
+                color: Qt.alpha(root.theme.background, 0.3)
+                border.width: 0
+                transformOrigin: Item.Center
 
                 states: [
                     State {
@@ -130,9 +126,7 @@ Scope {
                         when: root.menuVisible
                         PropertyChanges {
                             target: panelBg
-                            y: 6
-                            width: buttonrow.implicitWidth + 40
-                            height: 180
+                            scale: 1
                             opacity: 1
                         }
                         PropertyChanges {
@@ -145,9 +139,7 @@ Scope {
                         when: !root.menuVisible
                         PropertyChanges {
                             target: panelBg
-                            y: -100
-                            width: 60
-                            height: 40
+                            scale: 0
                             opacity: 0
                         }
                         PropertyChanges {
@@ -166,12 +158,6 @@ Scope {
                             ParallelAnimation {
                                 NumberAnimation {
                                     target: panelBg
-                                    property: "y"
-                                    duration: 120
-                                    easing.type: Easing.OutCirc
-                                }
-                                NumberAnimation {
-                                    target: panelBg
                                     property: "opacity"
                                     duration: 100
                                 }
@@ -180,16 +166,9 @@ Scope {
                             ParallelAnimation {
                                 NumberAnimation {
                                     target: panelBg
-                                    property: "width"
-                                    duration: 380
-                                    easing.type: Easing.OutBack
-                                    easing.overshoot: 1.5
-                                }
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "height"
-                                    duration: 380
-                                    easing.type: Easing.OutBack
+                                    property: "scale"
+                                    duration: 200
+                                    easing.type: Easing.OutCirc
                                     easing.overshoot: 1.5
                                 }
                                 NumberAnimation {
@@ -214,14 +193,7 @@ Scope {
                                 }
                                 NumberAnimation {
                                     target: panelBg
-                                    property: "width"
-                                    duration: 240
-                                    easing.type: Easing.InBack
-                                    easing.overshoot: 1.2
-                                }
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "height"
+                                    property: "scale"
                                     duration: 240
                                     easing.type: Easing.InBack
                                     easing.overshoot: 1.2
@@ -229,12 +201,6 @@ Scope {
                             }
 
                             ParallelAnimation {
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "y"
-                                    duration: 180
-                                    easing.type: Easing.InCirc
-                                }
                                 NumberAnimation {
                                     target: panelBg
                                     property: "opacity"
@@ -258,7 +224,7 @@ Scope {
                             id: buttons
                             required property var modelData
                             required property int index
-                            width: 140; height: 140; radius: 18
+                            width: 200; height: 200; radius: 18
 
                             readonly property bool isSelected: index === root.selectedIndex || hover.containsMouse
 
@@ -267,7 +233,7 @@ Scope {
                             }
 
                             border.color: isSelected ? root.theme.primary : "transparent"
-                            border.width: 2
+                            border.width: 0
                             color: "transparent"
 
                             Behavior on border.color {
@@ -278,13 +244,13 @@ Scope {
                             }
                             Column {
                                 anchors.centerIn: parent
-                                spacing: 4
+                                spacing: 14
 
                                 Image {
                                     id: icon
                                     source: buttons.modelData.icon
-                                    sourceSize.width: hover.containsMouse || buttons.isSelected ? 65 : 50
-                                    sourceSize.height: hover.containsMouse || buttons.isSelected ? 65 : 50
+                                    sourceSize.width: hover.containsMouse || buttons.isSelected ? 180 : 100
+                                    sourceSize.height: hover.containsMouse || buttons.isSelected ? 180 : 100
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     visible: false
 

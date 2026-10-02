@@ -48,7 +48,7 @@ hl.device = {
 hl.config({
   general = {
     gaps_in             = 8,
-    gaps_out            = 18,
+    gaps_out            = 16,
     border_size         = 0,
     allow_tearing       = true,
 
@@ -65,7 +65,7 @@ hl.config({
 hl.config({
   decoration = {
     rounding              = 18,
-    rounding_power        = 4.0,
+    rounding_power        = 3.0,
     dim_special           = 0.2,
     dim_inactive          = false,
     dim_strength          = 0.3,
@@ -74,10 +74,10 @@ hl.config({
     border_part_of_window = false,
     shadow = {
         enabled       = true,
-        range         = 18,
-        render_power  = 4,
-        offset        = "0 0",
-        color         = "rgba(00000090)",
+        range         = 10,
+        render_power  = 3,
+        offset        = {0, 0},
+        color         = "rgba(00000060)",
     },
     blur = {
         enabled       = true,
@@ -123,9 +123,36 @@ hl.config({
     preserve_split = true
   },
   misc = {
-    disable_hyprland_logo = true,
-    on_focus_under_fullscreen = 1,
-    font_family = "Google Sans Code",
+    allow_session_lock_restore = true,
+    key_press_enables_dpms  = true,
+    mouse_move_enables_dpms = true
   },
 })
 -- ~/.config/hypr/hyprland.lua
+--
+local MAX_ZOOM = 3
+local MIN_ZOOM = 1
+local ZOOM_TOGGLE_FACTOR = 1.5
+
+---@param offset number
+---@return nil
+local function zoom(offset)
+    local current = hl.get_config("cursor.zoom_factor")
+    if offset ~= nil then
+        current = current + offset
+    elseif current ~= MIN_ZOOM then
+        current = MIN_ZOOM
+    else
+        current = ZOOM_TOGGLE_FACTOR
+    end
+    current = math.max(MIN_ZOOM, math.min(MAX_ZOOM, current))
+    hl.config({ cursor = { zoom_factor = current } })
+end
+
+hl.bind("SUPER + Z", zoom)
+hl.bind("SUPER + code:21", function()
+    zoom(0.5)
+end)
+hl.bind("SUPER + minus", function()
+    zoom(-0.5)
+end)

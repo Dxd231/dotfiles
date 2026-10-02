@@ -36,7 +36,7 @@ hl.window_rule({ match = { class = "steam_app_default" }, fullscreen = true, imm
 hl.window_rule({ match = { class = "steam_app_3224770" }, fullscreen = true })
 
 -- kitty: transparency
-hl.window_rule({ match = { class = "kitty" }, opacity = "0.8 override 0.8 override 0.8 override" })
+-- hl.window_rule({ match = { class = "kitty" }, opacity = "0.8 override 0.8 override 0.8 override" })
 hl.window_rule({ match = { class = "^th" }, opacity = "1 override 1 override 1 override" })
 -- Fullscreen apps
 hl.window_rule({ match = { class = "org.vinegarhq.Sober" },   fullscreen = true })
@@ -174,6 +174,13 @@ hl.layer_rule({
 })
 
 hl.layer_rule({
+    match = { namespace = "quickshell:dock" },
+    blur = true,
+    ignore_alpha = 0.3,
+    no_anim = true
+})
+
+hl.layer_rule({
     match = { namespace = "quickshell:applauncher" },
     blur = true,
     ignore_alpha = 0.3,
@@ -197,7 +204,7 @@ hl.layer_rule({
 hl.layer_rule({
     match = { namespace = "arch_logo" },
     blur = false,
-    ignore_alpha = 0.3,
+    ignore_alpha = 0.01,
 })
 
 hl.layer_rule({

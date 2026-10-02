@@ -12,6 +12,7 @@ Item {
 
     property var theme
     property var settings
+    property var copyToast
     property int global_radius: 8
 
     property bool isOpenClipB: false
@@ -26,6 +27,8 @@ Item {
         }
     }
     property var entries: []          
+    property var knownClipboardIds: ({})
+    property bool hasClipboardBaseline: false
     property var selectedEntry: null
     property int selectedIndex: 0
     property string previewMode: "none" 
@@ -98,6 +101,11 @@ Item {
         root.selectedIndex = 0;
         listProc.running = false;
         listProc.running = true;
+    }
+
+    function pollClipboardHistory() {
+        clipboardWatchProc.running = false;
+        clipboardWatchProc.running = true;
     }
 
     property int _decodeToken: 0 
@@ -218,6 +226,38 @@ Item {
     }
 
     Process {
+        id: clipboardWatchProc
+        command: ["cliphist", "list"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const ids = text.split("\n")
+                    .map(line => root.parseLine(line))
+                    .filter(entry => entry !== null)
+                    .map(entry => entry.id);
+
+                if (root.hasClipboardBaseline && ids.length > 0 && !root.knownClipboardIds[ids[0]]) {
+                    if (root.copyToast)
+                        root.copyToast.showToast("Copied to clipboard");
+                }
+
+                const known = Object.assign({}, root.knownClipboardIds);
+                ids.forEach(id => known[id] = true);
+                root.knownClipboardIds = known;
+                root.hasClipboardBaseline = true;
+            }
+        }
+    }
+
+    Timer {
+        interval: 500
+        running: true
+        repeat: true
+        onTriggered: root.pollClipboardHistory()
+    }
+
+    Component.onCompleted: root.pollClipboardHistory()
+
+    Process {
         id: decodeToTextProc
         command: ["cliphist", "decode"]
         stdout: StdioCollector {
@@ -290,7 +330,7 @@ Item {
         margins.top: 10
         margins.left: 0
         margins.right: 0
-        implicitHeight: 550
+        implicitHeight: 1000
         property bool animatingClosed: false
         visible: root.isOpenClipB || animatingClosed
 
@@ -302,14 +342,15 @@ Item {
         Rectangle {
             id: panelBg
             width: 630
-            height: 100
+            height: 400
             x: 1920 / 2 - width / 2
             radius: 20
+            scale: 0
             border.color: Qt.alpha(root.theme.primary, 0.1)
-            border.width: 2            
-            color: Qt.alpha(root.theme.background, 0.95)
+            border.width: 0
+            color: Qt.lighter(root.theme.background, 1.2)
             clip: true
-            y: 0
+            y: 300
             transformOrigin: Item.Top
 
             SequentialAnimation {
@@ -319,20 +360,20 @@ Item {
                 onStopped: panelWindow.animatingClosed = false
 
                 NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
-                NumberAnimation { target: panelBg; property: "height"; to: 100; duration: 320; easing.type: Easing.InCirc }
+                SequentialAnimation {
+                    NumberAnimation { target: panelBg; property: "scale"; to: 0; duration: 180; easing.type: Easing.InCirc }
+                    NumberAnimation { target: panelBg; property: "opacity"; to: 0; duration: 120 }
+                }
             }
 
             SequentialAnimation {
                 id: openAnim
                 // Phase 1: empty small box slides down
-                NumberAnimation {
-                    target: panelBg
-                    property: "height"
-                    to: 400
-                    duration: 300
-                    easing.type: Easing.OutCirc
+                SequentialAnimation {
+                    NumberAnimation { target: panelBg; property: "opacity"; to: 1; duration: 120 }
+                    NumberAnimation { target: panelBg; property: "scale"; to: 1; duration: 180; easing.type: Easing.OutCirc }
+ 
                 }
-
                 // Phase 2: box bounces open to full size, content fades in alongside
                 NumberAnimation {
                     target: content
@@ -430,6 +471,16 @@ Item {
                     }
                 }
 
+                Rectangle {
+                    id: separator
+                    anchors.top: searchField.bottom
+                    height: 2
+                    width: parent.width
+                    color: root.theme.primary
+                    radius: 10
+                }
+
+
                 // ---- body: list (left) + preview (right) ----
                 Row {
                     width: parent.width
@@ -462,7 +513,16 @@ Item {
 
                             highlight: Rectangle {
                                 radius: 10
-                                color: Qt.alpha(root.theme.primary, 0.8)
+                                color: Qt.alpha(root.theme.on_background, 0.1)
+                                Rectangle {
+                                    id: selector
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 5
+                                    height: parent.height - 14
+                                    color: root.theme.primary
+                                    radius: 10
+                                }
                             }
 
                             delegate: Rectangle {
@@ -512,23 +572,19 @@ Item {
                                         Text {
                                             width: parent.width
                                             text: entryRow.modelData.isImage ? "Image" : entryRow.modelData.preview
-                                            color: entryRow.isSelected ? root.theme.background : root.theme.on_background
+                                            color: root.theme.on_background
                                             font.pixelSize: 16
                                             font.bold: false
                                             opacity: 0.8
                                             font.family: root.settings.fontmedium
-                                            //renderType: Text.NativeRendering
-                                            //font.hintingPreference: Font.PreferFullHinting
                                             elide: Text.ElideRight
                                             maximumLineCount: 1
                                         }
                                         Text {
                                             width: parent.width
                                             text: entryRow.modelData.isImage ? entryRow.modelData.ext.toUpperCase() : "Text"
-                                            color: entryRow.isSelected ? Qt.alpha(root.theme.background, 0.7) : root.theme.on_background
+                                            color: root.theme.on_background
                                             opacity: entryRow.isSelected ? 1.0 : 0.55
-                                            //renderType: Text.NativeRendering
-                                            //font.hintingPreference: Font.PreferFullHinting
                                             font.pixelSize: 13
                                             font.family: root.settings.fontdefault
                                         }

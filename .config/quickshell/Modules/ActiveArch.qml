@@ -12,6 +12,7 @@ Scope {
 
 		PanelWindow {
 			id: w
+			visible: false
 
 			property var modelData
 			screen: modelData
@@ -31,6 +32,8 @@ Scope {
 
 			color: "transparent"
 
+			WlrLayershell.exclusiveZone: 0
+
 			// Give the window an empty click mask so all clicks pass through it.
 			mask: Region {}
 
@@ -43,7 +46,7 @@ Scope {
 
 				Text {
 					text: "Activate Arch Linux"
-					color: "#70ffffff"
+					color: '#53ffffff'
 					font.pointSize: 20
 					font.family: "Segoe UI Variable Static Text"
 					//renderType: Text.NativeRendering
@@ -52,7 +55,7 @@ Scope {
 
 				Text {
 					text: "Go to Terminal to activate Arch Linux(BTW)"
-					color: "#70ffffff"
+					color: '#53ffffff'
 					font.pointSize: 12
 					font.family: "Segoe UI Variable Static Text"
 					//renderType: Text.NativeRendering

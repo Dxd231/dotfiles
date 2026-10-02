@@ -27,7 +27,7 @@ Scope {
         function volumeUp() {
             const audio = Pipewire.defaultAudioSink?.audio
             if (audio)
-                audio.volume = Math.min(1.0, (audio.volume ?? 0) + 0.05)  
+                audio.volume = Math.min(1.0, (audio.volume ?? 0) + 0.05)
             osdroot.showOsd()
         }
 
@@ -70,55 +70,21 @@ Scope {
         Rectangle {
             id: panelBg
             anchors.fill: parent
-            radius: 18
+            radius: 30
             color: Qt.alpha(osdroot.theme.background, 0.95)
             border.width: 1
-            border.color: Qt.alpha(osdroot.theme.surface_bright, 0.8)
+            border.color: Qt.alpha(osdroot.theme.primary, 0.2)
+            scale: osdroot.shouldShowOsd ? 1 : 0.3
+            opacity: osdroot.shouldShowOsd ? 1 : 0
+            readonly property real currentVolume: Math.max(0, Math.min(1, Pipewire.defaultAudioSink?.audio.volume ?? 0))
+            readonly property bool muted: Pipewire.defaultAudioSink?.audio.muted ?? false
 
-            states: [
-                State {
-                    name: "open"
-                    when: osdroot.shouldShowOsd
-                    PropertyChanges {
-                        target: panelBg
-                        scale: 1
-                        opacity: 1
-                    }
-                },
-                State {
-                    name: "closed"
-                    when: !osdroot.shouldShowOsd
-                    PropertyChanges {
-                        target: panelBg
-                        scale: 0.3
-                        opacity: 0
-                    }
-                }
-            ]
-
-            transitions: [
-                Transition {
-                    from: "closed"
-                    to: "open"
-
-                    NumberAnimation {
-                        properties: "scale,opacity"
-                        duration: 180
-                        easing.type: Easing.OutCirc
-                    }
-                },
-                Transition {
-                    from: "open"
-                    to: "closed"
-
-                    NumberAnimation {
-                        properties: "scale,opacity"
-                        duration: 150
-                        easing.type: Easing.InCirc
-                    }
-                }
-            ]
-
+            Behavior on scale {
+                NumberAnimation { duration: 180; easing.type: Easing.OutCirc }
+            }
+            Behavior on opacity {
+                NumberAnimation { duration: 150; easing.type: Easing.InOutCirc }
+            }
 
             RowLayout {
                 anchors {
@@ -128,6 +94,8 @@ Scope {
                 }
 
                 Image {
+                    Layout.preferredWidth: 40
+                    Layout.preferredHeight: 40
                     fillMode: Image.PreserveAspectFit
                     sourceSize {
                         width: 40
@@ -139,37 +107,33 @@ Scope {
                         colorizationColor: osdroot.theme.primary
                     }
                     source: {
-                        if (Pipewire.defaultAudioSink?.audio.muted || Pipewire.defaultAudioSink?.audio.volume <= 0.01) {
+                        if (panelBg.muted || panelBg.currentVolume <= 0.01) {
                             return "../assets/speaker-simple-none-fill.svg"; 
                         }
-                        if (Pipewire.defaultAudioSink?.audio.volume < 0.75) { 
+                        if (panelBg.currentVolume < 0.75) { 
                             return "../assets/speaker-low-fill.svg"; 
                         }
                         else return "../assets/speaker-high-fill.svg"; 
                     }
                 }
 
-                // Progress bar
-                Rectangle {
+                RowLayout {
                     Layout.fillWidth: true
-                    implicitHeight: 10
-                    radius: 2
-                    color: Qt.alpha(osdroot.theme.scrim, 0.2)
+                    spacing: 4
 
-                    Rectangle {
-                        anchors {
-                            left: parent.left
-                            top: parent.top
-                            bottom: parent.bottom
-                        }
-                        width: parent.width * Math.min(1, Math.max(0, Pipewire.defaultAudioSink?.audio.volume ?? 0))
-                        radius: parent.radius
-                        color: osdroot.theme.primary
+                    Repeater {
+                        model: 20
+                        delegate: Rectangle {
+                            required property int index
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 10
+                            radius: 2
+                            color: index < Math.round(panelBg.currentVolume * 20)
+                                ? osdroot.theme.primary
+                                : Qt.alpha(osdroot.theme.scrim, 0.2)
 
-                        Behavior on width {
-                            NumberAnimation {
-                                duration: 200
-                                easing.type: Easing.InOutCirc
+                            Behavior on color {
+                                ColorAnimation { duration: 120 }
                             }
                         }
                     }

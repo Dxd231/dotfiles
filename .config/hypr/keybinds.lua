@@ -11,7 +11,6 @@
 -- KEYBINDINGS
 -- ==================
 local mod = "SUPER"
-
 hl.bind(mod ..  "+ ALT + S",        hl.dsp.exec_cmd("~/.local/bin/save-clipboard-image-now"))
 hl.bind(mod ..  "+ P",              hl.dsp.window.pin())
 hl.bind(mod ..  "+ O",              hl.dsp.window.set_prop({prop = "opaque", value = "toggle"}))
@@ -27,13 +26,12 @@ hl.bind(mod ..  " + Tab",           hl.dsp.exec_cmd("snappy-switcher next"))
 hl.bind(mod ..  " + SHIFT + Tab",   hl.dsp.exec_cmd("snappy-switcher prev"))
 hl.bind("CTRL + ALT + Delete",      hl.dsp.exec_cmd("qs ipc call powermenu toggle"))
 hl.bind(mod .. " + E",              hl.dsp.exec_cmd('kitty sh -c \'tmp="$(mktemp -t yazi-cwd.XXXXXX)"; yazi --cwd-file="$tmp"; if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ]; then cd -- "$cwd"; fi; rm -f -- "$tmp"; exec zsh\''))
-hl.bind(mod .. " + G",              hl.dsp.exec_cmd("hyprpicker -a -l"))
+hl.bind(mod .. " + G",              hl.dsp.exec_cmd("pkill hyprpicker || hyprpicker -a -l"))
 hl.bind(mod .. "+ V",               hl.dsp.exec_cmd("qs ipc call clipboard toggle"))
 hl.bind(mod .. "+ SHIFT + V",       hl.dsp.exec_cmd("pidof clipse && pkill clipse || kitty --class clipse -e clipse"))
 hl.bind(mod .. "+ SHIFT + F11",     hl.dsp.exec_cmd("killall hyprsunset || hyprsunset &"))
 hl.bind(mod .. "+ SHIFT + X",       hl.dsp.exec_cmd("wl-freeze -a"))
 hl.bind(mod .. " + A",              hl.dsp.exec_cmd("~/scripts/manga-ocr.sh && ~/.local/bin/paddle-ocr"))
-
 hl.bind("XF86Calculator",           hl.dsp.exec_cmd("gnome-calculator"))
 
 local autoscroll_shortcut = "SUPER + H"
@@ -117,7 +115,7 @@ hl.bind(mod .. " + End",            hl.dsp.focus({ window = "last" }))
 
 hl.bind(mod .. " + Page_Down", function()
     local current = hl.get_active_workspace().id
-    if current < 8 then
+    if current < 9 then
         hl.dispatch(hl.dsp.focus({ workspace = current + 1 }))
     end
 end)
@@ -131,7 +129,7 @@ end)
 
 hl.bind(mod .. " + SHIFT + Page_Down", function()
     local current = hl.get_active_workspace().id
-    if current < 8 then
+    if current < 9 then
         hl.dispatch(hl.dsp.window.move({ workspace = current + 1 }))
     end
 end)
@@ -188,10 +186,6 @@ hl.bind(mod .. " + SHIFT + code:20",  hl.dsp.layout("colresize -0.1"))
 hl.bind(mod .. " + SHIFT + code:21",  hl.dsp.layout("colresize +0.1"))
 hl.bind(mod .. " + ALT + code:20",    hl.dsp.window.resize({x = 0, y = -50, relative = true}), { repeating = true })
 hl.bind(mod .. " + ALT + code:21",    hl.dsp.window.resize({x = 0, y = 50, relative = true}), { repeating = true })
--- Repeating percentage resize
-hl.bind(mod .. " + minus",            hl.dsp.window.resize({ x = -100, y = 0, relative = true}),    { repeating = true })
-hl.bind(mod .. " + equal",            hl.dsp.window.resize({ x = 100,  y = 0, relative = true }),    { repeating = true })
- 
 -- =============================================================================
 -- Screenshots
 -- =============================================================================

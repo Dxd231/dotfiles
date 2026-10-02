@@ -3,8 +3,8 @@ import Quickshell
 import QtQuick.Controls
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import Quickshell.Services.Notifications
-import Quickshell.Services.Mpris
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
@@ -12,78 +12,164 @@ import Quickshell.Networking
 
 Scope {
     id: notify_root
-    
-    property var mainroot
+
+    // ---- wired from shell.qml ----
     property var theme
     property var settings
-    property bool calendarOpen: false
-    property bool centerOpen: false
+    property real cpuPercent: 0
+    property real memPercent: 0
 
-    readonly property bool hasNotifications: history.count > 0
-    property var shellRoot
+    // ---- state ----
+    property bool centerOpen: false
+    property bool dnd: false            // do not disturb: no popups / sound (critical still shows)
+    property int unread: 0              // notifications received while the center was closed
+    property int maxHistory: 100
     property var mutedApps: []
+    readonly property bool hasNotifications: history.count > 0
+    property alias centerPanelHeight: centerPanel.height
+
+    property double nowMs: Date.now()   // drives the relative timestamps
+    property double _closedAt: 0
 
     property var profiles: ["power-saver", "balanced", "performance"]
     property string current_profile: "balanced"
 
-    property real netDown: 0        // KB/s download
-    property real netUp: 0          // KB/s upload
-    property real _prevRx: 0        // internal: previous rx bytes
-    property real _prevTx: 0        // internal: previous tx bytes
+    property real netDown: 0            // KB/s download
+    property real netUp: 0              // KB/s upload
+    property real _prevRx: 0
+    property real _prevTx: 0
+
+    ListModel {
+        id: history
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    // Bell button in the bar uses this: if the focus grab just closed the panel
+    // on the same click, don't reopen it.
+    function toggleCenter() {
+        if (!notify_root.centerOpen && Date.now() - notify_root._closedAt < 250)
+            return;
+        notify_root.centerOpen = !notify_root.centerOpen;
+    }
+
+    function iconFor(n) {
+        if (n.image)
+            return n.image;
+        const ic = n.appIcon || "";
+        if (ic === "")
+            return "";
+        if (ic.startsWith("/") || ic.indexOf("://") !== -1)
+            return ic;
+        return Quickshell.iconPath(ic, true) || "";
+    }
+
+    function relTime(ms) {
+        const s = Math.max(0, (notify_root.nowMs - ms) / 1000);
+        if (s < 60)
+            return "now";
+        if (s < 3600)
+            return Math.floor(s / 60) + "m ago";
+        if (s < 86400)
+            return Math.floor(s / 3600) + "h ago";
+        return Qt.formatDateTime(new Date(ms), "d MMM");
+    }
+
+    function formatSpeed(kb) {
+        if (kb >= 1024)
+            return (kb / 1024).toFixed(1) + " MB/s";
+        if (kb >= 1)
+            return kb.toFixed(0) + " KB/s";
+        return "0 KB/s";
+    }
+
+    function playSound() {
+        Quickshell.execDetached(["paplay", Quickshell.shellPath("assets/notification.mp3")]);
+    }
 
     onCenterOpenChanged: {
-        if (!centerOpen) {
+        if (centerOpen) {
+            unread = 0;
+            nowMs = Date.now();
+            calendarCard.reset();
+            powerprofilesctl.running = false;
+            powerprofilesctl.running = true;
+            closeAnim.stop();
+            openAnim.restart();
+        } else {
+            _closedAt = Date.now();
             _prevRx = 0;
             _prevTx = 0;
             netDown = 0;
             netUp = 0;
             wifiMenu.wifiMenu_open = false;
-        }
-        if (centerOpen) {
-            closeAnim.stop();
-            openAnim.restart();
-        } else {
             openAnim.stop();
             closeAnim.restart();
         }
     }
 
-    function formatSpeed(kb) {
-        if (kb >= 1024) {
-            return (kb / 1024).toFixed(1) + " MB/s";
-        }
-        if (kb >= 1) {
-            return kb.toFixed(0) + " KB/s";
-        }
-        return "0 KB/s";
+    // ---------------------------------------------------------------- wifi
+
+    property var wifiDevice: Networking.devices.values.find(d => d.type === DeviceType.Wifi)
+    readonly property string wifiIface: (wifiDevice && wifiDevice.name) ? wifiDevice.name : "wlan0"
+
+    function isActive(n) {
+        return n.connected === true || n.state === ConnectionState.Connected;
     }
 
-    // ---- system stats shown at the top of the notification center ----
-    property real cpuPercent: 0
-    property real memPercent: 0
-    property string wifiIcon: { 
-        if (wifiPercent > 50) return "../assets/wifi-high.svg";
-        if (wifiPercent > 0 && wifiDevice && wifiDevice.active !== false) return "../assets/wifi-medium.svg";
+    // connected first, then strongest first; ScriptModel diffs it so delegates (and any
+    // half-typed password) survive re-sorts
+    readonly property var sortedNetworks: {
+        if (!notify_root.wifiDevice || !notify_root.wifiDevice.networks)
+            return [];
+        return Array.from(notify_root.wifiDevice.networks.values).filter(n => n.name !== "").sort((a, b) => (notify_root.isActive(b) - notify_root.isActive(a)) || (b.signalStrength - a.signalStrength));
+    }
+
+    ScriptModel {
+        id: networkModel
+        values: notify_root.sortedNetworks
+    }
+
+    property real wifiPercent: {
+        if (!notify_root.wifiDevice || !notify_root.wifiDevice.networks)
+            return 0;
+        const active = notify_root.wifiDevice.networks.values.find(n => notify_root.isActive(n));
+        return active ? Math.round(active.signalStrength * 100) : 0;
+    }
+
+    property string wifiIcon: {
+        if (wifiPercent > 50)
+            return "../assets/wifi-high.svg";
+        if (wifiPercent > 0 && wifiDevice && wifiDevice.active !== false)
+            return "../assets/wifi-medium.svg";
         return "../assets/wifi-x.svg";
     }
-    ListModel {
-        id: history
+
+    function reasonText(reason) {
+        if (reason === ConnectionFailReason.NoSecrets)
+            return "wrong password";
+        return "unknown error";
     }
 
-    property alias centerPanelHeight: centerPanel.height
+    function connectTo(network, password) {
+        if (password.length > 0)
+            network.connectWithPsk(password);
+        else
+            network.connect();
+        wifiMenu.wifiMenu_open = false;
+    }
 
-    // Wifi Speed
     Process {
         id: netSpeedProc
-        command: ["sh", "-c", "cat /sys/class/net/wlan0/statistics/rx_bytes /sys/class/net/wlan0/statistics/tx_bytes"]
+        command: ["sh", "-c", "cat /sys/class/net/" + notify_root.wifiIface + "/statistics/rx_bytes /sys/class/net/" + notify_root.wifiIface + "/statistics/tx_bytes"]
         stdout: StdioCollector {
             onStreamFinished: {
                 const lines = text.trim().split("\n");
                 const rx = parseFloat(lines[0]) || 0;
                 const tx = parseFloat(lines[1]) || 0;
                 if (notify_root._prevRx > 0) {
-                    notify_root.netDown = (rx - notify_root._prevRx) / 1024;
-                    notify_root.netUp = (tx - notify_root._prevTx) / 1024;
+                    notify_root.netDown = Math.max(0, (rx - notify_root._prevRx) / 1024);
+                    notify_root.netUp = Math.max(0, (tx - notify_root._prevTx) / 1024);
                 }
                 notify_root._prevRx = rx;
                 notify_root._prevTx = tx;
@@ -91,56 +177,11 @@ Scope {
         }
     }
 
-    // wifi menu
-    property string selectedSsid: ""
-    property string expandedSsid: ""
-    property var wifiDevice: Networking.devices.values.find(d => d.type === DeviceType.Wifi) 
-    property var networks: wifiDevice ? wifiDevice.networks.values : []
-    property real wifiPercent: {
-        if (!wifiDevice) return 0;
-        let active = wifiDevice.networks?.values.find(n => n.connected);
-        return active ? Math.round(active.signalStrength * 100) : 0;
-    }
+    // ---------------------------------------------------------------- power profiles
 
-    function reasonText(reason) {
-        if (reason === ConnectionFailReason.NoSecrets) return "wrong password";
-        return "unknown error";
-    }
-
-    Component.onCompleted: {
-        let dev = Networking.devices.values.find(d => d.type === DeviceType.Wifi);
-        console.log(Object.keys(dev));
-        if (wifiDevice) wifiDevice.scannerEnabled = true;
-    }
-
-    // 2. Connect to a chosen network
-    function connectTo(network, password) {
-        if (password.length > 0) {
-            network.connectWithPsk(password);
-        } else {
-            network.connect();
-        }
-        wifiMenu.wifiMenu_open = false;
-    }
-
-    function scan() {
-        if (wifiDevice) wifiDevice.scannerEnabled = true;
-    }
-
-    
-
-    // pop sound
-    Process {
-        id: pop
-        command: ["mpv", "--no-video", "/home/niconico/.config/quickshell/assets/notification.mp3", "exit"]
-        running: false
-    }
-
-
-    // PowerProfilesCtl
     Process {
         id: powerprofilesctl
-        command: ["sh", "-c", "powerprofilesctl get"]
+        command: ["powerprofilesctl", "get"]
         running: true
         stdout: SplitParser {
             onRead: data => notify_root.current_profile = data.trim()
@@ -159,30 +200,29 @@ Scope {
         notify_root.current_profile = profile;
     }
 
-    Process {
-        id: memStatProc
-        command: ["sh", "-c", "free | grep Mem | awk '{printf \"%.0f\", ($3/$2) * 100.0}'"]
-        stdout: StdioCollector {
-            onStreamFinished: notify_root.memPercent = parseFloat(text.trim()) || 0
-        }
-    }
-
-   
-
-    function refreshStats() {
-        netSpeedProc.running = false;
-        netSpeedProc.running = true;
-        memStatProc.running = false;
-        memStatProc.running = true;
-    }
+    // ---------------------------------------------------------------- timers
 
     Timer {
         interval: 1000
-        running: notify_root.centerOpen ? true : false
+        running: notify_root.centerOpen
         repeat: true
         triggeredOnStart: true
-        onTriggered: notify_root.refreshStats()
+        onTriggered: {
+            netSpeedProc.running = false;
+            netSpeedProc.running = true;
+        }
     }
+
+    // keeps "5m ago" fresh while the panel is open
+    Timer {
+        interval: 30000
+        running: notify_root.centerOpen
+        repeat: true
+        onTriggered: notify_root.nowMs = Date.now()
+    }
+
+    // ---------------------------------------------------------------- server
+
     NotificationServer {
         id: server
         actionsSupported: true
@@ -195,20 +235,29 @@ Scope {
                 body: n.body,
                 appName: n.appName,
                 urgency: n.urgency,
-                time: Qt.formatDateTime(new Date(), "HH:mm"),
-                image: n.image || n.appIcon || ""
+                stamp: Date.now(),
+                image: notify_root.iconFor(n)
             });
-            if (notify_root.mutedApps.indexOf(n.appName) === -1) {
-                n.tracked = true;   // only pops up if not muted
-            }
-            Quickshell.execDetached(["sh", "-c", "paplay ~/.config/quickshell/assets/notification.mp3"])
+            while (history.count > notify_root.maxHistory)
+                history.remove(history.count - 1);
+
+            if (!notify_root.centerOpen)
+                notify_root.unread++;
+
+            const muted = notify_root.mutedApps.indexOf(n.appName) !== -1;
+            const critical = n.urgency === NotificationUrgency.Critical;
+            if (muted || (notify_root.dnd && !critical))
+                return;   // kept in history, but no popup and no sound
+
+            n.tracked = true;
+            notify_root.playSound();
         }
     }
 
     IpcHandler {
         target: "notifications"
         function toggle(): void {
-            notify_root.centerOpen = !notify_root.centerOpen;
+            notify_root.toggleCenter();
         }
         function show(): void {
             notify_root.centerOpen = true;
@@ -216,28 +265,49 @@ Scope {
         function hide(): void {
             notify_root.centerOpen = false;
         }
+        function toggleDnd(): void {
+            notify_root.dnd = !notify_root.dnd;
+        }
+        function clear(): void {
+            history.clear();
+        }
+        function mute(app: string): void {
+            if (notify_root.mutedApps.indexOf(app) === -1)
+                notify_root.mutedApps = notify_root.mutedApps.concat([app]);
+        }
+        function unmute(app: string): void {
+            notify_root.mutedApps = notify_root.mutedApps.filter(a => a !== app);
+        }
     }
 
-    // notification center
+    // ---------------------------------------------------------------- notification center
+
+    // closes the panel when you click anywhere else
+    HyprlandFocusGrab {
+        windows: [centerPanel]
+        active: centerPanel.visible && notify_root.centerOpen
+        onCleared: notify_root.centerOpen = false
+    }
+
     PanelWindow {
         id: centerPanel
         WlrLayershell.namespace: "quickshell:center"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
         exclusiveZone: 0
-       
+        exclusionMode: ExclusionMode.Auto
+
         anchors {
             top: true
             left: true
         }
         margins {
-            top: 20
+            top: 0
             left: 0
         }
-        implicitHeight: 1080
-        implicitWidth: 1920
+        implicitWidth: 420
+        implicitHeight: panelBg.height + 20
         color: "transparent"
-        exclusionMode: ExclusionMode.Auto
         property bool animatingClosed: false
         visible: notify_root.centerOpen || animatingClosed
 
@@ -245,32 +315,39 @@ Scope {
             anchors.fill: parent
             focus: true
             Keys.enabled: true
-            Keys.onEscapePressed: {
-                notify_root.centerOpen = false
-            }
+            Keys.onEscapePressed: notify_root.centerOpen = false
         }
 
         Rectangle {
             id: panelBg
             width: 400
-            height: 900
-            radius: 15
-            border.color: Qt.alpha(root.theme.primary, 0.1)
-            border.width: 1
-            color: Qt.alpha(notify_root.theme.background, 1)
-            x: -350
+            height: Math.min(900, (centerPanel.screen ? centerPanel.screen.height : 1080) - 60)
+            radius: 14
+            border.color: Qt.alpha(notify_root.theme.primary, 0.1)
+            border.width: 0
+            color: Qt.lighter(notify_root.theme.background, 1.15)
+            x: -410
             y: 10
             clip: true
 
             SequentialAnimation {
                 id: closeAnim
-
                 onStarted: centerPanel.animatingClosed = true
                 onStopped: centerPanel.animatingClosed = false
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 180 }
-                NumberAnimation { target: panelBg; property: "x"; to: -350; duration: 300; easing.type: Easing.InCirc }
-
+                NumberAnimation {
+                    target: content
+                    property: "opacity"
+                    to: 0
+                    duration: 180
+                }
+                NumberAnimation {
+                    target: panelBg
+                    property: "x"
+                    to: -410
+                    duration: 300
+                    easing.type: Easing.InCirc
+                }
             }
 
             SequentialAnimation {
@@ -282,123 +359,61 @@ Scope {
                     duration: 300
                     easing.type: Easing.OutCirc
                 }
-
-                ParallelAnimation {
-                    NumberAnimation {
-                        target: content
-                        property: "opacity"
-                        to: 1
-                        duration: 300
-                    }
+                NumberAnimation {
+                    target: content
+                    property: "opacity"
+                    to: 1
+                    duration: 300
                 }
             }
-
-            property bool isTouhou: {
-                if (!shellRoot.activePlayer) return false;
-                var artist = (shellRoot.activePlayer.trackArtist || "").toLowerCase();
-                var title = (shellRoot.activePlayer.trackTitle || "").toLowerCase();
-                return artist.includes("上海アリス") || 
-                artist.includes("zun") || 
-                artist.includes("records") || 
-                artist.includes("幽閉") || 
-                artist.includes("黄昏フロンティア") || 
-                artist.includes("東京アクティブneets") ||
-                title.includes("砕月") ||
-                artist.includes("少女フラクタル");
-            }
-
-            property var gifsTH: [  "../assets/reimu-touhou.gif",
-                                    "../assets/marisa-touhou.gif",
-                                    "../assets/reimu-touhou.gif2.gif"]
-
-            // The currently chosen GIF
-            property string currentGifTou: "../assets/reimu-touhou.gif"
 
             Item {
                 id: content
                 anchors.fill: parent
-                opacity: 0
                 anchors.margins: 14
-            
-                
-                /* AnimatedImage {
-                    id: anim
-                    source: panelBg.isTouhou ? panelBg.currentGifTou : ""
-                    anchors.centerIn: parent
-                    fillMode: Image.PreserveAspectFit
-                    width: 200
-                    height: 200 
-                    sourceSize.width: 200
-                    sourceSize.height: 200
-                    asynchronous: true
-                    opacity: notify_root.hasNotifications ? 0.5 : 1
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: 200
-                            easing.type: Easing.OutCirc
-                        }
-                    }
-
-                    // Only play when this item is visible and music is playing
-                    playing: visible && (!shellRoot.activePlayer || shellRoot.activePlayer.playbackState === MprisPlaybackState.Playing)
-                    visible: panelBg.isTouhou && openAnim.stopped
-
-                    // When it becomes visible (and starts playing), pick a new random GIF
-                    onVisibleChanged: {
-                        if (visible) {
-                            panelBg.currentGifTou = panelBg.pickRandomTH()
-                        }
-                    }
-                } */
+                opacity: 0
 
                 ColumnLayout {
                     id: centerCol
                     anchors.fill: parent
                     spacing: 10
 
+                    // ------------------------------------------------ system card
                     Rectangle {
                         id: statsCard
                         Layout.fillWidth: true
                         Layout.margins: 4
-                        Layout.preferredHeight: statsRow.implicitHeight
+                        Layout.preferredHeight: statsInner.implicitHeight + 20
                         radius: 18
-                        color: Qt.alpha(notify_root.theme.background, 1)
+                        color: Qt.alpha(notify_root.theme.source_color, 0.10)
                         clip: true
 
-                        Behavior on height {
-                            NumberAnimation {
-                                duration: 300
-                                easing.type: Easing.InOutCirc
-                            }
-                        }
-
                         ColumnLayout {
-                            id: statsRow
+                            id: statsInner
                             anchors.fill: parent
-                            anchors.margins: 4
+                            anchors.margins: 10
                             spacing: 10
 
-                            // Powerprofiles
                             ColumnLayout {
+                                id: statsTop
                                 Layout.fillWidth: true
-                                Layout.maximumHeight: implicitHeight
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 6
+                                spacing: 10
 
+                                // power profiles
                                 RowLayout {
+                                    Layout.fillWidth: true
                                     spacing: 6
 
                                     Repeater {
                                         model: notify_root.profiles
-                                        Rectangle {
-                                            id: profiles_rect
+                                        delegate: Rectangle {
+                                            id: profileRect
                                             required property var modelData
-                                            width: 50
-                                            height: 28
-                                            color: (modelData === notify_root.current_profile) ? notify_root.theme.primary : notify_root.theme.background
+                                            readonly property bool current: modelData === notify_root.current_profile
+                                            Layout.preferredWidth: 50
+                                            Layout.preferredHeight: 28
                                             radius: 4
-
+                                            color: profileRect.current ? notify_root.theme.primary : Qt.alpha(notify_root.theme.source_color, 0)
                                             Behavior on color {
                                                 ColorAnimation {
                                                     duration: 250
@@ -407,261 +422,94 @@ Scope {
                                             }
 
                                             Image {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                anchors.centerIn: parent
+                                                width: 22
+                                                height: 22
                                                 sourceSize.width: 22
                                                 sourceSize.height: 22
-                                                Layout.preferredWidth: 22
-                                                Layout.preferredHeight: 22
                                                 fillMode: Image.PreserveAspectFit
                                                 layer.enabled: true
                                                 layer.effect: MultiEffect {
                                                     colorization: 1.0
-                                                    colorizationColor: (modelData === notify_root.current_profile) ? notify_root.theme.background : notify_root.theme.primary   // any matugen color
+                                                    colorizationColor: profileRect.current ? notify_root.theme.background : notify_root.theme.primary
                                                 }
                                                 source: {
-                                                    if (profiles_rect.modelData === "performance")
+                                                    if (profileRect.modelData === "performance")
                                                         return "../assets/lightning-fill.svg";
-                                                    if (profiles_rect.modelData === "balanced")
+                                                    if (profileRect.modelData === "balanced")
                                                         return "../assets/scales-fill.svg";
-                                                    if (profiles_rect.modelData === "power-saver")
-                                                        return "../assets/leaf-fill.svg";
+                                                    return "../assets/leaf-fill.svg";
                                                 }
                                             }
                                             MouseArea {
-                                                cursorShape: Qt.PointingHandCursor
                                                 anchors.fill: parent
-                                                onClicked: notify_root.setPowerprofile(profiles_rect.modelData)
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: notify_root.setPowerprofile(profileRect.modelData)
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            // ---- CPU ----
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Layout.maximumHeight: implicitHeight
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 6
-
-                                RowLayout {
-                                    spacing: 6
-                                    Image {
-                                        source: "../assets/cpu.svg"
-                                        sourceSize.width: 22
-                                        sourceSize.height: 22
-                                        Layout.preferredWidth: 22
-                                        Layout.preferredHeight: 22
-                                        fillMode: Image.PreserveAspectFit
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: notify_root.theme.primary   // any matugen color
-                                        }
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "CPU"
-                                        color: notify_root.theme.on_background
-                                        opacity: 0.7
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: notify_root.settings.fontsize
-                                        font.bold: true
-                                    }
-                                    Text {
-                                        text: Math.round(notify_root.cpuPercent) + "%"
-                                        color: notify_root.theme.on_background
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: notify_root.settings.fontsize
-                                        font.bold: true
-                                    }
+                                NotifStatBar {
+                                    theme: notify_root.theme
+                                    settings: notify_root.settings
+                                    icon: "../assets/cpu.svg"
+                                    label: "CPU"
+                                    valueText: Math.round(notify_root.cpuPercent) + "%"
+                                    fraction: notify_root.cpuPercent / 100
                                 }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 5
-                                    radius: 5
-                                    color: Qt.alpha(notify_root.theme.on_background, 0.15)
-                                    Rectangle {
-                                        height: parent.height
-                                        radius: 5
-                                        color: notify_root.theme.primary
-                                        width: parent.width * Math.min(1, Math.max(0, notify_root.cpuPercent / 100))
-                                        Behavior on width {
-                                            NumberAnimation {
-                                                duration: 300
-                                                easing.type: Easing.OutCubic
-                                            }
-                                        }
-                                    }
+
+                                NotifStatBar {
+                                    theme: notify_root.theme
+                                    settings: notify_root.settings
+                                    icon: "../assets/memory.svg"
+                                    label: "RAM"
+                                    valueText: Math.round(notify_root.memPercent) + "%"
+                                    fraction: notify_root.memPercent / 100
+                                }
+
+                                NotifStatBar {
+                                    theme: notify_root.theme
+                                    settings: notify_root.settings
+                                    icon: notify_root.wifiIcon
+                                    label: "NET"
+                                    extraText: "\u2193 " + notify_root.formatSpeed(notify_root.netDown) + "  \u2191 " + notify_root.formatSpeed(notify_root.netUp)
+                                    valueText: Math.round(notify_root.wifiPercent) + "%"
+                                    fraction: notify_root.wifiPercent / 100
+                                    clickable: true
+                                    onClicked: wifiMenu.wifiMenu_open = !wifiMenu.wifiMenu_open
                                 }
                             }
 
-                            // ---- Memory ----
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Layout.maximumHeight: implicitHeight
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 6
-
-                                RowLayout {
-                                    spacing: 6
-                                    Image {
-                                        source: "../assets/memory.svg"
-                                        sourceSize.width: 22
-                                        sourceSize.height: 22
-                                        Layout.preferredWidth: 22
-                                        Layout.preferredHeight: 22
-                                        fillMode: Image.PreserveAspectFit
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: notify_root.theme.primary
-                                        }
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "RAM"
-                                        color: notify_root.theme.on_background
-                                        opacity: 0.7
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: notify_root.settings.fontsize
-                                        font.bold: true
-                                    }
-                                    Text {
-                                        text: Math.round(notify_root.memPercent) + "%"
-                                        color: notify_root.theme.on_background
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: notify_root.settings.fontsize
-                                        font.bold: true
-                                    }
-                                }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 5
-                                    radius: 5
-                                    color: Qt.alpha(notify_root.theme.on_background, 0.15)
-                                    Rectangle {
-                                        height: parent.height
-                                        radius: 5
-                                        color: notify_root.theme.primary
-                                        width: parent.width * Math.min(1, Math.max(0, notify_root.memPercent / 100))
-                                        Behavior on width {
-                                            NumberAnimation {
-                                                duration: 300
-                                                easing.type: Easing.OutCubic
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // ---- WiFi ----
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Layout.maximumHeight: implicitHeight
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 6
-
-                                RowLayout {
-                                    spacing: 6
-                                    Image {
-                                        source: notify_root.wifiIcon
-                                        sourceSize.width: 22
-                                        sourceSize.height: 22
-                                        Layout.preferredWidth: 22
-                                        Layout.preferredHeight: 22
-                                        fillMode: Image.PreserveAspectFit
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: notify_root.theme.primary
-                                        }
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "NET"
-                                        color: notify_root.theme.on_background
-                                        opacity: 0.7
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: notify_root.settings.fontsize
-                                        font.bold: true
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferFullHinting */
-                                    }
-                                    Text {
-                                        text: "↓ " + notify_root.formatSpeed(notify_root.netDown) + "  ↑ " + notify_root.formatSpeed(notify_root.netUp)
-                                        color: Qt.alpha(notify_root.theme.on_background, 0.75)
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferFullHinting */
-                                    }
-                                    Text {
-                                        text: Math.round(notify_root.wifiPercent) + "%"
-                                        color: notify_root.theme.on_background
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: notify_root.settings.fontsize
-                                        font.bold: true
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferFullHinting */
-                                    }
-                                }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 5
-                                    radius: 5
-                                    color: Qt.alpha(notify_root.theme.on_background, 0.15)
-                                    Rectangle {
-                                        height: parent.height
-                                        radius: 5
-                                        color: notify_root.theme.primary
-                                        width: parent.width * Math.min(1, Math.max(0, notify_root.wifiPercent / 100))
-                                        Behavior on width {
-                                            NumberAnimation {
-                                                duration: 300
-                                                easing.type: Easing.OutCubic
-                                            }
-                                        }
-                                    }
-                                }
-                                MouseArea {
-                                    cursorShape: Qt.PointingHandCursor
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        wifiMenu.wifiMenu_open = !wifiMenu.wifiMenu_open
-                                        if (wifiMenu.wifiMenu_open)
-                                            notify_root.scan();
-                                    }
-                                }
-                            }
-                            // Wifi Menu
+                            // ---- wifi menu: grows to fill the panel, hides everything below it ----
                             ColumnLayout {
                                 id: wifiMenu
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: wifiExpand * (content.height - 40) 
+                                Layout.preferredHeight: wifiExpand * Math.max(0, content.height - statsTop.implicitHeight - 44)
+                                visible: wifiExpand > 0.001
                                 clip: true
-                                spacing: 2
-
-                                property real wifiExpand: wifiMenu.wifiMenu_open ? 1 : 0
-                                Behavior on wifiExpand {
-                                    NumberAnimation { duration: 400; easing.type: Easing.InOutCubic }
-                                }
+                                spacing: 6
 
                                 property bool wifiMenu_open: false
-
-                                Behavior on height {
+                                property real wifiExpand: wifiMenu_open ? 1 : 0
+                                Behavior on wifiExpand {
                                     NumberAnimation {
                                         duration: 400
-                                        easing.type: Easing.InOutCirc
+                                        easing.type: Easing.InOutCubic
                                     }
+                                }
+                                // only scan while the list is actually open
+                                onWifiMenu_openChanged: {
+                                    if (notify_root.wifiDevice)
+                                        notify_root.wifiDevice.scannerEnabled = wifiMenu_open;
                                 }
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "WiFi Networks:"
+                                    text: "Wi-Fi networks"
                                     font.bold: true
+                                    font.family: notify_root.settings.fontdefault
+                                    font.pixelSize: notify_root.settings.fontsize
                                     color: notify_root.theme.on_background
                                 }
 
@@ -669,30 +517,25 @@ Scope {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     clip: true
-                                    spacing: 10
-                                    model: notify_root.networks
+                                    spacing: 8
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    model: networkModel
                                     delegate: Rectangle {
                                         id: netCard
-                                        border.width: 2
-                                        border.color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : notify_root.theme.outline_variant
                                         required property var modelData
-                                        property bool expanded: notify_root.expandedSsid === modelData.name
-
-                                        
-
-                                        Connections {
-                                            target: netCard.modelData
-                                            function onConnectionFailed(reason) {
-                                                console.log("connectionFailed fired:", reason);
-                                                Quickshell.execDetached(["sh", "-c", `notify-send -i "/home/niconico/.config/quickshell/assets/wifi-x.svg" -a "" 'Connect failed'`]);
-                                            }
-                                        }
+                                        readonly property bool isConnected: notify_root.isActive(netCard.modelData)
+                                        readonly property bool known: netCard.modelData.known === true
+                                        property bool needsPassword: false
+                                        onIsConnectedChanged: if (isConnected) wifiMenu.wifiMenu_open = false
+                                        property bool expanded: false
 
                                         width: ListView.view.width
                                         height: contentCol.implicitHeight + 12
                                         radius: 10
-                                        color: Qt.alpha(notify_root.theme.background, 1)
                                         clip: true
+                                        color: Qt.alpha(notify_root.theme.background, 1)
+                                        border.width: 2
+                                        border.color: netCard.isConnected ? notify_root.theme.primary : notify_root.theme.outline_variant
 
                                         Behavior on height {
                                             NumberAnimation {
@@ -700,9 +543,15 @@ Scope {
                                                 easing.type: Easing.InOutCubic
                                             }
                                         }
-                                        Behavior on color {
-                                            ColorAnimation {
-                                                duration: 100
+
+                                        Connections {
+                                            target: netCard.modelData
+                                            function onConnectionFailed(reason) {
+                                            if (reason === ConnectionFailReason.NoSecrets) {
+                                                netCard.needsPassword = true;
+                                                netCard.expanded = true;
+                                            }
+                                                Quickshell.execDetached(["notify-send", "-i", Quickshell.shellPath("assets/wifi-x.svg"), "-a", "Wi-Fi", "Connect failed", notify_root.reasonText(reason)]);
                                             }
                                         }
 
@@ -727,7 +576,7 @@ Scope {
                                                     Text {
                                                         Layout.fillWidth: true
                                                         text: netCard.modelData.name
-                                                        color: netCard.modelData.state === ConnectionState.Connected ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.7)
+                                                        color: netCard.isConnected ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.7)
                                                         font.family: notify_root.settings.fontdefault
                                                         font.pixelSize: notify_root.settings.fontsize + 2
                                                         font.bold: true
@@ -737,16 +586,14 @@ Scope {
                                                         text: Math.round((netCard.modelData.signalStrength ?? 0) * 100) + "%"
                                                         color: notify_root.theme.on_background
                                                         opacity: 0.6
+                                                        font.family: notify_root.settings.fontdefault
                                                         font.pixelSize: notify_root.settings.fontsize
                                                     }
                                                 }
-
                                                 MouseArea {
-                                                    id: headerMouse
                                                     anchors.fill: parent
-                                                    hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: notify_root.expandedSsid = netCard.expanded ? "" : netCard.modelData.name
+                                                    onClicked: netCard.expanded = !netCard.expanded
                                                 }
                                             }
 
@@ -758,8 +605,20 @@ Scope {
                                                 TextField {
                                                     id: netPasswordField
                                                     Layout.fillWidth: true
+                                                    // known networks already have a saved password
+                                                    visible: !netCard.isConnected && (netCard.needsPassword || !netCard.known)
                                                     placeholderText: "Password"
+                                                    placeholderTextColor: Qt.alpha(notify_root.theme.on_background, 0.4)
                                                     echoMode: TextInput.Password
+                                                    color: notify_root.theme.on_background
+                                                    font.family: notify_root.settings.fontdefault
+                                                    font.pixelSize: notify_root.settings.fontsize
+                                                    background: Rectangle {
+                                                        radius: 6
+                                                        color: Qt.alpha(notify_root.theme.on_background, 0.08)
+                                                        border.width: netPasswordField.activeFocus ? 1 : 0
+                                                        border.color: notify_root.theme.primary
+                                                    }
                                                     onAccepted: {
                                                         notify_root.connectTo(netCard.modelData, text);
                                                         text = "";
@@ -767,9 +626,16 @@ Scope {
                                                 }
                                                 Button {
                                                     id: connectBtn
-                                                    text: "Connect"
                                                     Layout.fillWidth: true
-                                                    onClicked: notify_root.connectTo(netCard.modelData, netPasswordField.text)
+                                                    text: netCard.isConnected ? "Disconnect" : "Connect"
+                                                    onClicked: {
+                                                        if (netCard.isConnected) {
+                                                            netCard.modelData.disconnect();
+                                                        } else {
+                                                            notify_root.connectTo(netCard.modelData, netPasswordField.text);
+                                                            netPasswordField.text = "";
+                                                        }
+                                                    }
 
                                                     background: Rectangle {
                                                         radius: 6
@@ -780,10 +646,9 @@ Scope {
                                                             }
                                                         }
                                                     }
-
                                                     contentItem: Text {
                                                         text: connectBtn.text
-                                                        color: notify_root.theme.on_background  // or on_background, whatever fits your theme
+                                                        color: notify_root.theme.on_background
                                                         font.family: notify_root.settings.fontdefault
                                                         font.pixelSize: notify_root.settings.fontsize
                                                         font.bold: true
@@ -799,12 +664,15 @@ Scope {
                         }
                     }
 
+                    // ------------------------------------------------ header
                     RowLayout {
                         Layout.fillWidth: true
                         opacity: 1 - wifiMenu.wifiExpand
-                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)  // e.g. calendarCol.implicitHeight + 4
+                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)
+                        visible: wifiMenu.wifiExpand < 1
                         clip: true
-                        visible: wifiMenu.wifiExpand < 1   
+                        spacing: 8
+
                         Text {
                             Layout.fillWidth: true
                             text: "Notifications"
@@ -815,20 +683,49 @@ Scope {
                                 bold: true
                             }
                         }
+
+                        // do-not-disturb chip
+                        Rectangle {
+                            id: dndChip
+                            Layout.preferredHeight: 24
+                            Layout.preferredWidth: dndText.implicitWidth + 20
+                            radius: 12
+                            color: notify_root.dnd ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.1)
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 150
+                                }
+                            }
+                            Text {
+                                id: dndText
+                                anchors.centerIn: parent
+                                text: "Do not disturb"
+                                color: notify_root.dnd ? notify_root.theme.on_primary : Qt.alpha(notify_root.theme.on_background, 0.8)
+                                font.family: notify_root.settings.fontdefault
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: notify_root.dnd = !notify_root.dnd
+                            }
+                        }
+
                         Image {
                             source: "../assets/trash-simple-bold.svg"
                             sourceSize.width: 20
                             sourceSize.height: 20
                             opacity: notify_root.hasNotifications ? 0.9 : 0
-                            visible: true
                             layer.enabled: true
                             layer.effect: MultiEffect {
                                 colorization: 1.0
                                 colorizationColor: notify_root.theme.primary
                             }
                             MouseArea {
-                                cursorShape: Qt.PointingHandCursor
                                 anchors.fill: parent
+                                enabled: notify_root.hasNotifications
+                                cursorShape: Qt.PointingHandCursor
                                 onClicked: history.clear()
                             }
                             Behavior on opacity {
@@ -839,289 +736,132 @@ Scope {
                         }
                     }
 
-                    ListView {
-                        id: historyList
+                    // ------------------------------------------------ history
+                    Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         opacity: 1 - wifiMenu.wifiExpand
-                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)
                         visible: wifiMenu.wifiExpand < 1
                         clip: true
-                        spacing: 8
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AsNeeded
-                        }
 
-                        add: Transition {
-                            NumberAnimation {
-                                property: "opacity"
-                                from: 0
-                                to: 1
-                                duration: 200
-                            }
-                            NumberAnimation {
-                                property: "y"
-                                from: target.y - 24
-                                duration: 220
-                                easing.type: Easing.OutCubic
-                            }
-                        }
-                        remove: Transition {
-                            NumberAnimation {
-                                property: "opacity"
-                                to: 0
-                                duration: 220
-                            }
-                            NumberAnimation {
-                                property: "x"
-                                to: -historyList.width
-                                duration: 2200
-                                easing.type: Easing.OutCubic
-                            }
-                        }
-                        displaced: Transition {
-                            NumberAnimation {
-                                properties: "y"
-                                duration: 200
-                                easing.type: Easing.OutCubic
-                            }
-                        }
-
-                        model: history
-
-                        delegate: Rectangle {
-                            id: card
-                            z: 1
-                            required property string summary
-                            required property string body
-                            required property string appName
-                            required property var urgency
-                            required property string time
-                            required property string image
-                            required property int index
-
-                            width: historyList.width
-                            height: entryLayout.implicitHeight + 20
-                            radius: 18
+                        ListView {
+                            id: historyList
+                            anchors.fill: parent
+                            spacing: 8
                             clip: true
-                            color: notify_root.theme.background
-                            border.width: 1
-                            border.color: Qt.alpha(notify_root.theme.on_background, 0.2)
+                            boundsBehavior: Flickable.StopAtBounds
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
 
-                            RowLayout {
-                                id: entryLayout
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 10
-                                z: 1
-
-                                Image {
-                                    Layout.preferredHeight: 32
-                                    Layout.preferredWidth: 32
-                                    Layout.alignment: Qt.AlignTop
-                                    fillMode: Image.PreserveAspectFit
-                                    visible: source.toString() !== ""
-                                    source: card.image || ""
+                            add: Transition {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 0
+                                    to: 1
+                                    duration: 200
                                 }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: card.summary
-                                            color: notify_root.theme.on_background
-                                            font.family: notify_root.settings.fontdefault
-                                            font.pixelSize: 14
-                                            font.bold: true
-                                            /* renderType: Text.NativeRendering
-                                            font.hintingPreference: Font.PreferVerticalHinting */
-                                            elide: Text.ElideRight
-                                            z: 0
-                                        }
-                                        Text {
-                                            text: card.time
-                                            color: notify_root.theme.on_background
-                                            opacity: 0.6
-                                            font.family: notify_root.settings.fontdefault
-                                            font.pixelSize: 11
-                                            font.bold: true
-                                            /* renderType: Text.NativeRendering
-                                            font.hintingPreference: Font.PreferVerticalHinting */
-                                        }
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        visible: text !== ""
-                                        text: card.body
-                                        color: notify_root.theme.on_background
-                                        font.family: notify_root.settings.fontdefault
-                                        font.pixelSize: 13
-                                        font.bold: true
-                                        opacity: 0.5
-                                        /* renderType: Text.NativeRendering
-                                        font.hintingPreference: Font.PreferVerticalHinting */
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: card.appName
-                                            color: notify_root.theme.on_background
-                                            opacity: 0.5
-                                            font.family: notify_root.settings.fontdefault
-                                        }
-                                    }
+                                NumberAnimation {
+                                    property: "y"
+                                    from: -24
+                                    duration: 220
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
+                            remove: Transition {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    to: 0
+                                    duration: 220
+                                }
+                                NumberAnimation {
+                                    property: "x"
+                                    to: -historyList.width
+                                    duration: 220
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
+                            displaced: Transition {
+                                NumberAnimation {
+                                    properties: "y"
+                                    duration: 200
+                                    easing.type: Easing.OutCubic
                                 }
                             }
 
-                            MouseArea {
-                                cursorShape: Qt.PointingHandCursor
-                                anchors.fill: parent
-                                z: -1
-                                onClicked: history.remove(card.index)
+                            model: history
+
+                            delegate: NotifCard {
+                                id: hcard
+                                required property var model
+                                required property int index
+
+                                width: historyList.width
+                                height: implicitHeight
+                                theme: notify_root.theme
+                                settings: notify_root.settings
+                                summary: hcard.model.summary
+                                body: hcard.model.body
+                                appName: hcard.model.appName
+                                iconSource: hcard.model.image
+                                urgency: hcard.model.urgency
+                                timeText: notify_root.relTime(hcard.model.stamp)
+
+                                // history entries can't run actions (the app's notification is gone),
+                                // so clicking just expands/collapses long ones
+                                onActivated: hcard.toggleExpanded()
+                                onCloseRequested: history.remove(hcard.index)
+                            }
+                        }
+
+                        // empty state
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 10
+                            visible: history.count === 0
+                            opacity: 0.5
+
+                            Image {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                source: notify_root.dnd ? "../assets/moon.svg" : "../assets/bell.svg"
+                                sourceSize.width: 32
+                                sourceSize.height: 32
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: notify_root.theme.on_background
+                                }
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: notify_root.dnd ? "Do not disturb is on" : "No notifications"
+                                color: notify_root.theme.on_background
+                                font.family: notify_root.settings.fontdefault
+                                font.pixelSize: notify_root.settings.fontsize
                             }
                         }
                     }
 
-                    Rectangle {
+                    // ------------------------------------------------ calendar
+                    NotifCalendar {
                         id: calendarCard
+                        theme: notify_root.theme
+                        settings: notify_root.settings
                         Layout.fillWidth: true
-                        radius: 18
-                        color: "transparent"
-                        border.width: 0
-                        border.color: Qt.alpha(notify_root.theme.on_background, 0)
                         opacity: 1 - wifiMenu.wifiExpand
-                        Layout.preferredHeight: (calendarCol.implicitHeight + 24) * (1 - wifiMenu.wifiExpand)
+                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)
                         visible: wifiMenu.wifiExpand < 1
-
-                        ColumnLayout {
-                            id: calendarCol
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 8
-
-                            RowLayout {
-                                Layout.fillWidth: true
-
-                                Text {
-                                    text: "\u2039"
-                                    color: notify_root.theme.on_background
-                                    font.pixelSize: 16
-                                    font.bold: true
-                                    font.family: notify_root.settings.fontdefault
-                                    MouseArea {
-                                        cursorShape: Qt.PointingHandCursor
-                                        anchors.fill: parent
-                                        anchors.margins: -6
-                                        onClicked: notify_root.shellRoot.shiftMonth(-1)
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    text: notify_root.shellRoot ? Qt.formatDate(notify_root.shellRoot.viewDate, "MMMM yyyy") : ""
-                                    color: notify_root.theme.on_background
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                    font.family: notify_root.settings.fontdefault
-                                }
-                                Text {
-                                    text: "\u203A"
-                                    color: notify_root.theme.on_background
-                                    font.pixelSize: 16
-                                    font.bold: true
-                                    font.family: notify_root.settings.fontdefault
-                                    MouseArea {
-                                        cursorShape: Qt.PointingHandCursor
-                                        anchors.fill: parent
-                                        anchors.margins: -6
-                                        onClicked: notify_root.shellRoot.shiftMonth(1)
-                                    }
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-
-                                Repeater {
-                                    model: ["S", "M", "T", "W", "T", "F", "S"]
-                                    delegate: Text {
-                                        required property string modelData
-                                        Layout.fillWidth: true
-                                        horizontalAlignment: Text.AlignHCenter
-                                        text: modelData
-                                        color: notify_root.theme.on_background
-                                        opacity: 0.5
-                                        font.pixelSize: 10
-                                        font.family: notify_root.settings.fontdefault
-                                        font.bold: true
-                                    }
-                                }
-                            }
-
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 7
-                                rowSpacing: 3
-                                columnSpacing: 3
-
-                                Repeater {
-                                    model: notify_root.shellRoot ? notify_root.shellRoot.gridCells : []
-
-                                    delegate: Rectangle {
-                                        id: dayCell
-                                        required property var modelData
-
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 26
-                                        radius: 13
-                                        opacity: modelData.inMonth ? 1.0 : 0.35
-                                        color: notify_root.shellRoot.isHighlighted(modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.primary : "transparent"
-                                        border.width: (notify_root.shellRoot.isToday(modelData.date) && !notify_root.shellRoot.isHighlighted(modelData.date)) ? 2 : 0
-                                        border.color: notify_root.theme.primary
-
-                                        Behavior on color {
-                                            ColorAnimation {
-                                                duration: 120
-                                            }
-                                        }
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: dayCell.modelData.date.getDate()
-                                            color: notify_root.shellRoot.isHighlighted(dayCell.modelData.date) || notify_root.shellRoot.isToday(modelData.date) ? notify_root.theme.on_primary : notify_root.theme.on_background
-                                            font.pixelSize: 11
-                                            font.bold: true
-                                            font.family: notify_root.settings.fontdefault
-                                        }
-
-                                        MouseArea {
-                                            cursorShape: Qt.PointingHandCursor
-                                            anchors.fill: parent
-                                            enabled: dayCell.modelData.inMonth
-                                            onClicked: notify_root.shellRoot.toggleDay(dayCell.modelData.date)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        clip: true
                     }
                 }
             }
         }
     }
 
-    // pop up
+    // ---------------------------------------------------------------- popups
+
     PanelWindow {
+        id: popupWindow
         WlrLayershell.namespace: "quickshell:popup"
         WlrLayershell.layer: WlrLayer.Overlay
         anchors {
@@ -1129,153 +869,63 @@ Scope {
             left: true
         }
         margins {
-            top: 20
-            left: 0
+            top: 30
+            left: 10
         }
-        implicitWidth: 300
+        implicitWidth: 340
         implicitHeight: Math.max(0, column.implicitHeight + 10)
         color: "transparent"
-        visible: !notify_root.centerOpen && !notify_root.calendarOpen
-
+        visible: !notify_root.centerOpen && server.trackedNotifications.values.length > 0
         exclusionMode: ExclusionMode.Auto
 
         ColumnLayout {
             id: column
             width: parent.width
-            spacing: 10
+            spacing: 8
 
             Repeater {
-                id: card_repeater
                 model: server.trackedNotifications
-                delegate: Rectangle {
-                    id: card
+                delegate: NotifCard {
+                    id: pcard
                     required property var modelData
-                    property bool hovered: false
-                    property bool closing: false
-
-                    function startClose() {
-                        if (card.closing)
-                            return;
-                        card.closing = true;
-                    }
-
-                    Timer {
-                        id: dismiss_timer
-                        running: card.modelData.urgency !== NotificationUrgency.Critical && !card.hovered && !card.closing
-                        interval: 5000
-                        onTriggered: card.startClose()
-                    }
-
-                    // once the slide/fade finishes, actually tell the notification server to drop it
-                    Timer {
-                        id: closeAnimTimer
-                        interval: 300   // must match the animation durations below
-                        onTriggered: card.modelData.dismiss()
-                    }
-                    onClosingChanged: if (closing)
-                        closeAnimTimer.start()
 
                     Layout.fillWidth: true
-                    Layout.preferredHeight: layout.implicitHeight + 20
+                    theme: notify_root.theme
+                    settings: notify_root.settings
+                    slideIn: true
+                    summary: pcard.modelData.summary
+                    body: pcard.modelData.body
+                    appName: pcard.modelData.appName
+                    iconSource: notify_root.iconFor(pcard.modelData)
+                    urgency: pcard.modelData.urgency
+                    actions: pcard.modelData.actions
+                    // critical notifications stay until dismissed; others use the app's timeout (seconds) or 5s
+                    timeoutMs: pcard.modelData.urgency === NotificationUrgency.Critical ? 0 : (pcard.modelData.expireTimeout > 0 ? Math.min(30000, pcard.modelData.expireTimeout * 1000) : 5000)
 
-                    Behavior on Layout.preferredHeight {
-                        NumberAnimation {
-                            duration: 300
-                            easing.type: Easing.InCirc
-                        }
+                    function startClose() {
+                        if (pcard.closing)
+                            return;
+                        pcard.closing = true;
+                        closeTimer.start();
                     }
 
-                    opacity: closing ? 0 : 1
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: 300
-                            easing.type: Easing.InCirc
-                        }
+                    // wait for the slide-out before telling the server to drop it
+                    Timer {
+                        id: closeTimer
+                        interval: 300
+                        onTriggered: pcard.modelData.dismiss()
                     }
 
-                    transform: Translate {
-                        x: card.closing ? -(card.width + 20) : 0
-                        Behavior on x {
-                            NumberAnimation {
-                                duration: 300
-                                easing.type: Easing.InCirc
-                            }
+                    onCloseRequested: pcard.startClose()
+                    onActivated: {
+                        // left click runs the app's default action (if it has one), then closes
+                        const acts = pcard.modelData.actions;
+                        if (acts && acts.length > 0) {
+                            const def = acts.find(a => a.identifier === "default");
+                            if (def)
+                                def.invoke();
                         }
-                    }
-
-                    radius: 10
-                    color: Qt.alpha(notify_root.theme.background, 1)
-                    clip: true
-                    border.width: 2
-                    border.color: modelData.urgency === NotificationUrgency.Critical ? Qt.alpha(notify_root.theme.primary, 0.5) : Qt.alpha(notify_root.theme.outline_variant, 0.5)
-
-                    RowLayout {
-                        id: layout
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 10
-
-                        Image {
-                            Layout.preferredHeight: 36
-                            Layout.preferredWidth: 36
-                            Layout.alignment: Qt.AlignTop
-                            fillMode: Image.PreserveAspectFit
-                            visible: source.toString() !== ""
-                            source: card.modelData.image || card.modelData.appIcon || ""
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Text {
-                                Layout.fillWidth: true
-                                text: card.modelData.summary
-                                color: notify_root.theme.on_background
-                                font.family: notify_root.settings.fontdefault
-                                font.pixelSize: 16
-                                opacity: 0.8
-                                font.bold: true
-                                leftPadding: 5
-                                elide: Text.ElideRight
-                                /* renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting */
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                visible: text !== ""
-                                text: card.modelData.body
-                                color: notify_root.theme.on_background
-                                font.family: notify_root.settings.fontdefault
-                                leftPadding: 5
-                                font.pixelSize: 12
-                                font.bold: true
-                                opacity: 0.8
-                                wrapMode: Text.WordWrap
-                                //renderType: Text.NativeRendering
-                                //font.hintingPreference: Font.PreferVerticalHinting
-                            }
-                            MouseArea {
-                                cursorShape: Qt.PointingHandCursor
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onEntered: card.hovered = true
-                                onExited: card.hovered = false
-                                onClicked: mouse => {
-                                    if (mouse.button === Qt.RightButton) {
-                                        card.startClose();
-                                        return;
-                                    }
-                                    // Left click: invoke the default action if the app provided one
-                                    const actions = card.modelData.actions;
-                                    if (actions && actions.length > 0) {
-                                        const defaultAction = actions.find(a => a.identifier === "default") || actions[0];
-                                        defaultAction.invoke();
-                                    }
-                                    card.startClose();
-                                }
-                            }
-                        }
+                        pcard.startClose();
                     }
                 }
             }
