@@ -35,6 +35,94 @@ Item {
 
     property string _listing: ""                      // last file list, so reopening doesn't rebuild the carousel
     property double _lastNav: 0
+    property bool snapNav: false                      // true for a moment when we jump (not slide) to the current wallpaper
+
+    readonly property string boorusApi: "https://konachan.net/post.json?tags=order:random+rating:safe+width:%3E=1920+height:%3E=1080&limit=1"
+
+    property bool previewFetching: false
+    property string previewThumbUrl: ""   // remote URL shown directly in the card, nothing downloaded yet
+    property string previewFileUrl: ""    // the full-res URL confirmDownload() will save -- same post as the thumb
+    property string previewId: ""
+    property bool fetchInProgress: false  // true only during the actual confirmDownload save
+
+    // Fetches metadata for one random post and points the card at its remote
+    // thumbnail -- no local download happens here. Called whenever the panel
+    // opens, and again on demand (right-click the card) to reroll without
+    // committing to a download.
+    function fetchPreview() {
+        if (root.previewFetching) return;
+        root.previewFetching = true;
+
+        const cmd = 'json=$(curl -sf -A "Mozilla/5.0" "' + root.boorusApi + '") && ' +
+            'echo "$json" | jq -r "[.[0].sample_url, .[0].file_url, (.[0].id|tostring)] | join(\\"\\u0009\\")"';
+
+        previewProc.command = ["sh", "-c", cmd];
+        previewProc.running = false;
+        previewProc.running = true;
+    }
+
+    Process {
+        id: previewProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.previewFetching = false;
+                const parts = text.trim().split("\t");
+                if (parts.length !== 3 || parts.some(p => p === "" || p === "null")) {
+                    // left the old preview (if any) in place rather than blanking
+                    // it out on a transient failure
+                    return;
+                }
+                root.previewThumbUrl = parts[0];
+                root.previewFileUrl = parts[1];
+                root.previewId = parts[2];
+            }
+        }
+    }
+
+    // Downloads the exact post currently shown as the preview -- deliberately
+    // does not re-query the API, so what you confirm is what you saw.
+    function confirmDownload() {
+        if (root.fetchInProgress || root.previewFileUrl === "") return;
+        root.fetchInProgress = true;
+
+        const cmd = 'url="' + root.previewFileUrl + '" && ' +
+            'ext="${url##*.}" && ' +
+            'mkdir -p "' + root.wallpaperDir + '" && ' +
+            'out="' + root.wallpaperDir + '/konachan-' + root.previewId + '-$(date +%s).${ext}" && ' +
+            'curl -sLf -A "Mozilla/5.0" -o "$out" "$url" && echo "$out"';
+
+        fetchProc.command = ["sh", "-c", cmd];
+        fetchProc.running = false;
+        fetchProc.running = true;
+    }
+
+    Process {
+        id: fetchProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.fetchInProgress = false;
+                const savedPath = text.trim();
+                if (savedPath === "") {
+                    // curl failed -- network down, the post vanished between
+                    // preview and confirm, etc. Surface this however you want;
+                    // at minimum don't silently pretend it worked.
+                    return;
+                }
+                // clear so the next time the panel opens, fetchPreview() rolls
+                // a fresh one instead of showing the just-downloaded post again
+                root.previewThumbUrl = "";
+                root.previewFileUrl = "";
+                root.previewId = "";
+                root.isOpen = false;   // next open's refreshWallpapers() picks up the new file
+            }
+        }
+    }
+
+    Timer {
+        id: snapTimer
+        interval: 150
+        onTriggered: root.snapNav = false
+    }
 
     readonly property color pillColor: Qt.lighter(Qt.alpha(root.theme.background, 1), 1.8)
     readonly property color capColor: Qt.alpha(root.theme.on_background, 0.14)
@@ -55,6 +143,37 @@ Item {
         return cur.indexOf("/") === -1 && p.split("/").pop() === cur;
     }
 
+    function indexOfPath(path) {
+        for (let i = 0; i < wallpaperModel.count; i++) {
+            if (root.samePath(wallpaperModel.get(i).path, path))
+                return i;
+        }
+        return -1;
+    }
+
+    // jump the carousel to an index without the slide animation (used when opening)
+    function focusIndex(i, instant) {
+        if (i < 0 || i >= wallpaperModel.count)
+            return;
+        if (instant) {
+            root.snapNav = true;
+            snapTimer.restart();
+        }
+        coverflow.currentIndex = i;
+        coverflow.positionViewAtIndex(i, ListView.Center);
+    }
+
+    function focusCurrent(instant) {
+        root.focusIndex(root.indexOfPath(root.currentWallpaper), instant);
+    }
+
+    // remember the active wallpaper across restarts: $XDG_STATE_HOME/quickshell/current-wallpaper
+    function saveCurrent(path) {
+        saveCurrentProc.payload = path;
+        saveCurrentProc.running = false;
+        saveCurrentProc.running = true;
+    }
+
     function step(delta, throttled) {
         if (coverflow.count === 0)
             return;
@@ -67,7 +186,9 @@ Item {
 
     onIsOpenChanged: {
         if (root.isOpen) {
+            root.focusCurrent(true);     // cached list: already on the active wallpaper before anything is visible
             root.refreshWallpapers();
+            root.fetchPreview();
             Qt.callLater(() => coverflow.forceActiveFocus());
         }
     }
@@ -85,18 +206,26 @@ Item {
             onStreamFinished: {
                 const parts = text.split(/^@@@$/m);
 
-                const m = (parts[0] || "").match(/currently displaying: image: (.+)/);
-                if (m)
-                    root.currentWallpaper = m[1].trim();
-
                 const listing = (parts[1] || "").trim();
                 const lines = listing.length > 0 ? listing.split("\n") : [];
+
+                // what awww says is active, but only if it's one of the files in the folder, so a
+                // path it reports in some other form can't wipe out the remembered wallpaper
+                const m = (parts[0] || "").match(/currently displaying: image: (.+)/);
+                if (m) {
+                    const reported = m[1].trim();
+                    const hit = lines.find(l => root.samePath(l, reported));
+                    if (hit && hit !== root.currentWallpaper) {
+                        root.currentWallpaper = hit;
+                        root.saveCurrent(hit);
+                    }
+                }
 
                 // land on the active wallpaper if we know it, otherwise stay where we were
                 let target = -1;
                 for (let i = 0; i < lines.length; i++) {
                     if (root.samePath(lines[i], root.currentWallpaper)) {
-                        target = i;
+                        target = i + 1;
                         break;
                     }
                 }
@@ -107,16 +236,15 @@ Item {
                 if (listing !== root._listing) {
                     root._listing = listing;
                     wallpaperModel.clear();
+                    wallpaperModel.append({ "path": "", "isFetch": true })
                     for (let j = 0; j < lines.length; j++)
-                        wallpaperModel.append({
-                            "path": lines[j]
-                        });
+                        wallpaperModel.append({ "path": lines[j], "isFetch": false 
+                    })
                 }
 
                 root.wallpapersLoadedOnce = true;
                 Qt.callLater(function () {
-                    coverflow.currentIndex = target;
-                    coverflow.positionViewAtIndex(target, ListView.Center);
+                    root.focusIndex(target, true);
                 });
             }
         }
@@ -127,6 +255,27 @@ Item {
         command: ["true"]
     }
 
+    Process {
+        id: loadCurrentProc
+        running: true
+        command: ["sh", "-c", "cat \"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell/current-wallpaper\" 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const p = text.trim();
+                if (p !== "" && root.currentWallpaper === "") {
+                    root.currentWallpaper = p;
+                    root.focusCurrent(true);
+                }
+            }
+        }
+    }
+
+    Process {
+        id: saveCurrentProc
+        property string payload: ""
+        command: ["sh", "-c", "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell\"; mkdir -p \"$d\" && printf %s \"$1\" > \"$d/current-wallpaper\"", "sh", payload]
+    }
+
     function refreshWallpapers() {
         listProc.running = false;
         listProc.running = true;
@@ -134,6 +283,7 @@ Item {
 
     function applyWallpaper(path, index) {
         root.currentWallpaper = path;
+        root.saveCurrent(path);
         var safePath = path.replace(/'/g, "'\\''");
 
         var matugenCmd = "matugen image '" + safePath + "'" + " -m " + root.colorMode + " --type " + root.schemeType + " --contrast " + root.contrast + " --prefer " + root.colorPreference + " >/dev/null 2>&1 &";
@@ -181,8 +331,8 @@ Item {
             property real openT: root.isOpen ? 1 : 0
             Behavior on openT {
                 NumberAnimation {
-                    duration: root.isOpen ? 340 : 220
-                    easing.type: root.isOpen ? Easing.OutCubic : Easing.InCubic
+                    duration: root.isOpen ? 280 : 180
+                    easing.type: root.isOpen ? Easing.OutCirc : Easing.InCirc
                 }
             }
 
@@ -217,7 +367,7 @@ Item {
                     focus: root.isOpen
                     cacheBuffer: (root.cardWidth + 40) * 4      // keep neighbours decoded so nothing pops in
                     highlightFollowsCurrentItem: true
-                    highlightMoveDuration: 220
+                    highlightMoveDuration: root.snapNav ? 0 : 220
                     highlightMoveVelocity: -1
                     highlightRangeMode: ListView.StrictlyEnforceRange
                     preferredHighlightBegin: (width - root.cardWidth) / 2
@@ -228,6 +378,12 @@ Item {
                             root.currentIndex = currentIndex;
                     }
 
+                    // the layer-shell window can get its real width a moment after it opens
+                    onWidthChanged: {
+                        if (root.isOpen && width > 0)
+                            root.focusCurrent(true);
+                    }
+
                     Keys.onPressed: event => {
                         switch (event.key) {
                         case Qt.Key_Left:
@@ -235,6 +391,9 @@ Item {
                             break;
                         case Qt.Key_Right:
                             root.step(1, event.isAutoRepeat);
+                            break;
+                        case Qt.Key_Down:
+                            root.fetchPreview();
                             break;
                         case Qt.Key_PageUp:
                             root.step(-5, event.isAutoRepeat);
@@ -250,8 +409,12 @@ Item {
                             break;
                         case Qt.Key_Return:
                         case Qt.Key_Enter:
-                            if (!event.isAutoRepeat && wallpaperModel.count > 0)
-                                root.applyWallpaper(root.selectedPath, root.currentIndex);
+                            if (!event.isAutoRepeat && wallpaperModel.count > 0) {
+                                if (wallpaperModel.get(coverflow.currentIndex).isFetch)
+                                    root.confirmDownload();
+                                else
+                                    root.applyWallpaper(root.selectedPath, root.currentIndex);
+                            }
                             break;
                         case Qt.Key_X:
                             if (!event.isAutoRepeat)
@@ -277,6 +440,7 @@ Item {
 
                     delegate: Item {
                         id: card
+                        required property bool isFetch
                         required property string path
                         required property int index
 
@@ -309,7 +473,8 @@ Item {
 
                             Image {
                                 anchors.fill: parent
-                                source: "file://" + card.path
+                                visible: !card.isFetch
+                                source: card.isFetch ? "" : "file://" + card.path
                                 sourceSize.width: Math.round(root.cardWidth * 1.25)
                                 sourceSize.height: Math.round(root.cardHeight * 1.25)
                                 fillMode: Image.PreserveAspectCrop
@@ -319,6 +484,44 @@ Item {
                                     NumberAnimation {
                                         duration: 250
                                     }
+                                }
+                            }
+
+                            // fetch slot: remote thumbnail once a preview has loaded,
+                            // placeholder text otherwise
+                            Image {
+                                anchors.fill: parent
+                                visible: card.isFetch && root.previewThumbUrl !== ""
+                                source: card.isFetch ? root.previewThumbUrl : ""
+                                sourceSize.width: Math.round(root.cardWidth * 1.25)
+                                sourceSize.height: Math.round(root.cardHeight * 1.25)
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                opacity: status === Image.Ready ? 1 : 0
+                                Behavior on opacity {
+                                    NumberAnimation {
+                                        duration: 250
+                                    }
+                                }
+                            }
+
+                            Column {
+                                anchors.centerIn: parent
+                                visible: card.isFetch && root.previewThumbUrl === ""
+                                spacing: 10
+
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: "\u21bb"
+                                    color: Qt.alpha(root.theme.on_background, 0.7)
+                                    font.pixelSize: 32
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: root.previewFetching ? "Loading preview\u2026" : "Random wallpaper"
+                                    color: Qt.alpha(root.theme.on_background, 0.7)
+                                    font.pixelSize: 14
+                                    font.family: root.settings.fontdefault
                                 }
                             }
                         }
@@ -357,14 +560,34 @@ Item {
                             }
                         }
 
+                        Item {
+                            id: key
+                            anchors.fill: parent
+                            Keys.enabled: root.isOpen
+                            focus: root.isOpen
+
+                            
+                        }
+
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (card.index === root.currentIndex)
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onClicked: mouse => {
+                                if (card.isFetch && mouse.button === Qt.RightButton) {
+                                    root.fetchPreview();   // reroll without downloading
+                                    return;
+                                }
+                                if (card.isFetch) {
+                                    if (card.index === root.currentIndex)
+                                        root.confirmDownload();
+                                    else
+                                        coverflow.currentIndex = card.index;
+                                } else if (card.index === root.currentIndex) {
                                     root.applyWallpaper(card.path, card.index);
-                                else
+                                } else {
                                     coverflow.currentIndex = card.index;
+                                }
                             }
                         }
                     }
@@ -403,7 +626,7 @@ Item {
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root.selectedName
+                            text: root.currentIndex === 0 ? "Random" : root.selectedName
                             width: Math.min(implicitWidth, 560)
                             elide: Text.ElideRight
                             color: root.theme.on_background
@@ -435,21 +658,9 @@ Item {
                     Repeater {
                         model: [
                             {
-                                "k": "\u2190  \u2192",
-                                "t": "Browse"
-                            },
-                            {
-                                "k": "Enter",
-                                "t": "Apply"
-                            },
-                            {
                                 "k": "X",
-                                "t": "Colors: " + (root.colorPreference === "darkness" ? "darkness" : "lightness")
+                                "t": "Colors: " + (root.colorPreference === "darkness" ? "Darkness" : "Lightness")
                             },
-                            {
-                                "k": "Esc",
-                                "t": "Close"
-                            }
                         ]
 
                         delegate: Row {

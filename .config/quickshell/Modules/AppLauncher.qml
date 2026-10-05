@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
+import QtQuick.Layouts
 import Quickshell.Widgets
 import QtQuick.Effects
 
@@ -24,6 +25,7 @@ Item {
         if (isOpenLauncher) {
             closeAnim.stop();
             openAnim.restart();
+            searchField.forceActiveFocus();
         } else {
             openAnim.stop();
             closeAnim.restart();
@@ -147,12 +149,13 @@ Item {
         anchors.right: true
         exclusiveZone: 0
         color: "transparent"
-        margins.top: 10
+        margins.top: 0
         margins.left: 0
         margins.right: 0
         implicitHeight: 1000
         property bool animatingClosed: false
         visible: root.isOpenLauncher || animatingClosed
+
         MouseArea {
             anchors.fill: parent
             onClicked: root.isOpenLauncher = false
@@ -160,39 +163,65 @@ Item {
 
         Rectangle {
             id: panelBg
-            width: 630
-            height: 420
-            x: 1920 / 2 - width / 2
-            y: 300
-            scale: 0
-            radius: 14
-            border.color: Qt.alpha(root.theme.primary, 0.1)
-            border.width: 0            
-            color: Qt.lighter(root.theme.background, 1.2)
+            width: 640
+            height: 440
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 250
+            radius: 18
+            border.width: 0
+            color: Qt.lighter(root.theme.background, 1.15)
             clip: true
             transformOrigin: Item.Top
+            scale: 0.90
+            opacity: 0
+            transform: Translate {
+                id: dropTrans
+                y: -18
+            }
 
-
-            SequentialAnimation {
+            ParallelAnimation {
                 id: closeAnim
 
                 onStarted: panelWindow.animatingClosed = true
                 onStopped: panelWindow.animatingClosed = false
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120 }
-                NumberAnimation { target: panelBg; property: "scale"; to: 0; duration: 180; easing.type: Easing.InCirc }
+                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120; easing.type: Easing.InQuad }
+                NumberAnimation { target: panelBg; property: "scale"; to: 0.90; duration: 180; easing.type: Easing.InCirc }
+                NumberAnimation { target: dropTrans; property: "y"; to: -18; duration: 180; easing.type: Easing.InCirc }
+                NumberAnimation { target: panelBg; property: "opacity"; to: 0; duration: 160; easing.type: Easing.InQuad }
             }
 
-            SequentialAnimation {
+            ParallelAnimation {
                 id: openAnim
-                // Phase 1: empty small box slides down
-                NumberAnimation { target: panelBg; property: "scale"; to: 1; duration: 180; easing.type: Easing.OutCirc }
-                // Phase 2: box bounces open to full size, content fades in alongside
+                NumberAnimation {
+                    target: panelBg
+                    property: "opacity"
+                    to: 1.0
+                    duration: 180
+                    easing.type: Easing.OutQuad
+                }
+                NumberAnimation {
+                    target: panelBg
+                    property: "scale"
+                    to: 1.0
+                    duration: 240
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 1.12
+                }
+                NumberAnimation {
+                    target: dropTrans
+                    property: "y"
+                    to: 0
+                    duration: 240
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 1.12
+                }
                 NumberAnimation {
                     target: content
                     property: "opacity"
-                    to: 1
-                    duration: 200
+                    to: 1.0
+                    duration: 180
+                    easing.type: Easing.OutQuad
                 }
             }
 
@@ -204,36 +233,49 @@ Item {
             Column {
                 id: content
                 anchors.fill: parent
-                opacity: 0
                 anchors.margins: 14
                 spacing: 10
+                opacity: 0
 
                 // ---- search field ----
                 Rectangle {
+                    id: searchContainer
                     width: parent.width
-                    height: 45
-                    radius: 10
-                    color: Qt.alpha(root.theme.on_background, 0)
+                    height: 46
+                    radius: 14
+                    color: Qt.alpha(root.theme.on_background, 0.06)
                     border.width: 0
-                    border.color: Qt.alpha(root.theme.primary, 0.8)
 
-                    Row {
+                    RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 14
-                        anchors.rightMargin: 14
+                        anchors.rightMargin: 12
                         spacing: 10
+
+                        Image {
+                            id: searchIcon
+                            Layout.alignment: Qt.AlignVCenter
+                            source: "../assets/magnifying-glass-bold.svg"
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 20
+                            sourceSize.width: 22
+                            sourceSize.height: 22
+                            fillMode: Image.PreserveAspectFit
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                colorization: 1.0
+                                colorizationColor: root.theme.primary
+                            }
+                        }
 
                         TextInput {
                             id: searchField
-                            leftPadding: 30
-                            width: parent.width - 30
-                            anchors.verticalCenter: parent.verticalCenter
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             text: root.query
                             color: root.theme.on_background
-                            font.pixelSize: 15
+                            font.pixelSize: 17
                             font.family: root.settings.fontdefault
-                            /* renderType: Text.NativeRendering
-                            font.hintingPreference: Font.PreferVerticalHinting */
                             clip: true
 
                             onTextChanged: root.query = text
@@ -246,28 +288,47 @@ Item {
 
                             Text {
                                 visible: searchField.text.length === 0
-                                leftPadding: 30
-                                text: "Search Something\u2026"
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Search applications\u2026"
                                 color: root.theme.on_background
                                 opacity: 0.4
-                                font.pixelSize: 15
+                                font.pixelSize: 17
                                 font.family: root.settings.fontdefault
-                                /* renderType: Text.NativeRendering
-                                font.hintingPreference: Font.PreferVerticalHinting */
+                            }
+                        }
+
+                        Item {
+                            id: clearBtn
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            visible: searchField.text.length > 0
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 8
+                                color: clearHover.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : "transparent"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u2715"
+                                    font.pixelSize: 14
+                                    font.family: root.settings.fontdefault
+                                    color: clearHover.containsMouse ? root.theme.primary : root.theme.on_background
+                                    opacity: clearHover.containsMouse ? 1.0 : 0.6
+                                }
                             }
 
-                            Image {
-                                source: "../assets/magnifying-glass-bold.svg"
-                                width: 20
-                                height: 20
-                                sourceSize.width: 22
-                                sourceSize.height: 22
-                                fillMode: Image.PreserveAspectFit
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    colorization: 1.0
-                                    colorizationColor: root.theme.primary
-                                } 
+                            MouseArea {
+                                id: clearHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    searchField.text = "";
+                                    root.query = "";
+                                    searchField.forceActiveFocus();
+                                }
                             }
                         }
                     }
@@ -275,171 +336,197 @@ Item {
 
                 Rectangle {
                     id: separator
-                    anchors.top: searchField.bottom
-                    height: 2
+                    height: 1
                     width: parent.width
-                    color: root.theme.primary
-                    radius: 10
+                    color: Qt.alpha(root.theme.on_background, 0.08)
                 }
-
-                
 
                 // ---- results ----
                 ListView {
                     id: resultsList
                     width: parent.width
+                    height: content.height - searchContainer.height - separator.height - content.spacing * 2
                     focus: true
-                    height: parent.height - 60
                     clip: true
                     reuseItems: true
                     model: root.filteredApps
                     currentIndex: root.selectedIndex
-                    highlightMoveDuration: 150
+                    highlightMoveDuration: 140
                     highlightMoveVelocity: -1
                     snapMode: ListView.SnapToItem
                     highlightFollowsCurrentItem: true
                     highlightResizeDuration: 0
 
                     highlight: Rectangle {
-                        id: highlightRec
-                        radius: 10
-                        color: Qt.alpha(root.theme.on_background, 0.1)
-                        Rectangle {
-                            id: selector
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 5
-                            height: parent.height - 14
-                            color: root.theme.primary
-                            radius: 10
-                        }
+                        radius: 14
+                        color: Qt.alpha(root.theme.primary, 0.85)
+                        border.width: 0
                     }
 
-                    delegate: Rectangle {
-                        id: row
+                    delegate: Item {
+                        id: rowItem
                         required property var modelData
                         required property int index
                         width: resultsList.width
-                        height: 47
-                        radius: root.global_radius
-                        color: "transparent"
+                        height: 52
 
-                        Row {
-                            id: entry
+                        readonly property bool isCurrent: rowItem.index === root.selectedIndex
+
+                        Rectangle {
                             anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 36
-                            spacing: 12
+                            radius: 14
+                            color: rowHover.containsMouse && !rowItem.isCurrent
+                                ? Qt.alpha(root.theme.on_background, 0.06)
+                                : "transparent"
 
-                            IconImage {
-                                anchors.verticalCenter: parent.verticalCenter
-                                implicitSize: 28
-                                source: Quickshell.iconPath(row.modelData.icon, true)
-                            }
-
-                            Column {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - 40
-                                spacing: 1
-
-                                Text {
-                                    width: parent.width
-                                    text: row.modelData.name
-                                    color: root.theme.on_background
-                                    font.pixelSize: 16
-                                    opacity: 0.8
-                                    font.bold: false
-                                    font.family: root.settings.fontmedium
-                                    elide: Text.ElideRight
-
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            easing.type: Easing.OutCirc
-                                        }
-                                    }
-                                }
-                                Text {
-                                    width: parent.width
-                                    visible: text.length > 0
-                                    text: row.modelData.genericName || ""
-                                    color: root.theme.on_background
-                                    opacity: 0.55
-                                    font.pixelSize: 13
-                                    font.family: root.settings.fontdefault
-                                    elide: Text.ElideRight
-
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            duration: 10
-                                            easing.type: Easing.OutCirc
-                                        }
-                                    }
-                                }
+                            Behavior on color {
+                                ColorAnimation { duration: 120 }
                             }
                         }
 
                         MouseArea {
-                            cursorShape: Qt.PointingHandCursor
+                            id: rowHover
                             anchors.fill: parent
                             hoverEnabled: true
-                            // Only select when the cursor really moves. Items scrolling under a
-                            // stationary cursor (keyboard nav) fire enter events but not this.
+                            cursorShape: Qt.PointingHandCursor
                             onPositionChanged: mouse => {
                                 const p = mapToItem(null, mouse.x, mouse.y);
                                 if (p.x === root.lastMouseX && p.y === root.lastMouseY)
                                     return;
                                 root.lastMouseX = p.x;
                                 root.lastMouseY = p.y;
-                                root.selectedIndex = row.index;
+                                root.selectedIndex = rowItem.index;
                             }
-                            onClicked: root.launch(row.modelData)
+                            onClicked: root.launch(rowItem.modelData)
                         }
 
-                        Rectangle {
-                            id: pinButton
-                            anchors.right: parent.right
-                            anchors.rightMargin: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 22
-                            height: 22
-                            radius: 12
-                            color: "transparent"
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            spacing: 12
 
-                            Image {
-                                visible: root.isPinned(row.modelData.id) && pinHover.containsMouse || pinHover.containsMouse 
-                                anchors.centerIn: parent
-                                source: root.isPinned(row.modelData.id) && pinHover.containsMouse ? "../assets/push-pin-bold.svg" : ""
-                                sourceSize.width: pinButton.width
-                                sourceSize.height: pinButton.height
-                                fillMode: Image.PreserveAspectFit
-                                layer.enabled: visible
-                                layer.effect: MultiEffect {
-                                    colorization: 1.0
-                                    colorizationColor: Qt.alpha(root.theme.primary, 0.5)
+                            Rectangle {
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                radius: 10
+                                color: rowItem.isCurrent
+                                    ? Qt.alpha(root.theme.background, 0.22)
+                                    : Qt.alpha(root.theme.on_background, 0.06)
+
+                                IconImage {
+                                    anchors.centerIn: parent
+                                    implicitSize: 26
+                                    source: Quickshell.iconPath(rowItem.modelData.icon, true)
                                 }
-                            }                            
-                            HoverHandler{
-                                id: hoverHandler
                             }
-                            MouseArea {
-                                id: pinHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.togglePin(row.modelData.id)
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                spacing: 2
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: rowItem.modelData.name
+                                    color: rowItem.isCurrent ? root.theme.background : root.theme.on_background
+                                    font.pixelSize: 17
+                                    font.family: root.settings.fontmedium
+                                    elide: Text.ElideRight
+
+                                    Behavior on color {
+                                        ColorAnimation { duration: 120 }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: text.length > 0
+                                    text: rowItem.modelData.genericName || rowItem.modelData.comment || ""
+                                    color: rowItem.isCurrent ? Qt.alpha(root.theme.background, 0.72) : Qt.alpha(root.theme.on_background, 0.55)
+                                    font.pixelSize: 13
+                                    font.family: root.settings.fontdefault
+                                    elide: Text.ElideRight
+
+                                    Behavior on color {
+                                        ColorAnimation { duration: 120 }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                id: pinButton
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                visible: root.isPinned(rowItem.modelData.id) || rowHover.containsMouse
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 8
+                                    color: pinHover.containsMouse
+                                        ? (rowItem.isCurrent ? Qt.alpha(root.theme.background, 0.2) : Qt.alpha(root.theme.on_background, 0.1))
+                                        : "transparent"
+
+                                    Image {
+                                        anchors.centerIn: parent
+                                        source: root.isPinned(rowItem.modelData.id)
+                                            ? "../assets/push-pin-fill.svg"
+                                            : "../assets/push-pin-bold.svg"
+                                        sourceSize.width: 17
+                                        sourceSize.height: 17
+                                        fillMode: Image.PreserveAspectFit
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: rowItem.isCurrent
+                                                ? root.theme.background
+                                                : (root.isPinned(rowItem.modelData.id) ? root.theme.primary : Qt.alpha(root.theme.on_background, 0.5))
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: pinHover
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.togglePin(rowItem.modelData.id)
+                                }
                             }
                         }
                     }
 
                     // simple empty state
-                    Text {
+                    ColumnLayout {
                         anchors.centerIn: parent
                         visible: resultsList.count === 0
-                        text: "No matching applications"
-                        color: root.theme.on_background
-                        opacity: 0.4
-                        font.pixelSize: 16
-                        font.family: root.settings.fontdefault
+                        spacing: 8
+
+                        Image {
+                            Layout.alignment: Qt.AlignHCenter
+                            source: "../assets/magnifying-glass-bold.svg"
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            sourceSize.width: 30
+                            sourceSize.height: 30
+                            fillMode: Image.PreserveAspectFit
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                colorization: 1.0
+                                colorizationColor: Qt.alpha(root.theme.on_background, 0.3)
+                            }
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "No matching applications"
+                            color: root.theme.on_background
+                            opacity: 0.5
+                            font.pixelSize: 16
+                            font.family: root.settings.fontdefault
+                        }
                     }
                 }
             }

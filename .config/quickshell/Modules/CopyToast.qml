@@ -44,14 +44,32 @@ Scope {
             color: Qt.alpha(toastRoot.theme.background, 0.95)
             border.width: 1
             border.color: Qt.alpha(toastRoot.theme.primary, 0.2)
-            scale: toastRoot.visibleToast ? 1 : 0.3
+            scale: toastRoot.visibleToast ? 1 : 0.85
             opacity: toastRoot.visibleToast ? 1 : 0
 
+            transform: Translate {
+                y: toastRoot.visibleToast ? 0 : -15
+                Behavior on y {
+                    NumberAnimation {
+                        duration: toastRoot.visibleToast ? 220 : 160
+                        easing.type: toastRoot.visibleToast ? Easing.OutBack : Easing.InCirc
+                        easing.overshoot: 1.15
+                    }
+                }
+            }
+
             Behavior on scale {
-                NumberAnimation { duration: 180; easing.type: Easing.OutCirc }
+                NumberAnimation {
+                    duration: toastRoot.visibleToast ? 220 : 160
+                    easing.type: toastRoot.visibleToast ? Easing.OutBack : Easing.InCirc
+                    easing.overshoot: 1.15
+                }
             }
             Behavior on opacity {
-                NumberAnimation { duration: 150; easing.type: Easing.InOutCirc }
+                NumberAnimation {
+                    duration: toastRoot.visibleToast ? 150 : 120
+                    easing.type: Easing.InOutQuad
+                }
             }
 
             RowLayout {

@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import Quickshell.Services.Pipewire
 import QtQuick
+import Quickshell.Io
 import QtQuick.Effects
 
 Rectangle {
@@ -16,8 +17,8 @@ Rectangle {
     readonly property bool muted: audio ? audio.muted : false
     readonly property real shownVolume: muted ? 0 : volume
 
-    readonly property bool hovered: hover.hovered
     property bool showIndicator: false
+    readonly property bool hovered: modMouse.containsMouse
 
     // ---- volume boost (raise ceiling above 100%) ----
     property bool boostEnabled: false
@@ -131,12 +132,17 @@ Rectangle {
         }
     }
 
-    HoverHandler {
-        id: hover
+    Process {
+        id: openVolPopup
+        command: ["qs", "ipc", "call", "volumePopup", "toggle"]
+        running: false
     }
 
+
     MouseArea {
+        id: modMouse
         anchors.fill: parent
+        hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
         onClicked: mouse => {
@@ -147,9 +153,9 @@ Rectangle {
                     mod.audio.volume = mod.maxVolume;
                 mod.showIndicator = true;
                 hideTimer.restart();
-            } else if (mod.audio) {
+            } else if (mouse.button === Qt.MiddleButton && mod.audio) {
                 mod.audio.muted = !mod.audio.muted;
-            }
+            } else openVolPopup.running = !openVolPopup.running
         }
         onWheel: event => {
             mod.changeVolume(event.angleDelta.y > 0 ? 0.05 : -0.05);

@@ -9,6 +9,7 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell.Networking
+import Quickshell.Bluetooth
 
 Scope {
     id: notify_root
@@ -18,6 +19,47 @@ Scope {
     property var settings
     property real cpuPercent: 0
     property real memPercent: 0
+
+    // ---- bluetooth ----
+    readonly property var btAdapter: Bluetooth.defaultAdapter
+    readonly property bool bluetoothOn: !!btAdapter && btAdapter.enabled
+    // paired / connected / named devices, connected first
+    readonly property var btDevices: {
+        if (!btAdapter || !btAdapter.devices)
+            return [];
+        return Array.from(btAdapter.devices.values)
+            .filter(d => d.connected || d.paired || (d.name && d.name !== d.address.replace(/:/g, "-")))
+            .sort((a, b) => (b.connected - a.connected) || (b.paired - a.paired) || (a.name || "").localeCompare(b.name || ""));
+    }
+    // device shown on the bar: prefer a connected one that reports battery
+    readonly property var btDevice: {
+        const conn = btDevices.filter(d => d.connected);
+        return conn.find(d => d.batteryAvailable) ?? conn[0] ?? null;
+    }
+    function toggleBluetooth() {
+        if (btAdapter)
+            btAdapter.enabled = !btAdapter.enabled;
+    }
+
+    // ---- night light (hyprsunset) ----
+    property bool nightLightOn: false
+    Process {
+        id: sunsetCheckProc
+        command: ["pgrep", "-x", "hyprsunset"]
+        running: true
+        onExited: exitCode => {
+            notify_root.nightLightOn = (exitCode === 0);
+        }
+    }
+    function toggleNightLight() {
+        if (nightLightOn) {
+            Quickshell.execDetached(["pkill", "hyprsunset"]);
+            nightLightOn = false;
+        } else {
+            Quickshell.execDetached(["hyprsunset"]);
+            nightLightOn = true;
+        }
+    }
 
     // ---- state ----
     property bool centerOpen: false
@@ -94,6 +136,8 @@ Scope {
             calendarCard.reset();
             powerprofilesctl.running = false;
             powerprofilesctl.running = true;
+            sunsetCheckProc.running = false;
+            sunsetCheckProc.running = true;
             closeAnim.stop();
             openAnim.restart();
         } else {
@@ -103,6 +147,7 @@ Scope {
             netDown = 0;
             netUp = 0;
             wifiMenu.wifiMenu_open = false;
+            btMenu.btMenu_open = false;
             openAnim.stop();
             closeAnim.restart();
         }
@@ -323,14 +368,13 @@ Scope {
             width: 400
             height: Math.min(900, (centerPanel.screen ? centerPanel.screen.height : 1080) - 60)
             radius: 14
-            border.color: Qt.alpha(notify_root.theme.primary, 0.1)
             border.width: 0
             color: Qt.lighter(notify_root.theme.background, 1.15)
             x: -410
             y: 10
             clip: true
 
-            SequentialAnimation {
+            ParallelAnimation {
                 id: closeAnim
                 onStarted: centerPanel.animatingClosed = true
                 onStopped: centerPanel.animatingClosed = false
@@ -339,31 +383,34 @@ Scope {
                     target: content
                     property: "opacity"
                     to: 0
-                    duration: 180
+                    duration: 140
+                    easing.type: Easing.InQuad
                 }
                 NumberAnimation {
                     target: panelBg
                     property: "x"
                     to: -410
-                    duration: 300
+                    duration: 200
                     easing.type: Easing.InCirc
                 }
             }
 
-            SequentialAnimation {
+            ParallelAnimation {
                 id: openAnim
                 NumberAnimation {
                     target: panelBg
                     property: "x"
                     to: 10
-                    duration: 300
-                    easing.type: Easing.OutCirc
+                    duration: 260
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 1.08
                 }
                 NumberAnimation {
                     target: content
                     property: "opacity"
                     to: 1
-                    duration: 300
+                    duration: 200
+                    easing.type: Easing.OutQuad
                 }
             }
 
@@ -378,31 +425,28 @@ Scope {
                     anchors.fill: parent
                     spacing: 10
 
-                    // ------------------------------------------------ system card
+                    // ------------------------------------------------ controls card (profiles / toggles)
                     Rectangle {
-                        id: statsCard
+                        id: controlsCard
                         Layout.fillWidth: true
                         Layout.margins: 4
-                        Layout.preferredHeight: statsInner.implicitHeight + 20
-                        radius: 18
+                        Layout.bottomMargin: 0
+                        Layout.preferredHeight: controlsInner.implicitHeight + 24
+                        radius: 14
                         color: Qt.alpha(notify_root.theme.source_color, 0.10)
+                        border.width: 0
                         clip: true
 
                         ColumnLayout {
-                            id: statsInner
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 10
-
-                            ColumnLayout {
-                                id: statsTop
-                                Layout.fillWidth: true
+                                id: controlsInner
+                                anchors.fill: parent
+                                anchors.margins: 12
                                 spacing: 10
 
                                 // power profiles
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 6
+                                    spacing: 8
 
                                     Repeater {
                                         model: notify_root.profiles
@@ -410,10 +454,11 @@ Scope {
                                             id: profileRect
                                             required property var modelData
                                             readonly property bool current: modelData === notify_root.current_profile
-                                            Layout.preferredWidth: 50
-                                            Layout.preferredHeight: 28
-                                            radius: 4
-                                            color: profileRect.current ? notify_root.theme.primary : Qt.alpha(notify_root.theme.source_color, 0)
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 34
+                                            radius: 10
+                                            color: profileRect.current ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.06)
+                                            border.width: 0
                                             Behavior on color {
                                                 ColorAnimation {
                                                     duration: 250
@@ -423,10 +468,10 @@ Scope {
 
                                             Image {
                                                 anchors.centerIn: parent
-                                                width: 22
-                                                height: 22
-                                                sourceSize.width: 22
-                                                sourceSize.height: 22
+                                                width: 20
+                                                height: 20
+                                                sourceSize.width: 20
+                                                sourceSize.height: 20
                                                 fillMode: Image.PreserveAspectFit
                                                 layer.enabled: true
                                                 layer.effect: MultiEffect {
@@ -450,23 +495,177 @@ Scope {
                                     }
                                 }
 
-                                NotifStatBar {
-                                    theme: notify_root.theme
-                                    settings: notify_root.settings
-                                    icon: "../assets/cpu.svg"
-                                    label: "CPU"
-                                    valueText: Math.round(notify_root.cpuPercent) + "%"
-                                    fraction: notify_root.cpuPercent / 100
-                                }
+                                // Quick Toggles: DND, Night Light, Bluetooth
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
 
-                                NotifStatBar {
-                                    theme: notify_root.theme
-                                    settings: notify_root.settings
-                                    icon: "../assets/memory.svg"
-                                    label: "RAM"
-                                    valueText: Math.round(notify_root.memPercent) + "%"
-                                    fraction: notify_root.memPercent / 100
+                                    // DND toggle
+                                    Rectangle {
+                                        id: dndToggle
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 34
+                                        radius: 10
+                                        color: notify_root.dnd ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.06)
+                                        border.width: 0
+
+                                        Behavior on color {
+                                            ColorAnimation { duration: 200 }
+                                        }
+
+                                        Row {
+                                            anchors.centerIn: parent
+                                            spacing: 6
+
+                                            Image {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                source: "../assets/moon.svg"
+                                                width: 18
+                                                height: 18
+                                                sourceSize.width: 18
+                                                sourceSize.height: 18
+                                                fillMode: Image.PreserveAspectFit
+                                                layer.enabled: true
+                                                layer.effect: MultiEffect {
+                                                    colorization: 1.0
+                                                    colorizationColor: notify_root.dnd ? notify_root.theme.background : notify_root.theme.primary
+                                                }
+                                            }
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "DND"
+                                                color: notify_root.dnd ? notify_root.theme.background : notify_root.theme.on_background
+                                                font.pixelSize: notify_root.settings.fontsize - 1
+                                                font.bold: true
+                                                font.family: notify_root.settings.fontdefault
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: notify_root.dnd = !notify_root.dnd
+                                        }
+                                    }
+
+                                    // Night Light toggle
+                                    Rectangle {
+                                        id: nightLightToggle
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 34
+                                        radius: 10
+                                        color: notify_root.nightLightOn ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.06)
+                                        border.width: 0
+
+                                        Behavior on color {
+                                            ColorAnimation { duration: 200 }
+                                        }
+
+                                        Row {
+                                            anchors.centerIn: parent
+                                            spacing: 6
+
+                                            Image {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                source: "../assets/coffee.svg"
+                                                width: 18
+                                                height: 18
+                                                sourceSize.width: 18
+                                                sourceSize.height: 18
+                                                fillMode: Image.PreserveAspectFit
+                                                layer.enabled: true
+                                                layer.effect: MultiEffect {
+                                                    colorization: 1.0
+                                                    colorizationColor: notify_root.nightLightOn ? notify_root.theme.background : notify_root.theme.primary
+                                                }
+                                            }
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "Night"
+                                                color: notify_root.nightLightOn ? notify_root.theme.background : notify_root.theme.on_background
+                                                font.pixelSize: notify_root.settings.fontsize - 1
+                                                font.bold: true
+                                                font.family: notify_root.settings.fontdefault
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: notify_root.toggleNightLight()
+                                        }
+                                    }
+
+                                    // Bluetooth toggle
+                                    Rectangle {
+                                        id: btToggle
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 34
+                                        radius: 10
+                                        color: notify_root.bluetoothOn ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.06)
+                                        border.width: 0
+
+                                        Behavior on color {
+                                            ColorAnimation { duration: 200 }
+                                        }
+
+                                        Row {
+                                            anchors.centerIn: parent
+                                            spacing: 6
+
+                                            Image {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                source: "../assets/bluetooth.svg"
+                                                width: 18
+                                                height: 18
+                                                sourceSize.width: 18
+                                                sourceSize.height: 18
+                                                fillMode: Image.PreserveAspectFit
+                                                layer.enabled: true
+                                                layer.effect: MultiEffect {
+                                                    colorization: 1.0
+                                                    colorizationColor: notify_root.bluetoothOn ? notify_root.theme.background : notify_root.theme.primary
+                                                }
+                                            }
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "BT"
+                                                color: notify_root.bluetoothOn ? notify_root.theme.background : notify_root.theme.on_background
+                                                font.pixelSize: notify_root.settings.fontsize - 1
+                                                font.bold: true
+                                                font.family: notify_root.settings.fontdefault
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: notify_root.toggleBluetooth()
+                                        }
+                                    }
                                 }
+                        }
+                    }
+
+                    // ------------------------------------------------ polling card (net / bluetooth)
+                    Rectangle {
+                        id: statsCard
+                        Layout.fillWidth: true
+                        Layout.margins: 4
+                        Layout.topMargin: 0
+                        Layout.preferredHeight: statsInner.implicitHeight + 24
+                        radius: 14
+                        color: Qt.alpha(notify_root.theme.source_color, 0.10)
+                        border.width: 0
+                        clip: true
+
+                        ColumnLayout {
+                            id: statsInner
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 10
+
+                            ColumnLayout {
+                                id: statsTop
+                                Layout.fillWidth: true
+                                spacing: 12
 
                                 NotifStatBar {
                                     theme: notify_root.theme
@@ -477,15 +676,43 @@ Scope {
                                     valueText: Math.round(notify_root.wifiPercent) + "%"
                                     fraction: notify_root.wifiPercent / 100
                                     clickable: true
-                                    onClicked: wifiMenu.wifiMenu_open = !wifiMenu.wifiMenu_open
+                                    onClicked: {
+                                        btMenu.btMenu_open = false;
+                                        wifiMenu.wifiMenu_open = !wifiMenu.wifiMenu_open;
+                                    }
+                                }
+
+                                // bluetooth: track shows the connected device's battery
+                                NotifStatBar {
+                                    theme: notify_root.theme
+                                    settings: notify_root.settings
+                                    icon: notify_root.bluetoothOn ? "../assets/bluetooth.svg" : "../assets/bluetooth-slash.svg"
+                                    label: notify_root.btDevice ? (notify_root.btDevice.name || "BT") : "BT"
+                                    extraText: !notify_root.bluetoothOn ? "Off" : (notify_root.btDevice ? "" : "No device")
+                                    valueText: (notify_root.btDevice && notify_root.btDevice.batteryAvailable)
+                                        ? Math.round(notify_root.btDevice.battery * 100) + "%"
+                                        : (notify_root.btDevice ? "\u2014" : "")
+                                    fraction: (notify_root.btDevice && notify_root.btDevice.batteryAvailable) ? notify_root.btDevice.battery : 0
+                                    clickable: true
+                                    onClicked: {
+                                        wifiMenu.wifiMenu_open = false;
+                                        btMenu.btMenu_open = !btMenu.btMenu_open;
+                                    }
                                 }
                             }
 
-                            // ---- wifi menu: grows to fill the panel, hides everything below it ----
+                            // ---- wifi menu: takes only the space it needs ----
                             ColumnLayout {
                                 id: wifiMenu
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: wifiExpand * Math.max(0, content.height - statsTop.implicitHeight - 44)
+                                readonly property real targetHeight: {
+                                    if (notify_root.sortedNetworks.length === 0)
+                                        return 70;
+                                    const listH = Math.min(200, Math.max(50, wifiList.contentHeight > 0 ? wifiList.contentHeight : notify_root.sortedNetworks.length * 48));
+                                    return listH + 32;
+                                }
+                                implicitHeight: wifiExpand * targetHeight
+                                Layout.preferredHeight: implicitHeight
                                 visible: wifiExpand > 0.001
                                 clip: true
                                 spacing: 6
@@ -494,8 +721,8 @@ Scope {
                                 property real wifiExpand: wifiMenu_open ? 1 : 0
                                 Behavior on wifiExpand {
                                     NumberAnimation {
-                                        duration: 400
-                                        easing.type: Easing.InOutCubic
+                                        duration: 250
+                                        easing.type: Easing.OutCubic
                                     }
                                 }
                                 // only scan while the list is actually open
@@ -513,12 +740,26 @@ Scope {
                                     color: notify_root.theme.on_background
                                 }
 
+                                Text {
+                                    visible: notify_root.sortedNetworks.length === 0
+                                    Layout.fillWidth: true
+                                    text: "Scanning for networks\u2026"
+                                    opacity: 0.5
+                                    font.family: notify_root.settings.fontdefault
+                                    font.pixelSize: notify_root.settings.fontsize - 1
+                                    color: notify_root.theme.on_background
+                                }
+
                                 ListView {
+                                    id: wifiList
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     clip: true
                                     spacing: 8
                                     boundsBehavior: Flickable.StopAtBounds
+                                    ScrollBar.vertical: ScrollBar {
+                                        policy: ScrollBar.AsNeeded
+                                    }
                                     model: networkModel
                                     delegate: Rectangle {
                                         id: netCard
@@ -533,9 +774,8 @@ Scope {
                                         height: contentCol.implicitHeight + 12
                                         radius: 10
                                         clip: true
-                                        color: Qt.alpha(notify_root.theme.background, 1)
-                                        border.width: 2
-                                        border.color: netCard.isConnected ? notify_root.theme.primary : notify_root.theme.outline_variant
+                                        color: netCard.isConnected ? Qt.alpha(notify_root.theme.primary, 0.15) : Qt.alpha(notify_root.theme.on_background, 0.05)
+                                        border.width: 0
 
                                         Behavior on height {
                                             NumberAnimation {
@@ -578,7 +818,7 @@ Scope {
                                                         text: netCard.modelData.name
                                                         color: netCard.isConnected ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.7)
                                                         font.family: notify_root.settings.fontdefault
-                                                        font.pixelSize: notify_root.settings.fontsize + 2
+                                                        font.pixelSize: notify_root.settings.fontsize + 1
                                                         font.bold: true
                                                         elide: Text.ElideRight
                                                     }
@@ -616,8 +856,7 @@ Scope {
                                                     background: Rectangle {
                                                         radius: 6
                                                         color: Qt.alpha(notify_root.theme.on_background, 0.08)
-                                                        border.width: netPasswordField.activeFocus ? 1 : 0
-                                                        border.color: notify_root.theme.primary
+                                                        border.width: 0
                                                     }
                                                     onAccepted: {
                                                         notify_root.connectTo(netCard.modelData, text);
@@ -630,7 +869,7 @@ Scope {
                                                     text: netCard.isConnected ? "Disconnect" : "Connect"
                                                     onClicked: {
                                                         if (netCard.isConnected) {
-                                                            netCard.modelData.disconnect();
+                                                             netCard.modelData.disconnect();
                                                         } else {
                                                             notify_root.connectTo(netCard.modelData, netPasswordField.text);
                                                             netPasswordField.text = "";
@@ -640,6 +879,7 @@ Scope {
                                                     background: Rectangle {
                                                         radius: 6
                                                         color: connectBtn.pressed ? Qt.darker(notify_root.theme.source_color, 1.2) : (connectBtn.hovered ? Qt.lighter(notify_root.theme.source_color, 1.1) : notify_root.theme.source_color)
+                                                        border.width: 0
                                                         Behavior on color {
                                                             ColorAnimation {
                                                                 duration: 100
@@ -661,16 +901,176 @@ Scope {
                                     }
                                 }
                             }
+
+                            // ---- bluetooth menu: takes only the space it needs ----
+                            ColumnLayout {
+                                id: btMenu
+                                Layout.fillWidth: true
+                                readonly property real targetHeight: {
+                                    if (notify_root.btDevices.length === 0)
+                                        return 70;
+                                    const listH = Math.min(200, Math.max(44, btList.contentHeight > 0 ? btList.contentHeight : notify_root.btDevices.length * 46));
+                                    return listH + 36;
+                                }
+                                implicitHeight: btExpand * targetHeight
+                                Layout.preferredHeight: implicitHeight
+                                visible: btExpand > 0.001
+                                clip: true
+                                spacing: 6
+
+                                property bool btMenu_open: false
+                                property real btExpand: btMenu_open ? 1 : 0
+                                Behavior on btExpand {
+                                    NumberAnimation {
+                                        duration: 250
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                                // only discover while the list is actually open
+                                onBtMenu_openChanged: {
+                                    const a = notify_root.btAdapter;
+                                    if (a && a.enabled)
+                                        a.discovering = btMenu_open;
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 26
+                                    spacing: 8
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "Bluetooth devices"
+                                        font.bold: true
+                                        font.family: notify_root.settings.fontdefault
+                                        font.pixelSize: notify_root.settings.fontsize
+                                        color: notify_root.theme.on_background
+                                    }
+
+                                    // adapter power switch
+                                    Rectangle {
+                                        Layout.preferredWidth: 40
+                                        Layout.preferredHeight: 22
+                                        radius: 11
+                                        color: notify_root.bluetoothOn ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.12)
+                                        Behavior on color { ColorAnimation { duration: 200 } }
+
+                                        Rectangle {
+                                            width: 16
+                                            height: 16
+                                            radius: 8
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            x: notify_root.bluetoothOn ? parent.width - width - 3 : 3
+                                            color: notify_root.bluetoothOn ? notify_root.theme.background : notify_root.theme.on_background
+                                            Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: notify_root.toggleBluetooth()
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: notify_root.btDevices.length === 0
+                                    Layout.fillWidth: true
+                                    text: !notify_root.btAdapter ? "No Bluetooth adapter" : (notify_root.bluetoothOn ? "Searching for devices\u2026" : "Bluetooth is off")
+                                    opacity: 0.5
+                                    font.family: notify_root.settings.fontdefault
+                                    font.pixelSize: notify_root.settings.fontsize - 1
+                                    color: notify_root.theme.on_background
+                                }
+
+                                ListView {
+                                    id: btList
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
+                                    spacing: 6
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    ScrollBar.vertical: ScrollBar {
+                                        policy: ScrollBar.AsNeeded
+                                    }
+                                    model: ScriptModel {
+                                        values: notify_root.btDevices
+                                    }
+                                    delegate: Rectangle {
+                                        id: btCard
+                                        required property var modelData
+                                        readonly property bool isConnected: btCard.modelData.connected === true
+                                        readonly property bool busy: btCard.modelData.pairing === true
+                                            || btCard.modelData.state === BluetoothDeviceState.Connecting
+                                            || btCard.modelData.state === BluetoothDeviceState.Disconnecting
+
+                                        width: ListView.view.width
+                                        height: 40
+                                        radius: 10
+                                        color: btCard.isConnected
+                                            ? Qt.alpha(notify_root.theme.primary, 0.15)
+                                            : (btMouse.containsMouse ? Qt.alpha(notify_root.theme.on_background, 0.09) : Qt.alpha(notify_root.theme.on_background, 0.05))
+                                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 10
+                                            anchors.rightMargin: 10
+                                            spacing: 8
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: btCard.modelData.name || btCard.modelData.address
+                                                color: btCard.isConnected ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.75)
+                                                font.family: notify_root.settings.fontdefault
+                                                font.pixelSize: notify_root.settings.fontsize
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                            Text {
+                                                visible: btCard.isConnected && btCard.modelData.batteryAvailable
+                                                text: Math.round((btCard.modelData.battery ?? 0) * 100) + "%"
+                                                color: notify_root.theme.on_background
+                                                opacity: 0.6
+                                                font.family: notify_root.settings.fontdefault
+                                                font.pixelSize: notify_root.settings.fontsize - 1
+                                            }
+                                            Text {
+                                                text: btCard.busy ? "\u2026" : (btCard.isConnected ? "Disconnect" : (btCard.modelData.paired ? "Connect" : "Pair"))
+                                                color: btCard.isConnected ? notify_root.theme.primary : notify_root.theme.on_background
+                                                opacity: 0.7
+                                                font.family: notify_root.settings.fontdefault
+                                                font.pixelSize: 12
+                                                font.bold: true
+                                            }
+                                        }
+                                        MouseArea {
+                                            id: btMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                const d = btCard.modelData;
+                                                if (btCard.busy)
+                                                    return;
+                                                if (d.connected) {
+                                                    d.disconnect();
+                                                } else if (d.paired) {
+                                                    d.connect();
+                                                } else {
+                                                    d.trusted = true;
+                                                    d.pair();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
                     // ------------------------------------------------ header
                     RowLayout {
                         Layout.fillWidth: true
-                        opacity: 1 - wifiMenu.wifiExpand
-                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)
-                        visible: wifiMenu.wifiExpand < 1
-                        clip: true
                         spacing: 8
 
                         Text {
@@ -684,32 +1084,27 @@ Scope {
                             }
                         }
 
-                        // do-not-disturb chip
                         Rectangle {
-                            id: dndChip
-                            Layout.preferredHeight: 24
-                            Layout.preferredWidth: dndText.implicitWidth + 20
-                            radius: 12
-                            color: notify_root.dnd ? notify_root.theme.primary : Qt.alpha(notify_root.theme.on_background, 0.1)
-                            Behavior on color {
-                                ColorAnimation {
-                                    duration: 150
-                                }
-                            }
+                            visible: history.count > 0
+                            Layout.preferredHeight: 22
+                            Layout.preferredWidth: Math.max(22, countText.implicitWidth + 12)
+                            radius: 11
+                            color: Qt.alpha(notify_root.theme.primary, 0.18)
+                            border.width: 0
+
                             Text {
-                                id: dndText
+                                id: countText
                                 anchors.centerIn: parent
-                                text: "Do not disturb"
-                                color: notify_root.dnd ? notify_root.theme.on_primary : Qt.alpha(notify_root.theme.on_background, 0.8)
+                                text: history.count
+                                color: notify_root.theme.primary
                                 font.family: notify_root.settings.fontdefault
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 font.bold: true
                             }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: notify_root.dnd = !notify_root.dnd
-                            }
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
                         }
 
                         Image {
@@ -740,8 +1135,6 @@ Scope {
                     Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        opacity: 1 - wifiMenu.wifiExpand
-                        visible: wifiMenu.wifiExpand < 1
                         clip: true
 
                         ListView {
@@ -848,9 +1241,6 @@ Scope {
                         theme: notify_root.theme
                         settings: notify_root.settings
                         Layout.fillWidth: true
-                        opacity: 1 - wifiMenu.wifiExpand
-                        Layout.preferredHeight: implicitHeight * (1 - wifiMenu.wifiExpand)
-                        visible: wifiMenu.wifiExpand < 1
                         clip: true
                     }
                 }
@@ -869,18 +1259,24 @@ Scope {
             left: true
         }
         margins {
-            top: 30
-            left: 10
+            top: 0
+            left: 0
         }
-        implicitWidth: 340
-        implicitHeight: Math.max(0, column.implicitHeight + 10)
+        implicitWidth: 364
+        implicitHeight: Math.max(0, column.y + column.implicitHeight + 10)
         color: "transparent"
         visible: !notify_root.centerOpen && server.trackedNotifications.values.length > 0
         exclusionMode: ExclusionMode.Auto
 
-        ColumnLayout {
+        mask: Region {
+            item: column
+        }
+
+        Column {
             id: column
-            width: parent.width
+            x: 14
+            y: 48
+            width: 340
             spacing: 8
 
             Repeater {
@@ -889,7 +1285,8 @@ Scope {
                     id: pcard
                     required property var modelData
 
-                    Layout.fillWidth: true
+                    width: 340
+                    height: implicitHeight
                     theme: notify_root.theme
                     settings: notify_root.settings
                     slideIn: true
@@ -912,7 +1309,7 @@ Scope {
                     // wait for the slide-out before telling the server to drop it
                     Timer {
                         id: closeTimer
-                        interval: 300
+                        interval: 220
                         onTriggered: pcard.modelData.dismiss()
                     }
 

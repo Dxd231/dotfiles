@@ -56,6 +56,7 @@ Rectangle {
             card.expanded = !card.expanded;
     }
 
+    implicitWidth: 340
     // implicitHeight (not height) so it works in both ColumnLayout and ListView.
     implicitHeight: Math.max(card.collapsedHeight, content.implicitHeight + card.pad * 2)
     Behavior on implicitHeight {
@@ -68,26 +69,41 @@ Rectangle {
     radius: 14
     clip: true
     color: Qt.tint(Qt.alpha(card.theme.background, 1), Qt.alpha(card.theme.on_background, 0.05))
-    border.width: 2
-    border.color: card.urgency === NotificationUrgency.Critical ? Qt.alpha(card.theme.error, 0.5) : Qt.alpha(card.theme.on_background, 0)
+    border.width: 0
 
-    opacity: (card.closing || !card.shown) ? 0 : 1
+    opacity: card.closing ? 0 : 1
     Behavior on opacity {
         NumberAnimation {
-            duration: 250
-            easing.type: Easing.InCubic
+            duration: 180
+            easing.type: card.closing ? Easing.InCirc : Easing.OutCirc
         }
     }
     transform: Translate {
-        x: (card.closing || !card.shown) ? -(card.width + 20) : 0
+        x: card.closing ? -(card.width + 40) : 0
+        y: (!card.shown && !card.closing) ? -(card.y + card.height + 70) : 0
         Behavior on x {
             NumberAnimation {
-                duration: 250
-                easing.type: Easing.InCubic
+                duration: 200
+                easing.type: Easing.InCirc
+            }
+        }
+        Behavior on y {
+            NumberAnimation {
+                duration: 260
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.12
             }
         }
     }
-    Component.onCompleted: Qt.callLater(() => card.shown = true)
+    Timer {
+        id: enterTimer
+        interval: 35
+        running: card.slideIn
+        onTriggered: card.shown = true
+    }
+    Component.onCompleted: {
+        if (!card.slideIn) card.shown = true
+    }
 
     // auto-dismiss countdown
     NumberAnimation on remaining {
@@ -95,7 +111,7 @@ Rectangle {
         to: 0
         duration: Math.max(1, card.timeoutMs)
         running: card.timeoutMs > 0 && !card.closing
-        paused: card.hovered || card.expanded
+        paused: running && (card.hovered || card.expanded)
         onFinished: card.closeRequested()
     }
 
@@ -217,7 +233,7 @@ Rectangle {
                         color: card.theme.on_background
                         opacity: card.hovered ? 0 : 0.55
                         font.family: card.settings.fontdefault
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                         Behavior on opacity {
                             NumberAnimation {
                                 duration: 120
@@ -255,9 +271,9 @@ Rectangle {
                 visible: card.body !== ""
                 text: card.body
                 color: card.theme.on_background
-                opacity: 0.7
+                opacity: 0.75
                 font.family: card.settings.fontdefault
-                font.pixelSize: 13
+                font.pixelSize: 14
                 wrapMode: Text.Wrap
                 maximumLineCount: card.expanded ? card.expandedLines : card.collapsedLines
                 elide: Text.ElideRight
@@ -279,9 +295,9 @@ Rectangle {
                     Layout.fillWidth: true
                     text: card.appName
                     color: card.theme.on_background
-                    opacity: 0.5
+                    opacity: 0.6
                     font.family: card.settings.fontdefault
-                    font.pixelSize: 11
+                    font.pixelSize: 12
                     elide: Text.ElideRight
                 }
 
@@ -311,7 +327,7 @@ Rectangle {
                             elide: Text.ElideRight
                             color: card.theme.primary
                             font.family: card.settings.fontdefault
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             font.bold: true
                         }
                         MouseArea {

@@ -154,28 +154,25 @@ Scope {
                         from: "closed"
                         to: "open"
 
-                        SequentialAnimation {
-                            ParallelAnimation {
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "opacity"
-                                    duration: 100
-                                }
+                        ParallelAnimation {
+                            NumberAnimation {
+                                target: panelBg
+                                property: "opacity"
+                                duration: 160
+                                easing.type: Easing.OutQuad
                             }
-
-                            ParallelAnimation {
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "scale"
-                                    duration: 200
-                                    easing.type: Easing.OutCirc
-                                    easing.overshoot: 1.5
-                                }
-                                NumberAnimation {
-                                    target: buttonrow
-                                    property: "opacity"
-                                    duration: 200
-                                }
+                            NumberAnimation {
+                                target: panelBg
+                                property: "scale"
+                                duration: 250
+                                easing.type: Easing.OutBack
+                                easing.overshoot: 1.15
+                            }
+                            NumberAnimation {
+                                target: buttonrow
+                                property: "opacity"
+                                duration: 180
+                                easing.type: Easing.OutQuad
                             }
                         }
                     },
@@ -183,29 +180,24 @@ Scope {
                         from: "open"
                         to: "closed"
 
-                        SequentialAnimation {
-                            ParallelAnimation {
-                                NumberAnimation {
-                                    target: buttonrow
-                                    property: "opacity"
-                                    duration: 150
-                                    easing.type: Easing.OutQuad
-                                }
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "scale"
-                                    duration: 240
-                                    easing.type: Easing.InBack
-                                    easing.overshoot: 1.2
-                                }
+                        ParallelAnimation {
+                            NumberAnimation {
+                                target: buttonrow
+                                property: "opacity"
+                                duration: 120
+                                easing.type: Easing.InQuad
                             }
-
-                            ParallelAnimation {
-                                NumberAnimation {
-                                    target: panelBg
-                                    property: "opacity"
-                                    duration: 180
-                                }
+                            NumberAnimation {
+                                target: panelBg
+                                property: "scale"
+                                duration: 180
+                                easing.type: Easing.InCirc
+                            }
+                            NumberAnimation {
+                                target: panelBg
+                                property: "opacity"
+                                duration: 150
+                                easing.type: Easing.InQuad
                             }
                         }
                     }

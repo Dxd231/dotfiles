@@ -9,5 +9,5 @@ Singleton {
 
     property string fontjp: "Zen Maru Gothic Medium"
 
-    property int fontsize: 14
+    property int fontsize: 15
 }

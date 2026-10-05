@@ -75,6 +75,7 @@ ShellRoot {
     OnScreenDisplay {
         id: osd
         theme: root.theme
+        settings: root.settings
     }
 
     CopyToast {
@@ -214,8 +215,8 @@ ShellRoot {
         ]
         property int currentIndex: 0
         WlrLayershell.namespace: "arch_logo"
-        width: backdrop.width + 20
-        height: backdrop.height + 20
+        implicitWidth: haachamaImage.width + 20
+        implicitHeight: haachamaImage.height + 20
         color: "transparent"
         anchors.right: true
         anchors.top: true
@@ -225,8 +226,8 @@ ShellRoot {
         WlrLayershell.layer: WlrLayer.Bottom
 
         MultiEffect {
-            source: backdrop
-            anchors.fill: backdrop
+            source: haachamaImage
+            anchors.fill: haachamaImage
             shadowEnabled: true
             shadowColor: '#e1000000'
             shadowOpacity: 5
@@ -451,6 +452,7 @@ ShellRoot {
                             id: cpuCanvas
                             anchors.fill: parent
                             onPaint: {
+
                                 var ctx = getContext("2d");
                                 ctx.reset();
 
@@ -924,8 +926,8 @@ ShellRoot {
                 property bool isOpen: false 
                 property int refreshTrigger: 0
 
-                width: mprispopup.width + 100
-                height: mprispopup.height + 40
+                implicitWidth: mprispopup.width + 100
+                implicitHeight: mprispopup.height + 40
                 color: "transparent"
 
 
@@ -945,7 +947,7 @@ ShellRoot {
                     }
                 }
 
-                anchors { top: true }
+                anchors { top: true; left: true; right: true }
                 exclusiveZone: 0
 
 
@@ -954,8 +956,8 @@ ShellRoot {
                     id: mprispopup
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.horizontalCenterOffset: -50
-                    width: 320
-                    height: 500
+                    width: 340
+                    height: 480
                     y: 10
                     scale: 0.1
                     border.width: 0
@@ -966,7 +968,7 @@ ShellRoot {
                     ClippingRectangle {
                         id: backImage
                         anchors.fill: parent
-                        radius: 20
+                        radius: 32
                         opacity: 0.3
                         color: "transparent"
                         antialiasing: true
@@ -996,7 +998,7 @@ ShellRoot {
                         }
                     }
 
-                    radius: 20
+                    radius: 32
                     clip: true
 
                     transformOrigin: Item.Top
@@ -1008,80 +1010,93 @@ ShellRoot {
                         xScale: 1          // keep width constant, only height "grows"
                     } */
 
-                    SequentialAnimation {
+                    ParallelAnimation {
                         id: closeAnim
 
                         onStarted: albumPopup.animatingClosed = true
                         onStopped: albumPopup.animatingClosed = false
 
-                        NumberAnimation { target: content; property: "opacity"; to: 0; duration: 100 }
-                        NumberAnimation { target: mprispopup; property: "scale"; to: 0.1; duration: 250; easing.type: Easing.InCirc }
+                        NumberAnimation { target: content; property: "opacity"; to: 0; duration: 130; easing.type: Easing.InQuad }
+                        NumberAnimation { target: mprispopup; property: "scale"; to: 0.1; duration: 180; easing.type: Easing.InCirc }
                     }
 
-                    SequentialAnimation {
+                    ParallelAnimation {
                         id: openAnim
                         NumberAnimation {
                             target: mprispopup
                             property: "scale"
                             to: 1
-                            duration: 200
-                            easing.type: Easing.OutCirc
+                            duration: 240
+                            easing.type: Easing.OutBack
+                            easing.overshoot: 1.12
                         }
                         NumberAnimation {
                             target: content
                             property: "opacity"
                             to: 1
-                            duration: 100
+                            duration: 180
+                            easing.type: Easing.OutQuad
                         }
                     }
-                    ColumnLayout {
+                    Item {
                         id: content
                         anchors.fill: parent
                         opacity: 0
 
                         Item {
                             id: discContainer
-                            width: 280
-                            height: 280
+                            width: 260
+                            height: 260
                             anchors.horizontalCenter: parent.horizontalCenter
-                            Layout.topMargin: 20
-                            Layout.alignment: Qt.AlignTop
+                            anchors.top: parent.top
+                            anchors.topMargin: 24
 
                             // The visual rotating disc
                             ClippingRectangle {
-                                id: discImage
                                 anchors.fill: parent
-                                radius: 320
+                                radius: width / 2
                                 color: "transparent"
                                 antialiasing: true
-                                layer.enabled: true
-                                layer.smooth: true
 
-                                Image {
-                                    id: art
-                                    anchors.fill: parent
-                                    sourceSize.width: discContainer.width + 300
-                                    sourceSize.height: discContainer.height + 300
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    source: {
-                                        if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
-                                            return shell.activePlayer.trackArtUrl;
-                                        } else {
-                                            return "";
+                                Item {
+                                    id: discImage
+                                    anchors.centerIn: parent
+                                    width: Math.ceil(discContainer.width * 1.42)
+                                    height: Math.ceil(discContainer.height * 1.42)
+                                    antialiasing: true
+                                    smooth: true
+                                    transformOrigin: Item.Center
+
+                                    Image {
+                                        id: art
+                                        anchors.fill: parent
+                                        sourceSize.width: 600
+                                        sourceSize.height: 600
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        mipmap: true
+                                        smooth: true
+                                        antialiasing: true
+                                        source: {
+                                            if (shell.activePlayer && shell.activePlayer.trackArtUrl) {
+                                                return shell.activePlayer.trackArtUrl;
+                                            } else {
+                                                return "";
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            // 1. Smooth, interruptible rotation timer during playback
-                            Timer {
-                                id: rotateTimer
-                                interval: 30 // 25fps for smooth rotation with low CPU usage
+                            // 1. Butter-smooth, VSync-synchronized rotation during playback
+                            FrameAnimation {
+                                id: rotateAnim
                                 running: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing && !discMouseArea.isDragging
-                                repeat: true
                                 onTriggered: {
-                                    discImage.rotation = (discImage.rotation + root.discSpinSpeed) % 360;
+                                    // frameTime is the elapsed time in seconds between display refreshes.
+                                    // Multiplying by degrees-per-second locks rotation to the display VSync at any refresh rate (60/100/144Hz).
+                                    const speed = root.discSpinSpeed ? (root.discSpinSpeed / 0.030) : 20.67;
+                                    discImage.rotation = (discImage.rotation + frameTime * speed) % 360;
                                 }
                             }
 
@@ -1184,7 +1199,7 @@ ShellRoot {
                             id: infoColumn
                             width: 280
                             spacing: 4
-                            Layout.alignment: Qt.AlignHCenter
+                            anchors.horizontalCenter: parent.horizontalCenter
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.verticalCenterOffset: 80
 
@@ -1366,17 +1381,16 @@ ShellRoot {
                             anchors.bottomMargin: 5
                         }
 
-
                         // Seek Bar — original flat track restored, with a scrolling wave
                         // overlaid only on the played portion. Wave amplitude, frequency and
                         // speed are fixed values, set via the properties below.
                         Item {
                             id: seekBar
                             width: 240
-                            height: 23
+                            height: 28
+                            anchors.horizontalCenter: parent.horizontalCenter
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.verticalCenterOffset: 120
-                            Layout.alignment: Qt.AlignHCenter
 
                             readonly property real targetProgress: {
                                 if (!root.hasPlayer || !shell.activePlayer || shell.activePlayer.length <= 0)
@@ -1399,27 +1413,27 @@ ShellRoot {
 
                             readonly property bool isPlaying: root.hasPlayer && shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing
 
-                            // Fixed wave amplitude (px), frequency (number of full sine cycles
-                            // across the seek bar's width), and scroll period (ms per cycle).
-                            // Change these three properties to tune the wave's look.
-                            property real waveAmplitude: 5.5
-                            property real waveFrequency: 3.5
-                            property real waveSpeed: 800
+                            // Android Material You squiggly wave parameters:
+                            // waveAmplitude (px height of peaks), waveLength (px per full wave cycle),
+                            // and waveSpeed (ms to scroll one wavelength).
+                            property real waveAmplitude: 6.8
+                            property real waveLength: 34
+                            property real waveSpeed: 1200
 
                             property real amplitude: 0
                             Behavior on amplitude {
                                 NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
                             }
-                            // Fades to 0 when nothing is playing, otherwise uses the fixed waveAmplitude above.
+                            // Fades to 0 when paused/stopped, otherwise uses waveAmplitude
                             readonly property real targetAmplitude: seekBar.isPlaying ? seekBar.waveAmplitude : 0
                             onTargetAmplitudeChanged: seekBar.amplitude = seekBar.targetAmplitude
                             Component.onCompleted: seekBar.amplitude = seekBar.targetAmplitude
 
-                            // scrolling phase — fixed period, set via waveSpeed above
+                            // Scrolling phase — smoothly cycles across one wavelength
                             property real phase: 0
                             NumberAnimation on phase {
                                 from: 0
-                                to: Math.PI * 2
+                                to: seekBar.waveLength
                                 duration: seekBar.waveSpeed
                                 loops: Animation.Infinite
                                 running: seekBar.isPlaying
@@ -1441,8 +1455,8 @@ ShellRoot {
                                 id: trackBg
                                 width: Math.max(0, seekBar.width * (1.0 - seekBar.progressFraction))
                                 x: seekBar.width * seekBar.progressFraction
-                                height: 5
-                                radius: 1
+                                height: 6
+                                radius: 3
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: Qt.alpha(root.theme.primary, 0.2)
                             }
@@ -1458,37 +1472,87 @@ ShellRoot {
                                 color: "transparent"
                             }
 
-                            // wave overlay — rides on top of progress_bar, ONLY over the played portion
+                            // wave overlay — Android SystemUI cubic Bézier wave, rendered only over the played portion
                             Canvas {
                                 id: waveCanvas
                                 anchors.fill: parent
+                                antialiasing: true
+                                smooth: true
+                                renderTarget: Canvas.Image
 
                                 onPaint: {
                                     const ctx = getContext("2d");
+                                    ctx.reset();
                                     ctx.clearRect(0, 0, width, height);
+
                                     const midY = height / 2;
-                                    const amp = seekBar.amplitude;
-                                    const freq = (seekBar.waveFrequency * 2 * Math.PI) / width;
                                     const splitX = Math.max(0, Math.min(width, width * seekBar.progressFraction));
 
                                     if (splitX <= 0)
                                         return;
 
+                                    // Gracefully attenuate wave amplitude when track length is very short (< 45px)
+                                    // to eliminate violent flapping/freakouts in cramped progress states
+                                    const lengthProgress = Math.max(0, Math.min(1, splitX / 45.0));
+                                    const lengthFactor = lengthProgress * lengthProgress * (3 - 2 * lengthProgress);
+                                    const amp = seekBar.amplitude * lengthFactor;
+
+                                    ctx.save();
+                                    ctx.beginPath();
+                                    ctx.rect(0, 0, splitX, height);
+                                    ctx.clip();
+
                                     ctx.beginPath();
                                     ctx.strokeStyle = root.theme.primary;
-                                    ctx.lineWidth = 5;
+                                    ctx.lineWidth = 6.0;
                                     ctx.lineCap = "round";
-                                    let first = true;
-                                    for (let x = 0; x <= splitX; x += 2) {
-                                        const y = midY + Math.sin(x * freq + seekBar.phase) * amp;
-                                        if (first) {
-                                            ctx.moveTo(x, y);
-                                            first = false;
-                                        } else {
-                                            ctx.lineTo(x, y);
+                                    ctx.lineJoin = "round";
+
+                                    if (amp <= 0.05) {
+                                        ctx.moveTo(0, midY);
+                                        ctx.lineTo(splitX, midY);
+                                        ctx.stroke();
+                                        ctx.restore();
+                                        return;
+                                    }
+
+                                    const wl = seekBar.waveLength;
+                                    const dist = wl / 2;
+                                    const transitionLength = 1.2 * wl;
+
+                                    function computeAmp(x, sign) {
+                                        const startTransition = splitX + transitionLength / 2;
+                                        const endTransition = splitX - transitionLength / 2;
+                                        let coeff = 1.0;
+                                        if (x > endTransition) {
+                                            coeff = Math.max(0, Math.min(1, (startTransition - x) / (startTransition - endTransition)));
+                                            coeff = coeff * coeff * (3 - 2 * coeff);
                                         }
+                                        const leftTransition = Math.min(15, splitX / 2);
+                                        if (x < leftTransition) {
+                                            const leftCoeff = Math.max(0, Math.min(1, x / leftTransition));
+                                            coeff *= (leftCoeff * leftCoeff * (3 - 2 * leftCoeff));
+                                        }
+                                        return sign * amp * coeff;
+                                    }
+
+                                    const phaseOffset = seekBar.phase % wl;
+                                    let currentX = -wl * 2 + phaseOffset;
+                                    let waveSign = 1;
+                                    let currentAmp = computeAmp(currentX, waveSign);
+                                    ctx.moveTo(currentX, midY + currentAmp);
+
+                                    while (currentX < splitX + wl * 2) {
+                                        waveSign = -waveSign;
+                                        const nextX = currentX + dist;
+                                        const midX = currentX + dist / 2;
+                                        const nextAmp = computeAmp(nextX, waveSign);
+                                        ctx.bezierCurveTo(midX, midY + currentAmp, midX, midY + nextAmp, nextX, midY + nextAmp);
+                                        currentAmp = nextAmp;
+                                        currentX = nextX;
                                     }
                                     ctx.stroke();
+                                    ctx.restore();
                                 }
 
                                 Connections {
@@ -1496,7 +1560,7 @@ ShellRoot {
                                     function onPhaseChanged() { waveCanvas.requestPaint(); }
                                     function onProgressFractionChanged() { waveCanvas.requestPaint(); }
                                     function onAmplitudeChanged() { waveCanvas.requestPaint(); }
-                                    function onWaveFrequencyChanged() { waveCanvas.requestPaint(); }
+                                    function onWaveLengthChanged() { waveCanvas.requestPaint(); }
                                 }
                             }
 
@@ -1562,33 +1626,37 @@ ShellRoot {
                         }
 
                         //Control Dock
-                        Item {
+                        Rectangle {
                             id: controlDock
-                            width: 250
-                            Layout.alignment: Qt.AlignHCenter
+                            width: 260
+                            height: 60
+                            radius: 30
+                            color: Qt.alpha(root.theme.background, 0.7)
+                            border.width: 0
+                            anchors.horizontalCenter: parent.horizontalCenter
                             anchors.top: seekBar.bottom
-                            anchors.topMargin: 50
+                            anchors.topMargin: 26
 
                             Rectangle {
                                 id: playButtonContainer
                                 property bool pressed: false
-                                width: 50
-                                height: 50
-                                radius: 8
-                                color: Qt.alpha(root.theme.primary, 1)
+                                width: 64
+                                height: 64
+                                radius: 32
+                                color: root.theme.primary_container || Qt.alpha(root.theme.primary, 1)
                                 anchors.centerIn: parent
 
                                 Image {
                                     id: playbutton
-                                    width: 40
-                                    height: 40
+                                    width: 32
+                                    height: 32
                                     sourceSize.width: width
                                     sourceSize.height: height
                                     fillMode: Image.PreserveAspectFit
                                     layer.enabled: true
                                     layer.effect: MultiEffect {
                                         colorization: 1.0
-                                        colorizationColor: Qt.alpha(root.theme.background, 1)
+                                        colorizationColor: root.theme.on_primary_container || Qt.alpha(root.theme.background, 1)
                                     }
                                     source: (shell.activePlayer && shell.activePlayer.playbackState === MprisPlaybackState.Playing) ? "./assets/pause-bold.svg" : "./assets/play-bold.svg"
                                     property real rotAngle: playButtonContainer.pressed ? 10 : 0
@@ -2332,7 +2400,7 @@ ShellRoot {
     component MenuEntryDelegate: Item {
         id: entryDelegate
         required property QsMenuEntry modelData
-        required property Item ownerWindow  // the menu/submenu window this belongs to
+        required property var ownerWindow  // the menu/submenu window this belongs to
         width: parent ? parent.width - 8 : 0
         height: entryDelegate.modelData.isSeparator ? 9 : 28
 

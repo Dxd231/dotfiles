@@ -15,8 +15,9 @@ Rectangle {
     readonly property var gridCells: cal.buildGrid(cal.viewDate)
 
     implicitHeight: calendarCol.implicitHeight + 24
-    radius: 18
-    color: "transparent"
+    radius: 14
+    color: Qt.alpha(cal.theme.source_color, 0.10)
+    border.width: 0
 
     function reset() {
         cal.today = new Date();
@@ -84,7 +85,7 @@ Rectangle {
             Text {
                 text: "\u2039"
                 color: cal.theme.on_background
-                font.pixelSize: 16
+                font.pixelSize: 18
                 font.bold: true
                 font.family: cal.settings.fontdefault
                 MouseArea {
@@ -99,7 +100,7 @@ Rectangle {
                 horizontalAlignment: Text.AlignHCenter
                 text: Qt.formatDate(cal.viewDate, "MMMM yyyy")
                 color: cal.theme.on_background
-                font.pixelSize: 13
+                font.pixelSize: 15
                 font.bold: true
                 font.family: cal.settings.fontdefault
                 // click the title to jump back to the current month
@@ -112,7 +113,7 @@ Rectangle {
             Text {
                 text: "\u203A"
                 color: cal.theme.on_background
-                font.pixelSize: 16
+                font.pixelSize: 18
                 font.bold: true
                 font.family: cal.settings.fontdefault
                 MouseArea {
@@ -136,8 +137,8 @@ Rectangle {
                     horizontalAlignment: Text.AlignHCenter
                     text: modelData
                     color: cal.theme.on_background
-                    opacity: 0.5
-                    font.pixelSize: 10
+                    opacity: 0.55
+                    font.pixelSize: 12
                     font.family: cal.settings.fontdefault
                     font.bold: true
                 }
@@ -160,10 +161,10 @@ Rectangle {
                     readonly property bool isTodayCell: cal.isToday(dayCell.modelData.date)
 
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 26
-                    radius: 13
+                    Layout.preferredHeight: 28
+                    radius: 10
                     opacity: dayCell.modelData.inMonth ? 1.0 : 0.35
-                    color: dayCell.selected && !dayCell.isTodayCell ? cal.theme.primary : "transparent"
+                    color: dayCell.isTodayCell ? cal.theme.primary : (dayCell.selected ? Qt.alpha(cal.theme.primary, 0.25) : "transparent")
 
                     Behavior on color {
                         ColorAnimation {
@@ -174,9 +175,9 @@ Rectangle {
                     Text {
                         anchors.centerIn: parent
                         text: dayCell.modelData.date.getDate()
-                        color: dayCell.selected && !dayCell.isTodayCell ? cal.theme.on_primary : (dayCell.isTodayCell ? cal.theme.primary : cal.theme.on_background)
-                        font.pixelSize: dayCell.isTodayCell ? 20 : 11
-                        font.bold: true
+                        color: dayCell.isTodayCell ? cal.theme.background : (dayCell.selected ? cal.theme.primary : cal.theme.on_background)
+                        font.pixelSize: 13
+                        font.bold: dayCell.isTodayCell || dayCell.selected
                         font.family: cal.settings.fontdefault
                     }
 

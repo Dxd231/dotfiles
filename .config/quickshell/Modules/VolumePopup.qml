@@ -1,6 +1,8 @@
 pragma ComponentBehavior: Bound
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import Quickshell.Services.Pipewire
 import QtQuick
 import QtQuick.Layouts
@@ -79,15 +81,12 @@ PanelWindow {
     property bool dragging: false          // keep open while dragging a slider
     readonly property int gap: 10
 
-    readonly property bool wantOpen: iconHovered || popupHover.hovered || dragging
-    onWantOpenChanged: hoverTimer.restart()
+    IpcHandler {
+        target: "volumePopup"
 
-    Timer {
-        id: hoverTimer
-        // 100ms before opening; a bit longer before closing so the mouse can
-        // cross the gap between the bar icon and the panel
-        interval: win.wantOpen ? 300 : 600
-        onTriggered: win.isOpen = win.wantOpen
+        function toggle(): void {
+            win.isOpen = !win.isOpen
+        }
     }
 
     function reposition() {
@@ -107,6 +106,12 @@ PanelWindow {
             openAnim.stop();
             closeAnim.restart();
         }
+    }
+
+    HyprlandFocusGrab {
+        windows: [win]
+        active: win.visible && win.isOpen
+        onCleared: win.isOpen = false
     }
 
     // ---- window ----
@@ -150,14 +155,14 @@ PanelWindow {
             spacing: 10
 
             Item {
-                Layout.preferredWidth: 22
-                Layout.preferredHeight: 22
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
 
                 Image {
                     anchors.fill: parent
                     source: row.iconSource
-                    sourceSize.width: 44
-                    sourceSize.height: 44
+                    sourceSize.width: 56
+                    sourceSize.height: 56
                     fillMode: Image.PreserveAspectFit
                     opacity: row.muted ? 0.35 : 1
                     layer.enabled: row.tint
@@ -215,15 +220,15 @@ PanelWindow {
 
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 18
+            Layout.preferredHeight: 26
 
             Rectangle {
                 id: track
                 width: parent.width
-                height: 6
-                radius: 3
+                height: 16
+                radius: 8
                 anchors.verticalCenter: parent.verticalCenter
-                color: Qt.alpha(win.theme.on_background, 0.15)
+                color: Qt.alpha(win.theme.on_background, 0.1)
 
                 Rectangle {
                     height: parent.height
@@ -234,8 +239,8 @@ PanelWindow {
                     Behavior on width {
                         enabled: !area.pressed
                         NumberAnimation {
-                            duration: 120
-                            easing.type: Easing.OutCubic
+                            duration: 250
+                            easing.type: Easing.OutQuint
                         }
                     }
                 }
@@ -270,13 +275,12 @@ PanelWindow {
             id: panel
             anchors.horizontalCenter: parent.horizontalCenter
             y: win.gap
-            width: 300
+            width: 320
             height: content.implicitHeight + 32
             scale: 0.1
-            border.width: 1
-            border.color: Qt.alpha(win.theme.primary, 0.1)
-            color: Qt.alpha(win.theme.background, 1)
-            radius: 20
+            border.width: 0
+            color: Qt.lighter(win.theme.background, 1.15)
+            radius: 18
             clip: true
 
             // same grow-from-the-top trick as the MPRIS popup
@@ -287,7 +291,7 @@ PanelWindow {
                 xScale: 1
             }
 
-            SequentialAnimation {
+            ParallelAnimation {
                 id: closeAnim
                 onStarted: win.animatingClosed = true
                 onStopped: win.animatingClosed = false
@@ -296,31 +300,34 @@ PanelWindow {
                     target: content
                     property: "opacity"
                     to: 0
-                    duration: 100
+                    duration: 130
+                    easing.type: Easing.InQuad
                 }
                 NumberAnimation {
                     target: panel
                     property: "scale"
                     to: 0.1
-                    duration: 200
+                    duration: 180
                     easing.type: Easing.InCirc
                 }
             }
 
-            SequentialAnimation {
+            ParallelAnimation {
                 id: openAnim
                 NumberAnimation {
                     target: panel
                     property: "scale"
                     to: 1
-                    duration: 200
-                    easing.type: Easing.OutCirc
+                    duration: 240
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 1.12
                 }
                 NumberAnimation {
                     target: content
                     property: "opacity"
                     to: 1
-                    duration: 100
+                    duration: 180
+                    easing.type: Easing.OutQuad
                 }
             }
 

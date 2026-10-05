@@ -1,11 +1,13 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
 import Quickshell.Services.Pam
+import Quickshell.Services.Mpris
 
 // Usage: instantiate once in shell.qml, same as your other modules:
 //   LockScreen { theme: root.theme; settings: root.settings }
@@ -160,7 +162,7 @@ Scope {
     Timer {
         interval: 1000
         repeat: true
-        running: root.locked && !!root.player && root.player.isPlaying && root.player.positionSupported
+        running: root.locked && !!root.player && (root.player.playbackState === MprisPlaybackState.Playing || root.player.isPlaying) && root.player.positionSupported
         onTriggered: root.player.positionChanged()
     }
 
@@ -216,7 +218,10 @@ Scope {
             // frozen, blurred screenshot taken just before locking
             Image {
                 anchors.fill: parent
-                source: "file://" + root.shotPath(surface.screen.name)
+                source: {
+                    const scr = surface.screen;
+                    return (scr && scr.name) ? ("file://" + root.shotPath(scr.name)) : "";
+                }
                 cache: false
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: false
@@ -224,9 +229,15 @@ Scope {
                 layer.effect: MultiEffect {
                     blurEnabled: true
                     blur: surface.blurLevel
-                    blurMax: 64
+                    blurMax: 32
                     brightness: 0
                 }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                color: Qt.alpha(root.theme.background, 0.45)
+                opacity: surface.blurLevel
             }
 
             FocusScope {
@@ -282,208 +293,583 @@ Scope {
 
                 Column {
                     id: content
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.verticalCenterOffset: 100
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 24
+                    anchors.centerIn: parent
+                    spacing: 18
                     opacity: 0
-                    scale: 0.9
+                    scale: 0.90
                     transformOrigin: Item.Center
+                    transform: Translate {
+                        id: contentTrans
+                        y: 20
+                    }
 
                     Component.onCompleted: popIn.start()
 
                     ParallelAnimation {
                         id: popIn
-                        NumberAnimation { target: surface; property: "blurLevel"; to: 1; duration: 350; easing.type: Easing.OutCubic }
-                        NumberAnimation { target: content; property: "opacity"; to: 1; duration: 250; easing.type: Easing.OutCubic }
-                        NumberAnimation { target: content; property: "scale"; to: 1; duration: 380; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                        NumberAnimation { target: surface; property: "blurLevel"; to: 1; duration: 320; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: content; property: "opacity"; to: 1; duration: 220; easing.type: Easing.OutQuad }
+                        NumberAnimation { target: content; property: "scale"; to: 1.0; duration: 340; easing.type: Easing.OutBack; easing.overshoot: 1.12 }
+                        NumberAnimation { target: contentTrans; property: "y"; to: 0; duration: 340; easing.type: Easing.OutBack; easing.overshoot: 1.12 }
+                        NumberAnimation { target: bottomBar; property: "opacity"; to: 1; duration: 260; easing.type: Easing.OutQuad }
                     }
 
                     ParallelAnimation {
                         id: exitAnim
-                        NumberAnimation { target: content; property: "opacity"; to: 0; duration: 200; easing.type: Easing.InCubic }
-                        NumberAnimation { target: content; property: "scale"; to: 1.06; duration: 260; easing.type: Easing.InCubic }
-                        NumberAnimation { target: surface; property: "blurLevel"; to: 0; duration: 380; easing.type: Easing.InOutCubic }
+                        NumberAnimation { target: content; property: "opacity"; to: 0; duration: 180; easing.type: Easing.InQuad }
+                        NumberAnimation { target: content; property: "scale"; to: 1.05; duration: 240; easing.type: Easing.InQuad }
+                        NumberAnimation { target: contentTrans; property: "y"; to: -12; duration: 240; easing.type: Easing.InQuad }
+                        NumberAnimation { target: bottomBar; property: "opacity"; to: 0; duration: 180; easing.type: Easing.InQuad }
+                        NumberAnimation { target: surface; property: "blurLevel"; to: 0; duration: 340; easing.type: Easing.InOutQuad }
                     }
 
                     Connections {
                         target: root
-                        function onUnlockingChanged() { if (root.unlocking) { popIn.stop(); exitAnim.start(); } }
+                        function onUnlockingChanged() {
+                            if (root.unlocking) {
+                                popIn.stop();
+                                exitAnim.start();
+                            }
+                        }
                     }
 
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: Qt.formatDateTime(clock.date, "HH:mm")
-                        color: root.theme.on_background
-                        font.pixelSize: 186
-                        font.family: root.settings.fontdefault
-                        font.bold: true
-                    }
-
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: Qt.formatDateTime(clock.date, "dddd, d MMMM")
-                        color: root.theme.on_background
-                        opacity: 0.6
-                        font.pixelSize: 20
-                        font.family: root.settings.fontmedium
-                    }
-
-                    // password box: one dot per typed character
+                    // Card 1: Clock, Date, and Password Card
                     Rectangle {
-                        id: pwBox
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 320
-                        height: 52
-                        radius: 14
-                        color: Qt.alpha(root.theme.background, 0.8)
-                        border.width: 3
-                        border.color: root.failed ? (root.theme.error || "#ff6b6b") : root.theme.primary
-                        opacity: root.busy ? 0.5 : 1
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                        id: mainCard
+                        width: 660
+                        height: mainCol.implicitHeight + 64
+                        radius: 32
+                        color: Qt.lighter(root.theme.background, 1.15)
+                        border.width: 0
+                        clip: true
 
-                        Row {
+                        Column {
+                            id: mainCol
                             anchors.centerIn: parent
-                            Repeater {
-                                model: 18
-                                Item {
-                                    id: slot
-                                    required property int index
-                                    readonly property bool active: slot.index < root.buffer.length
-                                    width: active ? 16 : 0
-                                    height: 12
-                                    clip: true
+                            width: parent.width - 64
+                            spacing: 14
 
-                                    Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCirc } }
+                            // Top Header: Date and small lock badge
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                spacing: 10
 
-                                    Rectangle {
-                                        anchors.centerIn: parent
-                                        width: 12
-                                        height: 12
-                                        radius: 6
-                                        color: root.theme.primary
-                                        opacity: slot.active ? 1 : 0
-                                        Behavior on opacity { NumberAnimation { duration: 160 } }
+                                Image {
+                                    id: lockBadge
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    source: "../assets/lock-simple-fill.svg"
+                                    sourceSize.width: 18
+                                    sourceSize.height: 18
+                                    fillMode: Image.PreserveAspectFit
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: root.theme.on_background
+                                    }
+                                    opacity: 0.55
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: Qt.formatDateTime(clock.date, "dddd, d MMMM")
+                                    color: root.theme.on_background
+                                    opacity: 0.75
+                                    font.pixelSize: 19
+                                    font.family: root.settings.fontmedium
+                                }
+                            }
+
+                            // Clock
+                            Text {
+                                id: clockModule
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: Qt.formatDateTime(clock.date, "HH:mm")
+                                color: root.theme.on_background
+                                font.pixelSize: 130
+                                font.family: root.settings.fontdefault
+                                font.bold: true
+                            }
+
+                            // Spacing
+                            Item { width: 1; height: 6 }
+
+                            // Password box
+                            Rectangle {
+                                id: pwBox
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: 440
+                                height: 62
+                                radius: 20
+                                color: root.failed
+                                    ? Qt.alpha(root.theme.error, 0.18)
+                                    : (root.buffer.length > 0 ? Qt.alpha(root.theme.on_background, 0.09) : Qt.alpha(root.theme.on_background, 0.05))
+                                border.width: 0
+
+                                Behavior on color {
+                                    ColorAnimation { duration: 180 }
+                                }
+
+                                transform: Translate {
+                                    id: pwTrans
+                                    x: 0
+                                }
+
+                                SequentialAnimation {
+                                    id: shakeAnim
+                                    running: false
+                                    NumberAnimation { target: pwTrans; property: "x"; to: -14; duration: 45; easing.type: Easing.OutQuad }
+                                    NumberAnimation { target: pwTrans; property: "x"; to: 14; duration: 55; easing.type: Easing.InOutQuad }
+                                    NumberAnimation { target: pwTrans; property: "x"; to: -10; duration: 55; easing.type: Easing.InOutQuad }
+                                    NumberAnimation { target: pwTrans; property: "x"; to: 10; duration: 55; easing.type: Easing.InOutQuad }
+                                    NumberAnimation { target: pwTrans; property: "x"; to: -4; duration: 45; easing.type: Easing.InOutQuad }
+                                    NumberAnimation { target: pwTrans; property: "x"; to: 0; duration: 45; easing.type: Easing.OutQuad }
+                                }
+
+                                Connections {
+                                    target: root
+                                    function onFailedChanged() {
+                                        if (root.failed)
+                                            shakeAnim.restart();
+                                    }
+                                }
+
+                                // Typing Dots: Smooth fade and expansion animation
+                                Row {
+                                    anchors.centerIn: parent
+                                    Repeater {
+                                        model: 22
+                                        Item {
+                                            id: slot
+                                            required property int index
+                                            readonly property bool active: slot.index < root.buffer.length
+                                            width: active ? 26 : 0
+                                            height: 26
+                                            clip: true
+
+                                            Behavior on width {
+                                                NumberAnimation { duration: 170; easing.type: Easing.OutCirc }
+                                            }
+
+                                            Rectangle {
+                                                anchors.centerIn: parent
+                                                width: 16
+                                                height: 16
+                                                radius: 8
+                                                color: root.failed ? (root.theme.error || "#ff6b6b") : root.theme.primary
+                                                opacity: slot.active ? 1 : 0
+
+                                                Behavior on opacity {
+                                                    NumberAnimation { duration: 160 }
+                                                }
+                                                Behavior on color {
+                                                    ColorAnimation { duration: 150 }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Placeholder / Status
+                                Row {
+                                    anchors.centerIn: parent
+                                    spacing: 10
+                                    visible: root.buffer.length === 0
+
+                                    Image {
+                                        id: pwPlaceholderIcon
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        source: root.failed ? "../assets/lock-simple-fill.svg" : "../assets/keyboard.svg"
+                                        sourceSize.width: 20
+                                        sourceSize.height: 20
+                                        fillMode: Image.PreserveAspectFit
+                                        opacity: root.failed ? 0.9 : 0.45
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: root.failed ? (root.theme.error || "#ff6b6b") : root.theme.on_background
+                                        }
+                                    }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.failed ? "Incorrect password" : (root.busy ? "Verifying…" : "Enter password")
+                                        color: root.failed ? (root.theme.error || "#ff6b6b") : root.theme.on_background
+                                        opacity: root.failed ? 0.9 : 0.5
+                                        font.pixelSize: 18
+                                        font.family: root.settings.fontdefault
                                     }
                                 }
                             }
                         }
-
-                        Text {
-                            anchors.centerIn: parent
-                            visible: root.buffer.length === 0
-                            text: root.failed ? "Wrong password" : (root.busy ? "Checking…" : "Password")
-                            color: root.failed ? (root.theme.error || "#ff6b6b") : root.theme.on_background
-                            opacity: 0.5
-                            font.pixelSize: 18
-                            font.family: root.settings.fontmedium
-                        }
                     }
 
-                    // now playing: art on the left, track info on the right
-                    Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 20
+                    // Card 2: Now Playing Card
+                    Rectangle {
+                        id: mediaCard
+                        width: 660
+                        height: 120
+                        radius: 26
+                        color: Qt.lighter(root.theme.background, 1.15)
+                        border.width: 0
                         visible: !!root.player && (root.player.trackTitle || "").length > 0
+                        clip: true
 
-                        ClippingRectangle {
-                            width: 250
-                            height: 250
-                            radius: 16
-                            color: Qt.alpha(root.theme.on_background, 0.08)
-                            visible: art.status === Image.Ready
+                        readonly property bool isPlaying: {
+                            if (!root.player) return false;
+                            if (root.player.playbackState !== undefined) {
+                                return root.player.playbackState === MprisPlaybackState.Playing;
+                            }
+                            return !!root.player.isPlaying;
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 18
+
+                            // Album art container
+                            Rectangle {
+                                Layout.preferredWidth: 88
+                                Layout.preferredHeight: 88
+                                radius: 18
+                                color: Qt.alpha(root.theme.on_background, 0.08)
+                                clip: true
+
+                                Image {
+                                    id: trackArt
+                                    anchors.fill: parent
+                                    source: root.player ? (root.player.trackArtUrl || "") : ""
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    visible: status === Image.Ready
+                                }
+
+                                Image {
+                                    anchors.centerIn: parent
+                                    source: "../assets/music-notes-fill.svg"
+                                    sourceSize.width: 38
+                                    sourceSize.height: 38
+                                    visible: trackArt.status !== Image.Ready
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: root.theme.primary
+                                    }
+                                    opacity: 0.7
+                                }
+                            }
+
+                            // Track info + progress bar
+                            ColumnLayout {
+                                id: infoLayout
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                spacing: 4
+
+                                readonly property real len: root.player ? (root.player.length || 0) : 0
+                                readonly property real pos: root.player ? (root.player.position || 0) : 0
+
+                                function fmt(sec) {
+                                    const t = Math.max(0, Math.floor(sec));
+                                    return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+                                }
+
+                                MarqueeText {
+                                    Layout.fillWidth: true
+                                    text: root.player ? (root.player.trackTitle || "") : ""
+                                    color: root.theme.on_background
+                                    textOpacity: 0.95
+                                    pixelSize: 18
+                                    bold: true
+                                    family: root.settings.fontjp
+                                }
+
+                                MarqueeText {
+                                    Layout.fillWidth: true
+                                    text: root.player ? (root.player.trackArtist || "") : ""
+                                    visible: text.length > 0
+                                    color: root.theme.on_background
+                                    textOpacity: 0.65
+                                    pixelSize: 14
+                                    family: root.settings.fontjp
+                                }
+
+                                // Progress bar
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 4
+                                    height: 5
+                                    radius: 3
+                                    visible: infoLayout.len > 0
+                                    color: Qt.alpha(root.theme.on_background, 0.12)
+
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 3
+                                        width: parent.width * Math.max(0, Math.min(1, infoLayout.pos / Math.max(1, infoLayout.len)))
+                                        color: root.theme.primary
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: mouse => {
+                                            if (root.player && infoLayout.len > 0) {
+                                                const fraction = Math.max(0, Math.min(1, mouse.x / width));
+                                                root.player.position = infoLayout.len * fraction;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Timestamps
+                                Item {
+                                    Layout.fillWidth: true
+                                    height: 16
+                                    visible: infoLayout.len > 0
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        text: infoLayout.fmt(infoLayout.pos)
+                                        color: root.theme.on_background
+                                        opacity: 0.5
+                                        font.pixelSize: 12
+                                        font.family: root.settings.fontdefault
+                                    }
+
+                                    Text {
+                                        anchors.right: parent.right
+                                        text: infoLayout.fmt(infoLayout.len)
+                                        color: root.theme.on_background
+                                        opacity: 0.5
+                                        font.pixelSize: 12
+                                        font.family: root.settings.fontdefault
+                                    }
+                                }
+                            }
+
+                            // Playback controls
+                            Row {
+                                Layout.alignment: Qt.AlignVCenter
+                                spacing: 10
+
+                                // Previous button
+                                Rectangle {
+                                    width: 42
+                                    height: 42
+                                    radius: 21
+                                    color: prevMouse.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : Qt.alpha(root.theme.on_background, 0.05)
+                                    scale: prevMouse.pressed ? 0.90 : (prevMouse.containsMouse ? 1.06 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCirc } }
+                                    Behavior on color { ColorAnimation { duration: 120 } }
+
+                                    MouseArea {
+                                        id: prevMouse
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        hoverEnabled: true
+                                        onClicked: if (root.player && typeof root.player.previous === "function") root.player.previous()
+                                    }
+
+                                    Image {
+                                        anchors.centerIn: parent
+                                        source: "../assets/skip-back-bold.svg"
+                                        sourceSize.width: 18
+                                        sourceSize.height: 18
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: root.theme.on_background
+                                        }
+                                        opacity: 0.85
+                                    }
+                                }
+
+                                // Play / Pause button
+                                Rectangle {
+                                    width: 50
+                                    height: 50
+                                    radius: 25
+                                    color: root.theme.primary
+                                    scale: playMouse.pressed ? 0.90 : (playMouse.containsMouse ? 1.06 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCirc } }
+
+                                    MouseArea {
+                                        id: playMouse
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        hoverEnabled: true
+                                        onClicked: {
+                                            if (!root.player) return;
+                                            if (typeof root.player.togglePlaying === "function") {
+                                                root.player.togglePlaying();
+                                            } else if (typeof root.player.playPause === "function") {
+                                                root.player.playPause();
+                                            } else if (mediaCard.isPlaying) {
+                                                root.player.pause();
+                                            } else {
+                                                root.player.play();
+                                            }
+                                        }
+                                    }
+
+                                    Image {
+                                        anchors.centerIn: parent
+                                        source: mediaCard.isPlaying ? "../assets/pause-bold.svg" : "../assets/play-bold.svg"
+                                        sourceSize.width: 22
+                                        sourceSize.height: 22
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: root.theme.background
+                                        }
+                                    }
+                                }
+
+                                // Next button
+                                Rectangle {
+                                    width: 42
+                                    height: 42
+                                    radius: 21
+                                    color: nextMouse.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : Qt.alpha(root.theme.on_background, 0.05)
+                                    scale: nextMouse.pressed ? 0.90 : (nextMouse.containsMouse ? 1.06 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCirc } }
+                                    Behavior on color { ColorAnimation { duration: 120 } }
+
+                                    MouseArea {
+                                        id: nextMouse
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        hoverEnabled: true
+                                        onClicked: if (root.player && typeof root.player.next === "function") root.player.next()
+                                    }
+
+                                    Image {
+                                        anchors.centerIn: parent
+                                        source: "../assets/skip-forward-bold.svg"
+                                        sourceSize.width: 18
+                                        sourceSize.height: 18
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: root.theme.on_background
+                                        }
+                                        opacity: 0.85
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Card 3: Bottom Quick Actions Pill
+                Rectangle {
+                    id: bottomBar
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 36
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: 54
+                    width: actionRow.implicitWidth + 28
+                    radius: 27
+                    color: Qt.lighter(root.theme.background, 1.15)
+                    border.width: 0
+                    opacity: 0
+
+                    Row {
+                        id: actionRow
+                        anchors.centerIn: parent
+                        spacing: 10
+
+                        // Suspend / Sleep
+                        Rectangle {
+                            width: 42
+                            height: 42
+                            radius: 21
+                            color: suspMouse.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : "transparent"
+                            scale: suspMouse.pressed ? 0.90 : (suspMouse.containsMouse ? 1.08 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCirc } }
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            MouseArea {
+                                id: suspMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: Quickshell.execDetached(["systemctl", "suspend"])
+                            }
 
                             Image {
-                                id: art
-                                anchors.fill: parent
-                                source: root.player ? (root.player.trackArtUrl || "") : ""
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
+                                anchors.centerIn: parent
+                                source: "../assets/moon.svg"
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: root.theme.on_background
+                                }
+                                opacity: 0.8
                             }
                         }
 
-                        Column {
-                            id: info
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 300
-                            spacing: 4
-
-                            readonly property real len: root.player ? (root.player.length || 0) : 0
-                            readonly property real pos: root.player ? (root.player.position || 0) : 0
-
-                            function fmt(sec) {
-                                const t = Math.max(0, Math.floor(sec));
-                                return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+                        // Reboot
+                        Rectangle {
+                            width: 42
+                            height: 42
+                            radius: 21
+                            color: rebMouse.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : "transparent"
+                            scale: rebMouse.pressed ? 0.90 : (rebMouse.containsMouse ? 1.08 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCirc } }
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            MouseArea {
+                                id: rebMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: Quickshell.execDetached(["sh", "-c", "hyprshutdown --post-cmd 'systemctl reboot'"])
                             }
 
-                            MarqueeText {
-                                width: parent.width
-                                text: root.player ? (root.player.trackTitle || "") : ""
-                                color: root.theme.on_background
-                                textOpacity: 0.9
-                                pixelSize: 25
-                                bold: true
-                                family: root.settings.fontjp
-                            }
-                            MarqueeText {
-                                width: parent.width
-                                text: root.player ? (root.player.trackArtist || "") : ""
-                                visible: text.length > 0
-                                color: root.theme.on_background
-                                textOpacity: 0.7
-                                pixelSize: 18
-                                family: root.settings.fontjp
-                            }
-                            Text {
-                                width: parent.width
-                                text: root.player ? (root.player.trackAlbum || "") : ""
-                                visible: text.length > 0
-                                color: root.theme.on_background
-                                opacity: 0.45
-                                font.pixelSize: 14
-                                font.family: root.settings.fontjp
-                                elide: Text.ElideRight
-                            }
-
-                            Item { width: 1; height: 8; visible: info.len > 0 }
-
-                            // progress bar
-                            Rectangle {
-                                width: parent.width
-                                height: 4
-                                radius: 2
-                                visible: info.len > 0
-                                color: Qt.alpha(root.theme.on_background, 0.15)
-
-                                Rectangle {
-                                    height: parent.height
-                                    radius: 2
-                                    width: parent.width * Math.max(0, Math.min(1, info.pos / Math.max(1, info.len)))
-                                    color: root.theme.primary
+                            Image {
+                                anchors.centerIn: parent
+                                source: "../assets/arrow-clockwise-fill.svg"
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: root.theme.on_background
                                 }
+                                opacity: 0.8
+                            }
+                        }
+
+                        // Power Off
+                        Rectangle {
+                            width: 42
+                            height: 42
+                            radius: 21
+                            color: powMouse.containsMouse ? Qt.alpha(root.theme.error, 0.20) : "transparent"
+                            scale: powMouse.pressed ? 0.90 : (powMouse.containsMouse ? 1.08 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCirc } }
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            MouseArea {
+                                id: powMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: Quickshell.execDetached(["sh", "-c", "hyprshutdown --post-cmd 'systemctl poweroff'"])
                             }
 
-                            Item {
-                                width: parent.width
-                                height: 14
-                                visible: info.len > 0
-                                Text {
-                                    anchors.left: parent.left
-                                    text: info.fmt(info.pos)
-                                    color: root.theme.on_background
-                                    opacity: 0.5
-                                    font.pixelSize: 12
-                                    font.family: root.settings.fontdefault
+                            Image {
+                                anchors.centerIn: parent
+                                source: "../assets/power-fill.svg"
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: powMouse.containsMouse ? (root.theme.error || "#ff6b6b") : root.theme.on_background
                                 }
-                                Text {
-                                    anchors.right: parent.right
-                                    text: info.fmt(info.len)
-                                    color: root.theme.on_background
-                                    opacity: 0.5
-                                    font.pixelSize: 12
-                                    font.family: root.settings.fontdefault
-                                }
+                                opacity: 0.8
                             }
                         }
                     }
