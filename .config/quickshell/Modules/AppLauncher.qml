@@ -1,81 +1,96 @@
 pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import QtQuick
-import QtQuick.Layouts
 import Quickshell.Widgets
-import QtQuick.Effects
+import qs
+import qs.Components
 
+// App launcher as an M3 search view: search bar and results list.
+// Ranking favours frequently launched apps; right-click (or the pin button) pins to the dock.
 Item {
     id: root
 
-    property var theme
-    property var settings
-    property int global_radius: 50
+    property var dock: null
 
     property bool isOpenLauncher: false
     property string query: ""
     property int selectedIndex: 0
-    // last real mouse position (scene coords); used so hover only selects when the mouse actually moves
+    // last real pointer position (scene coords): hover only selects when the pointer actually moves
     property real lastMouseX: -1
     property real lastMouseY: -1
 
+    function extractList(prop) {
+        if (!prop) return [];
+        if (Array.isArray(prop)) return prop;
+        const res = [];
+        try {
+            const len = prop.length || 0;
+            for (let i = 0; i < len; i++) {
+                if (prop[i] !== undefined && prop[i] !== null)
+                    res.push(String(prop[i]));
+            }
+        } catch (e) {}
+        return res;
+    }
+
+    function resetLauncher() {
+        root.query = "";
+        root.selectedIndex = 0;
+        searchField.text = "";
+    }
+
     onIsOpenLauncherChanged: {
-        if (isOpenLauncher) {
-            closeAnim.stop();
-            openAnim.restart();
+        if (isOpenLauncher)
             searchField.forceActiveFocus();
-        } else {
-            openAnim.stop();
-            closeAnim.restart();
-        }
-    }   
+        else
+            root.resetLauncher();
+    }
 
     FileView {
-        id: pinsFile
+        id: stateFile
         path: Quickshell.dataPath("app-launcher-pins.json")
         watchChanges: true
         onFileChanged: reload()
         onAdapterUpdated: writeAdapter()
 
         JsonAdapter {
-            id: pinsAdapter
-            property list<string> pinnedIds: []
+            id: stateAdapter
             property var launchCounts: ({})
         }
     }
 
-    function isPinned(id) {
-        return pinsAdapter.pinnedIds.indexOf(id) !== -1;
-    }
-    function togglePin(id) {
-        const list = pinsAdapter.pinnedIds.slice();
-        const idx = list.indexOf(id);
-        if (idx === -1)
-            list.push(id);
-        else
-            list.splice(idx, 1);
-        pinsAdapter.pinnedIds = list;
-    }
     function launchCount(id) {
-        return pinsAdapter.launchCounts[id] || 0;
+        return stateAdapter.launchCounts[id] || 0;
     }
     function recordLaunch(id) {
-        const counts = Object.assign({}, pinsAdapter.launchCounts);
+        const counts = Object.assign({}, stateAdapter.launchCounts);
         counts[id] = (counts[id] || 0) + 1;
-        pinsAdapter.launchCounts = counts;
+        stateAdapter.launchCounts = counts;
+    }
+
+    function toggleDockPin(entry) {
+        if (!entry || !entry.id) return;
+        const rawId = entry.id;
+        const cleanId = rawId.replace(/\.desktop$/, "").toLowerCase();
+        const bareRaw = rawId.replace(/\.desktop$/, "");
+        if (root.dock) {
+            if (root.dock.isPinned(cleanId)) {
+                root.dock.unpin(cleanId);
+            } else {
+                root.dock.pin(cleanId, bareRaw);
+            }
+        } else {
+            Quickshell.execDetached(["qs", "ipc", "call", "dock", "pin", cleanId]);
+        }
     }
 
     property var allApps: {
         const apps = [...DesktopEntries.applications.values].filter(e => e.name && !e.noDisplay);
 
-            apps.sort((a, b) => {
-            const aPinned = root.isPinned(a.id);
-            const bPinned = root.isPinned(b.id);
-            if (aPinned !== bPinned)
-                return aPinned ? -1 : 1;
-
+        apps.sort((a, b) => {
             const aCount = root.launchCount(a.id);
             const bCount = root.launchCount(b.id);
             if (aCount !== bCount)
@@ -86,23 +101,138 @@ Item {
         return apps;
     }
 
+    function fuzzyScore(pattern, text) {
+        const pLen = pattern.length;
+        const tLen = text.length;
+        if (pLen > tLen || pLen < 3) return 0;
+        let pIdx = 0;
+        let score = 0;
+        let consecutive = 0;
+        let firstMatch = -1;
+        let lastMatch = -1;
+        for (let tIdx = 0; tIdx < tLen; tIdx++) {
+            if (pIdx < pLen && text[tIdx] === pattern[pIdx]) {
+                if (firstMatch === -1) firstMatch = tIdx;
+                lastMatch = tIdx;
+                pIdx++;
+                consecutive++;
+                score += 15 + consecutive * 10;
+                if (tIdx === 0 || !/[a-zA-Z0-9]/.test(text[tIdx - 1])) {
+                    score += 30;
+                }
+            } else {
+                consecutive = 0;
+            }
+        }
+        if (pIdx === pLen) {
+            const span = lastMatch - firstMatch + 1;
+            if (span > pLen * 2.2) return 0;
+            score -= span * 3;
+            score -= firstMatch * 2;
+            return Math.max(1, score);
+        }
+        return 0;
+    }
+
+    function scoreApp(app, query) {
+        if (!query) return 0;
+
+        const tokens = query.split(/\s+/).filter(t => t.length > 0);
+        if (tokens.length === 0) return 0;
+
+        const name = (app.name || "").toLowerCase();
+        const appId = (app.id || "").toLowerCase().replace(/\.desktop$/i, "");
+        const execBin = (app.exec || "").toLowerCase().split(/\s+/)[0].replace(/^.*\//, "");
+        const generic = (app.genericName || "").toLowerCase();
+        const comment = (app.comment || "").toLowerCase();
+        const keywords = root.extractList(app.keywords);
+        const categories = root.extractList(app.categories);
+
+        const nameWords = name.split(/[\s\-_/]+/).filter(w => w.length > 0);
+        const genWords = generic.split(/[\s\-_/]+/).filter(w => w.length > 0);
+        const comWords = comment.split(/[\s\-_/]+/).filter(w => w.length > 0);
+
+        let totalScore = 0;
+
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            let tokenScore = 0;
+
+            if (name === token) {
+                tokenScore = 10000;
+            } else if (appId === token || execBin === token) {
+                tokenScore = 9000;
+            } else if (name.startsWith(token)) {
+                tokenScore = 8000 - Math.min(500, (name.length - token.length) * 10);
+            } else if (nameWords.some(w => w.startsWith(token))) {
+                tokenScore = 7200;
+            } else if (appId.startsWith(token) || execBin.startsWith(token)) {
+                tokenScore = 6500;
+            } else if (nameWords.map(w => w[0]).join("").startsWith(token)) {
+                tokenScore = 6000;
+            } else if (name.includes(token)) {
+                tokenScore = 5200 - name.indexOf(token) * 15;
+            } else if (execBin.includes(token) || appId.includes(token)) {
+                tokenScore = 4600;
+            } else if (generic.startsWith(token) || genWords.some(w => w.startsWith(token))) {
+                tokenScore = 4000;
+            } else if (keywords.some(kw => (kw || "").toLowerCase() === token)) {
+                tokenScore = 3600;
+            } else if (keywords.some(kw => (kw || "").toLowerCase().startsWith(token))) {
+                tokenScore = 3200;
+            } else if (categories.some(cat => (cat || "").toLowerCase().startsWith(token))) {
+                tokenScore = 2800;
+            } else if (comWords.some(w => w.startsWith(token))) {
+                tokenScore = 2500;
+            } else if (keywords.some(kw => (kw || "").toLowerCase().includes(token))) {
+                tokenScore = 2200;
+            } else if (generic.includes(token)) {
+                tokenScore = 1900;
+            } else if (comment.includes(token)) {
+                tokenScore = 1600;
+            } else if (categories.some(cat => (cat || "").toLowerCase().includes(token))) {
+                tokenScore = 1400;
+            } else if (token.length >= 3) {
+                const f = root.fuzzyScore(token, name);
+                if (f > 0) {
+                    tokenScore = 1000 + Math.min(500, f);
+                }
+            }
+
+            if (tokenScore === 0) return 0;
+            totalScore += tokenScore;
+        }
+
+        const count = root.launchCount(app.id);
+        if (count > 0) {
+            totalScore += Math.min(300, Math.round(Math.log1p(count) * 60));
+        }
+
+        return totalScore;
+    }
+
     property var filteredApps: {
         const q = root.query.trim().toLowerCase();
+        let pool = root.allApps;
         if (q === "")
-            return root.allApps;
-        return root.allApps.filter(e => {
-            if ((e.name || "").toLowerCase().includes(q))
-                return true;
-            if ((e.genericName || "").toLowerCase().includes(q))
-                return true;
-            if ((e.comment || "").toLowerCase().includes(q))
-                return true;
-            for (const kw of (e.keywords || [])) {
-                if ((kw || "").toLowerCase().includes(q))
-                    return true;
+            return pool;
+
+        const results = [];
+        for (let i = 0; i < pool.length; i++) {
+            const app = pool[i];
+            const score = root.scoreApp(app, q);
+            if (score > 0) {
+                results.push({ app: app, score: score });
             }
-            return false;
+        }
+
+        results.sort((a, b) => {
+            if (b.score !== a.score)
+                return b.score - a.score;
+            return a.app.name.localeCompare(b.app.name);
         });
+
+        return results.map(r => r.app);
     }
 
     onQueryChanged: root.selectedIndex = 0
@@ -114,10 +244,8 @@ Item {
             return;
         root.recordLaunch(entry.id);
         entry.execute();
-        root.query = "";
         root.isOpenLauncher = false;
-        root.query = ""
-        root.selectedIndex = 0
+        root.resetLauncher();
     }
 
     IpcHandler {
@@ -125,8 +253,6 @@ Item {
 
         function toggle(): void {
             root.isOpenLauncher = !root.isOpenLauncher;
-            root.query = ""
-            root.selectedIndex = 0
             if (root.isOpenLauncher)
                 searchField.forceActiveFocus();
         }
@@ -144,140 +270,74 @@ Item {
         WlrLayershell.namespace: "quickshell:applauncher"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: root.isOpenLauncher ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-        anchors.top: true
-        anchors.left: true
-        anchors.right: true
-        exclusiveZone: 0
+        anchors { top: true; bottom: true; left: true; right: true }
+        exclusiveZone: -1
         color: "transparent"
-        margins.top: 0
-        margins.left: 0
-        margins.right: 0
-        implicitHeight: 1000
-        property bool animatingClosed: false
-        visible: root.isOpenLauncher || animatingClosed
+        visible: root.isOpenLauncher || panel.opacity > 0
 
         MouseArea {
             anchors.fill: parent
             onClicked: root.isOpenLauncher = false
         }
 
-        Rectangle {
-            id: panelBg
-            width: 640
-            height: 440
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 250
-            radius: 18
-            border.width: 0
-            color: Qt.lighter(root.theme.background, 1.15)
-            clip: true
+        Elevation {
+            anchors.fill: panel
+            radius: panel.radius
+            level: 3
+            opacity: panel.opacity
+            scale: panel.scale
             transformOrigin: Item.Top
-            scale: 0.90
-            opacity: 0
-            transform: Translate {
-                id: dropTrans
-                y: -18
-            }
+        }
 
-            ParallelAnimation {
-                id: closeAnim
+        // M3 search view (docked): surface-container-high, 28px corners
+        Rectangle {
+            id: panel
+            width: 640
+            height: 560
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 200
+            radius: Motion.shapeExtraLarge
+            color: Colors.surface_container_high
+            transformOrigin: Item.Top
+            opacity: root.isOpenLauncher ? 1 : 0
+            scale: root.isOpenLauncher ? 1 : 0.92
+            Behavior on opacity { Fade { speed: "default" } }
+            Behavior on scale { Spring { speed: "default" } }
 
-                onStarted: panelWindow.animatingClosed = true
-                onStopped: panelWindow.animatingClosed = false
+            // swallow clicks so they don't close the launcher
+            MouseArea { anchors.fill: parent }
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120; easing.type: Easing.InQuad }
-                NumberAnimation { target: panelBg; property: "scale"; to: 0.90; duration: 180; easing.type: Easing.InCirc }
-                NumberAnimation { target: dropTrans; property: "y"; to: -18; duration: 180; easing.type: Easing.InCirc }
-                NumberAnimation { target: panelBg; property: "opacity"; to: 0; duration: 160; easing.type: Easing.InQuad }
-            }
-
-            ParallelAnimation {
-                id: openAnim
-                NumberAnimation {
-                    target: panelBg
-                    property: "opacity"
-                    to: 1.0
-                    duration: 180
-                    easing.type: Easing.OutQuad
-                }
-                NumberAnimation {
-                    target: panelBg
-                    property: "scale"
-                    to: 1.0
-                    duration: 240
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 1.12
-                }
-                NumberAnimation {
-                    target: dropTrans
-                    property: "y"
-                    to: 0
-                    duration: 240
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 1.12
-                }
-                NumberAnimation {
-                    target: content
-                    property: "opacity"
-                    to: 1.0
-                    duration: 180
-                    easing.type: Easing.OutQuad
-                }
-            }
-
-            MouseArea {
+            ColumnLayout {
                 anchors.fill: parent
-                onClicked: {}
-            }
+                anchors.margins: 16
+                spacing: 12
 
-            Column {
-                id: content
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 10
-                opacity: 0
-
-                // ---- search field ----
+                // ---- search bar ----
                 Rectangle {
-                    id: searchContainer
-                    width: parent.width
-                    height: 46
-                    radius: 14
-                    color: Qt.alpha(root.theme.on_background, 0.06)
-                    border.width: 0
+                    Layout.fillWidth: true
+                    implicitHeight: 56
+                    radius: height / 2
+                    color: Colors.surface_container_highest
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 12
-                        spacing: 10
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 4
+                        spacing: 16
 
-                        Image {
-                            id: searchIcon
-                            Layout.alignment: Qt.AlignVCenter
-                            source: "../assets/magnifying-glass-bold.svg"
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                            sourceSize.width: 22
-                            sourceSize.height: 22
-                            fillMode: Image.PreserveAspectFit
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                colorization: 1.0
-                                colorizationColor: root.theme.primary
-                            }
-                        }
+                        Icon { name: "search"; color: Colors.on_surface }
 
                         TextInput {
                             id: searchField
                             Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
                             text: root.query
-                            color: root.theme.on_background
-                            font.pixelSize: 17
-                            font.family: root.settings.fontdefault
+                            color: Colors.on_surface
+                            selectionColor: Colors.primary
+                            selectedTextColor: Colors.on_primary
+                            font.family: Typography.family
+                            font.pixelSize: Typography.size("bodyLarge")
+                            font.weight: Typography.weight("bodyLarge")
                             clip: true
-
                             onTextChanged: root.query = text
 
                             Keys.onDownPressed: root.selectedIndex = Math.min(root.filteredApps.length - 1, root.selectedIndex + 1)
@@ -286,246 +346,141 @@ Item {
                             Keys.onEnterPressed: root.launch(root.filteredApps[root.selectedIndex])
                             Keys.onEscapePressed: root.isOpenLauncher = false
 
-                            Text {
+                            StyledText {
                                 visible: searchField.text.length === 0
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "Search applications\u2026"
-                                color: root.theme.on_background
-                                opacity: 0.4
-                                font.pixelSize: 17
-                                font.family: root.settings.fontdefault
+                                role: "bodyLarge"
+                                color: Colors.on_surface_variant
+                                text: "Search apps"
                             }
                         }
 
-                        Item {
-                            id: clearBtn
-                            Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredWidth: 26
-                            Layout.preferredHeight: 26
-                            visible: searchField.text.length > 0
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 8
-                                color: clearHover.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : "transparent"
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "\u2715"
-                                    font.pixelSize: 14
-                                    font.family: root.settings.fontdefault
-                                    color: clearHover.containsMouse ? root.theme.primary : root.theme.on_background
-                                    opacity: clearHover.containsMouse ? 1.0 : 0.6
-                                }
-                            }
-
-                            MouseArea {
-                                id: clearHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    searchField.text = "";
-                                    root.query = "";
-                                    searchField.forceActiveFocus();
-                                }
+                        IconButton {
+                            icon: "close"
+                            opacity: searchField.text.length > 0 ? 1 : 0
+                            enabled: opacity > 0
+                            Behavior on opacity { Fade {} }
+                            onClicked: {
+                                searchField.text = "";
+                                searchField.forceActiveFocus();
                             }
                         }
                     }
-                }
-
-                Rectangle {
-                    id: separator
-                    height: 1
-                    width: parent.width
-                    color: Qt.alpha(root.theme.on_background, 0.08)
                 }
 
                 // ---- results ----
                 ListView {
                     id: resultsList
-                    width: parent.width
-                    height: content.height - searchContainer.height - separator.height - content.spacing * 2
-                    focus: true
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     clip: true
                     reuseItems: true
+                    spacing: 2
                     model: root.filteredApps
                     currentIndex: root.selectedIndex
-                    highlightMoveDuration: 140
-                    highlightMoveVelocity: -1
-                    snapMode: ListView.SnapToItem
-                    highlightFollowsCurrentItem: true
-                    highlightResizeDuration: 0
+                    highlightFollowsCurrentItem: false
+                    ScrollIntoView { view: resultsList }
+                    boundsBehavior: Flickable.StopAtBounds
 
+                    // selected row: secondary container with the expressive 16px list shape,
+                    // springing between rows
                     highlight: Rectangle {
-                        radius: 14
-                        color: Qt.alpha(root.theme.primary, 0.85)
-                        border.width: 0
+                        width: resultsList.width
+                        height: 64
+                        radius: Motion.shapeLarge
+                        color: Colors.secondary_container
+                        y: resultsList.currentItem ? resultsList.currentItem.y : 0
+                        visible: resultsList.count > 0
+                        Behavior on y { Spring {} }
                     }
 
-                    delegate: Item {
-                        id: rowItem
+                    delegate: Clickable {
+                        id: row
                         required property var modelData
                         required property int index
+                        readonly property bool current: index === root.selectedIndex
+                        readonly property string dockId: modelData.id.replace(/\.desktop$/, "").toLowerCase()
+                        readonly property bool pinned: root.dock ? root.dock.isPinned(dockId) : false
+
                         width: resultsList.width
-                        height: 52
+                        height: 64
+                        restRadius: hovered ? Motion.shapeMedium : Motion.shapeExtraSmall
+                        pressedRadius: Motion.shapeLarge
+                        contentColor: current ? Colors.on_secondary_container : Colors.on_surface
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: mouse => mouse.button === Qt.RightButton ? root.toggleDockPin(modelData) : root.launch(modelData)
 
-                        readonly property bool isCurrent: rowItem.index === root.selectedIndex
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 14
-                            color: rowHover.containsMouse && !rowItem.isCurrent
-                                ? Qt.alpha(root.theme.on_background, 0.06)
-                                : "transparent"
-
-                            Behavior on color {
-                                ColorAnimation { duration: 120 }
-                            }
-                        }
-
-                        MouseArea {
-                            id: rowHover
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onPositionChanged: mouse => {
-                                const p = mapToItem(null, mouse.x, mouse.y);
+                        // hover only selects when the pointer actually moved (not when the list scrolls under it)
+                        Connections {
+                            target: row.mouseArea
+                            function onPositionChanged(mouse) {
+                                const p = row.mapToItem(null, mouse.x, mouse.y);
                                 if (p.x === root.lastMouseX && p.y === root.lastMouseY)
                                     return;
                                 root.lastMouseX = p.x;
                                 root.lastMouseY = p.y;
-                                root.selectedIndex = rowItem.index;
+                                root.selectedIndex = row.index;
                             }
-                            onClicked: root.launch(rowItem.modelData)
                         }
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 10
-                            spacing: 12
+                            anchors.leftMargin: 16
+                            anchors.rightMargin: 8
+                            spacing: 16
 
-                            Rectangle {
-                                Layout.alignment: Qt.AlignVCenter
-                                Layout.preferredWidth: 36
-                                Layout.preferredHeight: 36
-                                radius: 10
-                                color: rowItem.isCurrent
-                                    ? Qt.alpha(root.theme.background, 0.22)
-                                    : Qt.alpha(root.theme.on_background, 0.06)
-
-                                IconImage {
-                                    anchors.centerIn: parent
-                                    implicitSize: 26
-                                    source: Quickshell.iconPath(rowItem.modelData.icon, true)
-                                }
+                            IconImage {
+                                implicitSize: 40
+                                source: Quickshell.iconPath(row.modelData.icon, true)
                             }
-
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignVCenter
-                                spacing: 2
-
-                                Text {
+                                spacing: 0
+                                StyledText {
                                     Layout.fillWidth: true
-                                    text: rowItem.modelData.name
-                                    color: rowItem.isCurrent ? root.theme.background : root.theme.on_background
-                                    font.pixelSize: 17
-                                    font.family: root.settings.fontmedium
+                                    role: "bodyLarge"
+                                    color: row.contentColor
                                     elide: Text.ElideRight
-
-                                    Behavior on color {
-                                        ColorAnimation { duration: 120 }
-                                    }
+                                    text: row.modelData.name
                                 }
-
-                                Text {
+                                StyledText {
                                     Layout.fillWidth: true
                                     visible: text.length > 0
-                                    text: rowItem.modelData.genericName || rowItem.modelData.comment || ""
-                                    color: rowItem.isCurrent ? Qt.alpha(root.theme.background, 0.72) : Qt.alpha(root.theme.on_background, 0.55)
-                                    font.pixelSize: 13
-                                    font.family: root.settings.fontdefault
+                                    role: "bodyMedium"
+                                    color: row.current ? Colors.on_secondary_container : Colors.on_surface_variant
                                     elide: Text.ElideRight
-
-                                    Behavior on color {
-                                        ColorAnimation { duration: 120 }
-                                    }
+                                    text: row.modelData.genericName || row.modelData.comment || ""
                                 }
                             }
-
-                            Item {
-                                id: pinButton
-                                Layout.alignment: Qt.AlignVCenter
-                                Layout.preferredWidth: 28
-                                Layout.preferredHeight: 28
-                                visible: root.isPinned(rowItem.modelData.id) || rowHover.containsMouse
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 8
-                                    color: pinHover.containsMouse
-                                        ? (rowItem.isCurrent ? Qt.alpha(root.theme.background, 0.2) : Qt.alpha(root.theme.on_background, 0.1))
-                                        : "transparent"
-
-                                    Image {
-                                        anchors.centerIn: parent
-                                        source: root.isPinned(rowItem.modelData.id)
-                                            ? "../assets/push-pin-fill.svg"
-                                            : "../assets/push-pin-bold.svg"
-                                        sourceSize.width: 17
-                                        sourceSize.height: 17
-                                        fillMode: Image.PreserveAspectFit
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: rowItem.isCurrent
-                                                ? root.theme.background
-                                                : (root.isPinned(rowItem.modelData.id) ? root.theme.primary : Qt.alpha(root.theme.on_background, 0.5))
-                                        }
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: pinHover
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.togglePin(rowItem.modelData.id)
-                                }
+                            // pin to dock: outlined glyph when unpinned, filled when pinned
+                            IconButton {
+                                icon: "keep"
+                                checkable: true
+                                checked: row.pinned
+                                opacity: row.pinned || row.hovered || hovered ? 1 : 0
+                                Behavior on opacity { Fade {} }
+                                onClicked: root.toggleDockPin(row.modelData)
                             }
                         }
                     }
 
-                    // simple empty state
+                    // empty state
                     ColumnLayout {
                         anchors.centerIn: parent
                         visible: resultsList.count === 0
-                        spacing: 8
-
-                        Image {
+                        spacing: 12
+                        Rectangle {
                             Layout.alignment: Qt.AlignHCenter
-                            source: "../assets/magnifying-glass-bold.svg"
-                            Layout.preferredWidth: 30
-                            Layout.preferredHeight: 30
-                            sourceSize.width: 30
-                            sourceSize.height: 30
-                            fillMode: Image.PreserveAspectFit
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                colorization: 1.0
-                                colorizationColor: Qt.alpha(root.theme.on_background, 0.3)
-                            }
+                            implicitWidth: 72
+                            implicitHeight: 72
+                            radius: Motion.shapeExtraLarge
+                            color: Colors.secondary_container
+                            Icon { anchors.centerIn: parent; size: 32; name: "search_off"; color: Colors.on_secondary_container }
                         }
-
-                        Text {
+                        StyledText {
                             Layout.alignment: Qt.AlignHCenter
-                            text: "No matching applications"
-                            color: root.theme.on_background
-                            opacity: 0.5
-                            font.pixelSize: 16
-                            font.family: root.settings.fontdefault
+                            role: "titleMedium"
+                            text: "No matching apps"
                         }
                     }
                 }

@@ -1,9 +1,13 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
+import qs.Components
 
+// Briefly marks a monitor while hovering it in the Screen tab: a translucent primary
+// wash over the whole output plus a centred name card (no outline).
 // PanelWindow is provided dynamically by Quickshell's active layer-shell backend.
 // qmllint disable uncreatable-type
 PanelWindow {
@@ -16,12 +20,7 @@ PanelWindow {
     visible: targetScreen !== null
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    anchors {
-        left: true
-        right: true
-        top: true
-        bottom: true
-    }
+    anchors { left: true; right: true; top: true; bottom: true }
     mask: Region {}
 
     WlrLayershell.layer: WlrLayer.Overlay
@@ -30,32 +29,49 @@ PanelWindow {
 
     Rectangle {
         anchors.fill: parent
-        anchors.margins: 10
-        color: "transparent"
-        border.color: Colors.primary
-        border.width: 6
-        radius: 18
+        color: Qt.alpha(Colors.primary, 0.16)
+        opacity: overlay.visible ? 1 : 0
+        Behavior on opacity { Fade {} }
+    }
+
+    Elevation {
+        anchors.fill: badgeCard
+        radius: badgeCard.radius
+        level: 3
+        opacity: badgeCard.opacity
+        scale: badgeCard.scale
     }
 
     Rectangle {
+        id: badgeCard
         anchors.centerIn: parent
         width: Math.min(implicitWidth, overlay.width - 80)
-        implicitWidth: identificationText.implicitWidth + 48
-        implicitHeight: identificationText.implicitHeight + 32
-        color: Qt.rgba(Colors.inverse_surface.r, Colors.inverse_surface.g,
-            Colors.inverse_surface.b, 0.85)
-        border.color: Qt.rgba(Colors.primary.r, Colors.primary.g, Colors.primary.b, 0.5)
-        border.width: 1
-        radius: 18
+        implicitWidth: badgeRow.implicitWidth + 48
+        implicitHeight: badgeRow.implicitHeight + 48
+        radius: Motion.shapeExtraLarge
+        color: Colors.surface_container_high
+        scale: overlay.visible ? 1 : 0.88
+        opacity: overlay.visible ? 1 : 0
+        Behavior on scale { Spring { speed: "default" } }
+        Behavior on opacity { Fade {} }
 
-        Text {
-            id: identificationText
+        RowLayout {
+            id: badgeRow
             anchors.centerIn: parent
-            color: Colors.inverse_on_surface
-            font.pixelSize: 28
-            font.weight: Font.DemiBold
-            horizontalAlignment: Text.AlignHCenter
-            text: overlay.label
+            spacing: 24
+
+            Rectangle {
+                implicitWidth: 64
+                implicitHeight: 64
+                radius: Motion.shapeLarge
+                color: Colors.primary_container
+                Icon { anchors.centerIn: parent; name: "desktop_windows"; size: 32; color: Colors.on_primary_container }
+            }
+            StyledText {
+                role: "headlineSmall"
+                emphasized: true
+                text: overlay.label
+            }
         }
     }
 }

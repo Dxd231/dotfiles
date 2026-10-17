@@ -7,36 +7,19 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
+import qs.Components
 
 Item {
     id: picker
 
     required property var hostWindow
 
-    // QSP_THEME no longer picks between two hardcoded palettes - all colors come
-    // from the Colors singleton (~/.config/quickshell/Colors.qml). themeName/darkTheme
-    // are kept only because runSmoke() asserts they track the environment.
+    // QSP_THEME no longer picks between palettes - all colors come from the shared Colors
+    // singleton. themeName/darkTheme are kept only because runSmoke() asserts they track the
+    // environment.
     readonly property string themeName: String(Quickshell.env("QSP_THEME") || "light").toLowerCase()
     readonly property bool darkTheme: themeName === "dark"
-    readonly property color backgroundColor: Colors.background
-    readonly property color surfaceColor: Colors.surface_container_high
-    readonly property color borderColor: Colors.outline_variant
-    readonly property color textColor: Colors.on_background
-    readonly property color mutedTextColor: Colors.on_surface_variant
-    readonly property color accentColor: Colors.primary
-    // Global font family - change this one place to re-theme all text.
-    readonly property string fontFamily: "Readex Pro"
-    readonly property color selectedColor: Colors.secondary_container
-    readonly property color tabColor: Colors.surface_container
-    readonly property color tabHoverColor: Colors.surface_container_highest
-    readonly property color listColor: Colors.surface_container_low
-    readonly property color previewColor: Colors.surface_container_lowest
-    readonly property color previewTextColor: Colors.on_surface_variant
-    readonly property color tooltipColor: Colors.inverse_surface
-    readonly property color tooltipBorderColor: Colors.outline
-    readonly property color tooltipTextColor: Colors.inverse_on_surface
-    readonly property color metadataColor: Qt.rgba(Colors.background.r, Colors.background.g,
-        Colors.background.b, 0.867)
+    readonly property color backgroundColor: Colors.surface_container_high
     readonly property bool testMode: Quickshell.env("QSP_TEST_MODE") === "1"
     readonly property bool liveTestMode: Quickshell.env("QSP_LIVE_TEST_MODE") === "1"
     readonly property bool smokeMode: Quickshell.env("QSP_SMOKE_MODE") === "1"
@@ -725,888 +708,666 @@ Item {
         }
     }
 
-    Rectangle {
+    // ---------------------------------------------------------------- tab state
+    // Screen / Window / Region; kept as `tabs.currentIndex` for the logic and smoke tests.
+    QtObject {
+        id: tabs
+        property int currentIndex: 1
+        onCurrentIndexChanged: if (picker.windowModelReady) picker.focusCurrentTab()
+    }
+
+    // rebuild the window list when any toplevel's identity or workspace changes
+    Repeater {
+        model: picker.testMode ? null : Hyprland.toplevels
+        delegate: Item {
+            id: associationDelegate
+            required property var modelData
+            visible: false
+            Connections {
+                target: associationDelegate.modelData
+                function onAddressChanged() { picker.rebuildWindows(); }
+                function onWaylandHandleChanged() { picker.rebuildWindows(); }
+                function onWorkspaceChanged() { picker.rebuildWindows(); }
+            }
+        }
+    }
+
+    ColumnLayout {
         anchors.fill: parent
-        color: "transparent"
+        anchors.margins: 24
+        spacing: 16
 
-        Repeater {
-            model: picker.testMode ? null : Hyprland.toplevels
+        // ---- header: title + source segmented control ----
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
 
-            delegate: Item {
-                id: associationDelegate
-                required property var modelData
-                visible: false
-                width: 0
-                height: 0
+            Rectangle {
+                implicitWidth: 48
+                implicitHeight: 48
+                radius: Motion.shapeLarge
+                color: Colors.primary_container
+                Icon { anchors.centerIn: parent; name: "screen_share"; color: Colors.on_primary_container }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                StyledText { role: "headlineSmall"; text: "Share your screen" }
+                StyledText { role: "bodyMedium"; color: Colors.on_surface_variant; text: "Choose what to stream" }
+            }
 
-                Connections {
-                    target: associationDelegate.modelData
-
-                    function onAddressChanged() {
-                        picker.rebuildWindows();
-                    }
-
-                    function onWaylandHandleChanged() {
-                        picker.rebuildWindows();
-                    }
-
-                    function onWorkspaceChanged() {
-                        picker.rebuildWindows();
+            Row {
+                spacing: 2
+                Repeater {
+                    model: [["Screen", "desktop_windows"], ["Window", "web_asset"], ["Region", "crop_free"]]
+                    delegate: ConnectedButton {
+                        required property var modelData
+                        required property int index
+                        implicitHeight: 40
+                        position: index === 0 ? "first" : index === 2 ? "last" : "middle"
+                        icon: modelData[1]
+                        text: modelData[0]
+                        selected: tabs.currentIndex === index
+                        onClicked: tabs.currentIndex = index
                     }
                 }
             }
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: picker.surfaceColor
-                border.color: picker.borderColor
-                border.width: 1
-                radius: 28
-                clip: true
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 0
-
-                    // Hidden TabBar for logic only
-                    TabBar {
-                        id: tabs
-                        visible: false
-                        onCurrentIndexChanged: {
-                            if (picker.windowModelReady)
-                                picker.focusCurrentTab();
-                        }
-                        TabButton { text: "Screen"; font.family: picker.fontFamily }
-                        TabButton { text: "Window"; font.family: picker.fontFamily }
-                        TabButton { text: "Region"; font.family: picker.fontFamily }
-                    }
-
-                    // GTK pill-style visual tab bar
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 58
-
-                        Rectangle {
-                            anchors.fill: parent
-                            color: picker.tabColor
-                            // Square bottom corners to blend with content
-                            radius: 0
-                        }
-
-                        // Bottom separator
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 1
-                            color: picker.borderColor
-                        }
-
-                        // Pill track
-                        Rectangle {
-                            id: pillTrack
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width - 24
-                            height: 40
-                            radius: height / 2
-                            color: Qt.alpha(picker.backgroundColor, 0.55)
-
-                            // Animated sliding pill
-                            Rectangle {
-                                id: activePill
-                                y: 3
-                                height: parent.height - 6
-                                radius: height / 2
-                                color: picker.accentColor
-
-                                Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                                Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                            }
-
-                            Row {
-                                anchors.fill: parent
-
-                                Repeater {
-                                    model: ["Screen", "Window", "Region"]
-
-                                    delegate: Item {
-                                        id: tabItem
-                                        required property string modelData
-                                        required property int index
-                                        width: pillTrack.width / 3
-                                        height: pillTrack.height
-
-                                        Text {
-                                            font.family: picker.fontFamily
-                                            anchors.centerIn: parent
-                                            text: tabItem.modelData
-                                            color: tabs.currentIndex === tabItem.index ? picker.tooltipTextColor : picker.mutedTextColor
-                                            font.weight: tabs.currentIndex === tabItem.index ? Font.SemiBold : Font.Normal
-                                            font.pixelSize: 13
-                                            Behavior on color { ColorAnimation { duration: 120 } }
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            onClicked: tabs.currentIndex = tabItem.index
-                                        }
-                                    }
-                                }
-                            }
-
-                            function syncPill() {
-                                var w = pillTrack.width / 3;
-                                activePill.x = tabs.currentIndex * w + 2;
-                                activePill.width = w - 4;
-                            }
-
-                            Component.onCompleted: syncPill()
-
-                            Connections {
-                                target: tabs
-                                function onCurrentIndexChanged() { pillTrack.syncPill(); }
-                            }
-                        }
-                    }
-
-                    StackLayout {
-                        currentIndex: tabs.currentIndex
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-
-                        Item {
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 10
-
-                                Rectangle {
-                                    Layout.preferredWidth: 280
-                                    Layout.minimumWidth: 220
-                                    Layout.maximumWidth: 300
-                                    Layout.fillHeight: true
-                                    color: picker.listColor
-                                    border.color: picker.borderColor
-                                    border.width: 1
-                                    radius: 24
-
-                                    ListView {
-                                        id: screenList
-                                        readonly property real scrollGutter: screenScrollBar.visible ? screenScrollBar.width + 4 : 0
-                                        anchors.fill: parent
-                                        anchors.margins: 4
-                                        clip: true
-                                        spacing: 2
-                                        model: picker.screenEntries
-                                        activeFocusOnTab: true
-                                        keyNavigationEnabled: true
-                                        Keys.onReturnPressed: event => {
-                                            if (picker.selectedScreen())
-                                                picker.shareCurrent();
-                                            event.accepted = true;
-                                        }
-                                        highlightMoveDuration: 80
-                                        highlight: Rectangle {
-                                            color: picker.accentColor
-                                            radius: 20
-                                        }
-
-                                        delegate: Item {
-                                            id: screenDelegate
-                                            required property var modelData
-                                            required property int index
-                                            width: screenList.width - screenList.scrollGutter
-                                            height: 54
-
-                                            Column {
-                                                anchors.left: parent.left
-                                                anchors.right: parent.right
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                anchors.leftMargin: 12
-                                                anchors.rightMargin: 12
-                                                spacing: 2
-
-                                                Text {
-                                                    font.family: picker.fontFamily
-                                                    width: parent.width
-                                                    color: screenDelegate.ListView.isCurrentItem ? picker.tooltipTextColor : picker.textColor
-                                                    elide: Text.ElideRight
-                                                    font.weight: Font.DemiBold
-                                                    text: screenDelegate.modelData.name
-                                                }
-
-                                                Text {
-                                                    font.family: picker.fontFamily
-                                                    width: parent.width
-                                                    color: screenDelegate.ListView.isCurrentItem ? picker.tooltipTextColor : picker.mutedTextColor
-                                                    elide: Text.ElideRight
-                                                    font.pixelSize: 12
-                                                    text: screenDelegate.modelData.width + "×" + screenDelegate.modelData.height
-                                                        + " at " + screenDelegate.modelData.x + ", " + screenDelegate.modelData.y
-                                                }
-                                            }
-
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                onEntered: picker.requestScreenIdentification(screenDelegate.modelData)
-                                                onClicked: {
-                                                    screenList.currentIndex = screenDelegate.index;
-                                                    picker.requestScreenIdentification(screenDelegate.modelData);
-                                                }
-                                                onDoubleClicked: {
-                                                    screenList.currentIndex = screenDelegate.index;
-                                                    picker.finish("screen:" + screenDelegate.modelData.name);
-                                                }
-                                            }
-                                        }
-
-                                        ScrollBar.vertical: ScrollBar {
-                                            id: screenScrollBar
-                                            policy: ScrollBar.AsNeeded
-                                            width: 8
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: screenPreviewFrame
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    Layout.minimumWidth: 200
-                                    color: picker.previewColor
-                                    radius: 24
-                                    clip: true
-
-                                    readonly property var selection: picker.selectedScreen()
-                                    readonly property real sourceRatio: screenPreview.sourceSize.height > 0
-                                        ? screenPreview.sourceSize.width / screenPreview.sourceSize.height : 1
-
-                                    ScreencopyView {
-                                        id: screenPreview
-                                        anchors.centerIn: parent
-                                        captureSource: screenPreviewFrame.selection ? screenPreviewFrame.selection.screen : null
-                                        live: false
-                                        paintCursor: false
-                                        width: hasContent ? Math.min(screenPreviewFrame.width,
-                                            screenPreviewFrame.height * screenPreviewFrame.sourceRatio) : 0
-                                        height: hasContent ? width / screenPreviewFrame.sourceRatio : 0
-                                    }
-
-                                    Timer {
-                                        id: screenPreviewRefreshTimer
-                                        interval: 1000
-                                        repeat: true
-                                        running: picker.windowModelReady && tabs.currentIndex === 0
-                                            && screenPreview.captureSource !== null
-                                        onTriggered: screenPreview.captureFrame()
-                                    }
-
-                                    BusyIndicator {
-                                        anchors.centerIn: parent
-                                        anchors.verticalCenterOffset: -18
-                                        width: 32
-                                        height: 32
-                                        running: visible
-                                        visible: screenPreviewFrame.selection && screenPreview.captureSource
-                                            && !screenPreview.hasContent
-                                    }
-
-                                    Text {
-                                        font.family: picker.fontFamily
-                                        anchors.centerIn: parent
-                                        anchors.verticalCenterOffset: 22
-                                        width: parent.width - 40
-                                        horizontalAlignment: Text.AlignHCenter
-                                        wrapMode: Text.WordWrap
-                                        color: picker.previewTextColor
-                                        visible: !screenPreview.hasContent
-                                        text: {
-                                            if (!screenPreviewFrame.selection)
-                                                return "Select a screen to preview";
-                                            if (picker.testMode)
-                                                return "Preview unavailable in mock mode";
-                                            if (!screenPreviewFrame.selection.screen)
-                                                return "No preview available";
-                                            return "Loading preview…";
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        height: 52
-                                        color: picker.metadataColor
-                                        visible: screenPreviewFrame.selection !== null
-
-                                        Column {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            anchors.leftMargin: 12
-                                            anchors.rightMargin: 12
-                                            spacing: 2
-
-                                            Text {
-                                                font.family: picker.fontFamily
-                                                width: parent.width
-                                                color: picker.tooltipTextColor
-                                                elide: Text.ElideRight
-                                                font.weight: Font.DemiBold
-                                                text: screenPreviewFrame.selection ? screenPreviewFrame.selection.name : ""
-                                            }
-
-                                            Text {
-                                                font.family: picker.fontFamily
-                                                width: parent.width
-                                                color: picker.previewTextColor
-                                                elide: Text.ElideRight
-                                                font.pixelSize: 11
-                                                text: screenPreviewFrame.selection
-                                                    ? screenPreviewFrame.selection.width + "×" + screenPreviewFrame.selection.height
-                                                        + " · scale " + screenPreviewFrame.selection.scale
-                                                        + (screenPreviewFrame.selection.refreshRate > 0
-                                                            ? " · " + Math.round(screenPreviewFrame.selection.refreshRate) + " Hz" : "")
-                                                    : ""
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Item {
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 10
-
-                                Rectangle {
-                                    Layout.preferredWidth: 300
-                                    Layout.minimumWidth: 220
-                                    Layout.maximumWidth: 300
-                                    Layout.fillHeight: true
-                                    color: picker.listColor
-                                    border.color: picker.borderColor
-                                    border.width: 1
-                                    radius: 24
-
-                                    ColumnLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 6
-                                        spacing: 6
-
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            visible: picker.windowFilterActive
-                                            spacing: 6
-
-                                            TextField {
-                                                font.family: picker.fontFamily
-                                                id: windowFilter
-                                                Layout.fillWidth: true
-                                                Layout.preferredHeight: 36
-                                                leftPadding: 14
-                                                rightPadding: 14
-                                                placeholderText: "Filter windows…"
-                                                palette.base: picker.surfaceColor
-                                                palette.text: picker.textColor
-                                                palette.placeholderText: picker.mutedTextColor
-                                                palette.highlight: picker.accentColor
-                                                palette.highlightedText: picker.tooltipTextColor
-                                                background: Rectangle {
-                                                    color: picker.surfaceColor
-                                                    border.color: windowFilter.activeFocus ? picker.accentColor : picker.borderColor
-                                                    border.width: windowFilter.activeFocus ? 2 : 1
-                                                    radius: height / 2
-                                                }
-                                                text: picker.windowFilterText
-                                                selectByMouse: true
-                                                onTextEdited: {
-                                                    picker.windowFilterText = text;
-                                                    picker.refreshFilteredWindows();
-                                                }
-                                                Keys.onDownPressed: event => {
-                                                    picker.moveWindowSelection(1);
-                                                    event.accepted = true;
-                                                }
-                                                Keys.onUpPressed: event => {
-                                                    picker.moveWindowSelection(-1);
-                                                    event.accepted = true;
-                                                }
-                                                Keys.onEscapePressed: event => {
-                                                    if (text.length > 0) {
-                                                        clear();
-                                                        picker.windowFilterText = "";
-                                                        picker.refreshFilteredWindows();
-                                                    } else {
-                                                        picker.windowFilterActive = false;
-                                                        windowList.forceActiveFocus();
-                                                    }
-                                                    event.accepted = true;
-                                                }
-                                                Keys.onReturnPressed: event => {
-                                                    if (picker.selectedWindow())
-                                                        picker.shareCurrent();
-                                                    event.accepted = true;
-                                                }
-                                            }
-
-                                            Text {
-                                                font.family: picker.fontFamily
-                                                color: picker.mutedTextColor
-                                                text: picker.filteredWindowEntries.length + " of " + picker.windowEntries.length
-                                            }
-                                        }
-
-                                        ListView {
-                                            id: windowList
-                                            readonly property real scrollGutter: windowScrollBar.visible ? windowScrollBar.width + 4 : 0
-                                            Layout.fillWidth: true
-                                            Layout.fillHeight: true
-                                        clip: true
-                                        spacing: 2
-                                        model: picker.filteredWindowEntries
-                                        activeFocusOnTab: true
-                                        keyNavigationEnabled: true
-                                        highlightMoveDuration: 80
-                                        section.property: "sectionLabel"
-                                        section.criteria: ViewSection.FullString
-                                        section.delegate: Rectangle {
-                                            required property string section
-                                            width: windowList.width - windowList.scrollGutter
-                                            height: 24
-                                            color: "transparent"
-
-                                            Text {
-                                                font.family: picker.fontFamily
-                                                anchors.left: parent.left
-                                                anchors.right: parent.right
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                anchors.leftMargin: 8
-                                                anchors.rightMargin: 8
-                                                color: picker.mutedTextColor
-                                                elide: Text.ElideRight
-                                                font.pixelSize: 11
-                                                font.weight: Font.DemiBold
-                                                text: section
-                                            }
-                                        }
-                                        Keys.onReturnPressed: event => {
-                                            picker.windowOrderingFrozen = true;
-                                            if (picker.selectedWindow())
-                                                picker.shareCurrent();
-                                            event.accepted = true;
-                                        }
-                                        highlight: Rectangle {
-                                            color: picker.accentColor
-                                            radius: 20
-                                        }
-
-                                        delegate: Item {
-                                            id: windowDelegate
-                                            required property var modelData
-                                            required property int index
-                                            width: windowList.width - windowList.scrollGutter
-                                            height: 46
-
-                                            RowLayout {
-                                                anchors.fill: parent
-                                                anchors.leftMargin: 8
-                                                anchors.rightMargin: 8
-                                                spacing: 9
-
-                                                Image {
-                                                    Layout.preferredWidth: 24
-                                                    Layout.preferredHeight: 24
-                                                    sourceSize: Qt.size(24, 24)
-                                                    source: picker.iconFor(windowDelegate.modelData.className)
-                                                    fillMode: Image.PreserveAspectFit
-                                                }
-
-                                                Text {
-                                                    font.family: picker.fontFamily
-                                                    id: windowTitle
-                                                    Layout.fillWidth: true
-                                                    color: windowDelegate.ListView.isCurrentItem ? picker.tooltipTextColor : picker.textColor
-                                                    elide: Text.ElideRight
-                                                    text: windowDelegate.modelData.className + ": " + windowDelegate.modelData.title
-                                                }
-
-                                                Text {
-                                                    font.family: picker.fontFamily
-                                                    visible: !windowDelegate.modelData.matched
-                                                    color: windowDelegate.ListView.isCurrentItem ? picker.tooltipTextColor : picker.mutedTextColor
-                                                    font.pixelSize: 10
-                                                    text: "No preview"
-                                                }
-                                            }
-
-                                            MouseArea {
-                                                id: windowMouseArea
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                onClicked: {
-                                                    picker.windowOrderingFrozen = true;
-                                                    windowList.currentIndex = windowDelegate.index;
-                                                }
-                                                onDoubleClicked: {
-                                                    picker.windowOrderingFrozen = true;
-                                                    windowList.currentIndex = windowDelegate.index;
-                                                    picker.finish("window:" + windowDelegate.modelData.handle);
-                                                }
-                                                onContainsMouseChanged: {
-                                                    if (containsMouse && windowTitle.truncated) {
-                                                        windowToolTipDelay.restart();
-                                                    } else {
-                                                        windowToolTipDelay.stop();
-                                                        windowToolTipTimeout.stop();
-                                                        windowToolTip.visible = false;
-                                                    }
-                                                }
-                                            }
-
-                                            ToolTip {
-                                                id: windowToolTip
-                                                x: 8
-                                                y: windowDelegate.height + 4
-                                                width: Math.min(420, Math.max(220, windowTitle.implicitWidth + leftPadding + rightPadding))
-                                                padding: 8
-                                                visible: false
-                                                text: windowTitle.text
-
-                                                contentItem: Text {
-                                                    font.family: picker.fontFamily
-                                                    id: windowToolTipText
-                                                    width: windowToolTip.width - windowToolTip.leftPadding - windowToolTip.rightPadding
-                                                    color: picker.tooltipTextColor
-                                                    elide: Text.ElideRight
-                                                    maximumLineCount: 3
-                                                    wrapMode: Text.Wrap
-                                                    text: windowToolTip.text
-                                                }
-
-                                                background: Rectangle {
-                                                    color: picker.tooltipColor
-                                                    border.color: picker.tooltipBorderColor
-                                                    border.width: 1
-                                                    radius: 16
-                                                }
-                                            }
-
-                                            Timer {
-                                                id: windowToolTipDelay
-                                                interval: 650
-                                                onTriggered: {
-                                                    if (windowMouseArea.containsMouse && windowTitle.truncated) {
-                                                        windowToolTip.visible = true;
-                                                        windowToolTipTimeout.restart();
-                                                    }
-                                                }
-                                            }
-
-                                            Timer {
-                                                id: windowToolTipTimeout
-                                                interval: 5000
-                                                onTriggered: windowToolTip.visible = false
-                                            }
-
-                                        }
-
-                                        Text {
-                                            font.family: picker.fontFamily
-                                            anchors.centerIn: parent
-                                            width: parent.width - 32
-                                            color: picker.mutedTextColor
-                                            horizontalAlignment: Text.AlignHCenter
-                                            wrapMode: Text.WordWrap
-                                            visible: picker.filteredWindowEntries.length === 0
-                                            text: picker.windowFilterText
-                                                ? "No windows match this filter"
-                                                : "No shareable windows\nTry Screen or Region"
-                                        }
-
-                                        ScrollBar.vertical: ScrollBar {
-                                            id: windowScrollBar
-                                            policy: ScrollBar.AsNeeded
-                                            width: 8
-                                        }
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: previewFrame
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    color: picker.previewColor
-                                    radius: 24
-                                    clip: true
-
-                                    readonly property var selection: picker.selectedWindow()
-                                    readonly property real sourceRatio: preview.sourceSize.height > 0
-                                        ? preview.sourceSize.width / preview.sourceSize.height : 1
-
-                                    ScreencopyView {
-                                        id: preview
-                                        anchors.centerIn: parent
-                                        captureSource: previewFrame.selection ? previewFrame.selection.captureSource : null
-                                        live: false
-                                        paintCursor: false
-                                        width: hasContent ? Math.min(previewFrame.width, previewFrame.height * previewFrame.sourceRatio) : 0
-                                        height: hasContent ? width / previewFrame.sourceRatio : 0
-                                    }
-
-                                    Timer {
-                                        id: previewRefreshTimer
-                                        interval: 1000
-                                        repeat: true
-                                        running: picker.windowModelReady && tabs.currentIndex === 1
-                                            && preview.captureSource !== null
-                                        onTriggered: preview.captureFrame()
-                                    }
-
-                                    BusyIndicator {
-                                        anchors.centerIn: parent
-                                        anchors.verticalCenterOffset: -18
-                                        width: 32
-                                        height: 32
-                                        running: visible
-                                        visible: previewFrame.selection && preview.captureSource && !preview.hasContent
-                                    }
-
-                                    Text {
-                                        font.family: picker.fontFamily
-                                        anchors.centerIn: parent
-                                        anchors.verticalCenterOffset: 22
-                                        width: parent.width - 40
-                                        horizontalAlignment: Text.AlignHCenter
-                                        wrapMode: Text.WordWrap
-                                        color: picker.previewTextColor
-                                        visible: !preview.hasContent
-                                        text: {
-                                            if (!previewFrame.selection)
-                                                return "Select a window to preview";
-                                            if (picker.testMode)
-                                                return "Preview unavailable in mock mode";
-                                            if (!previewFrame.selection.matched || !previewFrame.selection.captureSource)
-                                                return "No preview available";
-                                            return "Loading preview…";
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        height: 62
-                                        color: picker.metadataColor
-                                        visible: previewFrame.selection !== null
-
-                                        Column {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            anchors.leftMargin: 12
-                                            anchors.rightMargin: 12
-                                            spacing: 2
-
-                                            Text {
-                                                font.family: picker.fontFamily
-                                                width: parent.width
-                                                color: picker.tooltipTextColor
-                                                elide: Text.ElideRight
-                                                font.weight: Font.DemiBold
-                                                text: previewFrame.selection ? previewFrame.selection.className : ""
-                                            }
-
-                                            Text {
-                                                font.family: picker.fontFamily
-                                                width: parent.width
-                                                color: picker.previewTextColor
-                                                elide: Text.ElideRight
-                                                maximumLineCount: 2
-                                                wrapMode: Text.Wrap
-                                                text: previewFrame.selection ? previewFrame.selection.title : ""
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Item {
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 14
-                                spacing: 12
-
-                                Text {
-                                    font.family: picker.fontFamily
-                                    Layout.fillWidth: true
-                                    visible: picker.regionRecovery
-                                    color: picker.mutedTextColor
-                                    wrapMode: Text.WordWrap
-                                    text: "Region selection was canceled. Choose again, repeat the last region, or use another tab."
-                                }
-
-                                Button {
-                                    id: regionButton
-                                    Layout.fillWidth: true
-                                    Layout.minimumHeight: 44
-                                    enabled: picker.slurpAvailable
-                                    text: picker.slurpAvailable ? "Select Region…" : "Select Region… (slurp is not installed)"
-                                    onClicked: picker.selectRegion()
-
-                                    background: Rectangle {
-                                        radius: height / 2
-                                        color: !regionButton.enabled ? Qt.alpha(picker.listColor, 0.5)
-                                            : regionButton.down ? picker.selectedColor
-                                            : regionButton.hovered ? picker.tabHoverColor : picker.listColor
-                                        border.color: picker.borderColor
-                                        border.width: 1
-                                        Behavior on color { ColorAnimation { duration: 100 } }
-                                    }
-                                    contentItem: Text {
-                                        font.family: picker.fontFamily
-                                        text: regionButton.text
-                                        color: regionButton.enabled ? picker.textColor : picker.mutedTextColor
-                                        font.weight: Font.Medium
-                                        font.pixelSize: 13
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                Button {
-                                    id: repeatRegionButton
-                                    Layout.fillWidth: true
-                                    Layout.minimumHeight: 44
-                                    visible: picker.lastRegionAvailable()
-                                    enabled: picker.lastRegionAvailable()
-                                    text: picker.session.lastRegion
-                                        ? "Repeat " + picker.session.lastRegion.output + " region — "
-                                            + picker.session.lastRegion.width + "×" + picker.session.lastRegion.height
-                                            + " at " + picker.session.lastRegion.x + "," + picker.session.lastRegion.y
-                                        : "Repeat last region"
-                                    onClicked: picker.repeatLastRegion()
-
-                                    background: Rectangle {
-                                        radius: height / 2
-                                        color: repeatRegionButton.down ? picker.selectedColor
-                                            : repeatRegionButton.hovered ? picker.tabHoverColor : picker.listColor
-                                        border.color: picker.borderColor
-                                        border.width: 1
-                                        Behavior on color { ColorAnimation { duration: 100 } }
-                                    }
-                                    contentItem: Text {
-                                        font.family: picker.fontFamily
-                                        text: repeatRegionButton.text
-                                        color: picker.textColor
-                                        font.weight: Font.Medium
-                                        font.pixelSize: 13
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                Item { Layout.fillHeight: true }
-                            }
-                        }
-                    }
-                }
-            }
-
-            CheckBox {
-                font.family: picker.fontFamily
-                id: restoreToken
-                palette.buttonText: picker.textColor
-                palette.windowText: picker.textColor
-                visible: picker.allowTokenSelection
-                text: "Allow a restore token"
-                hoverEnabled: true
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-                ToolTip.text: "By selecting this, the application will be given a restore token that it can use to skip prompting you next time.\nOnly select if you trust the application."
-            }
-
+        StackLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            currentIndex: tabs.currentIndex
+
+            // ---------------------------------------------------------------- screens
             RowLayout {
+                spacing: 16
+
+                Rectangle {
+                    Layout.preferredWidth: 280
+                    Layout.minimumWidth: 220
+                    Layout.maximumWidth: 300
+                    Layout.fillHeight: true
+                    radius: Motion.shapeLarge
+                    color: Colors.surface_container
+
+                    ListView {
+                        id: screenList
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        clip: true
+                        spacing: 2
+                        model: picker.screenEntries
+                        activeFocusOnTab: true
+                        keyNavigationEnabled: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        Keys.onReturnPressed: event => {
+                            if (picker.selectedScreen())
+                                picker.shareCurrent();
+                            event.accepted = true;
+                        }
+                        highlightFollowsCurrentItem: false
+                        ScrollIntoView { view: screenList }
+                        highlight: Rectangle {
+                            width: screenList.width
+                            height: 64
+                            radius: Motion.shapeLarge
+                            color: Colors.secondary_container
+                            y: screenList.currentItem ? screenList.currentItem.y : 0
+                            visible: screenList.count > 0
+                            Behavior on y { Spring {} }
+                        }
+
+                        delegate: Clickable {
+                            id: screenItem
+                            required property var modelData
+                            required property int index
+                            readonly property bool current: ListView.isCurrentItem
+
+                            width: screenList.width
+                            height: 64
+                            restRadius: Motion.shapeLarge
+                            pressedRadius: Motion.shapeSmall
+                            contentColor: current ? Colors.on_secondary_container : Colors.on_surface
+                            onClicked: {
+                                screenList.currentIndex = index;
+                                picker.requestScreenIdentification(modelData);
+                            }
+                            onHoveredChanged: if (hovered) picker.requestScreenIdentification(modelData)
+                            Connections {
+                                target: screenItem.mouseArea
+                                function onDoubleClicked() {
+                                    screenList.currentIndex = screenItem.index;
+                                    picker.finish("screen:" + screenItem.modelData.name);
+                                }
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 16
+                                anchors.rightMargin: 16
+                                spacing: 16
+                                Icon {
+                                    name: "desktop_windows"
+                                    color: screenItem.current ? Colors.on_secondary_container : Colors.on_surface_variant
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    StyledText {
+                                        Layout.fillWidth: true
+                                        role: "bodyLarge"
+                                        color: screenItem.contentColor
+                                        elide: Text.ElideRight
+                                        text: screenItem.modelData.name
+                                    }
+                                    StyledText {
+                                        Layout.fillWidth: true
+                                        role: "bodyMedium"
+                                        color: screenItem.current ? Colors.on_secondary_container : Colors.on_surface_variant
+                                        elide: Text.ElideRight
+                                        text: screenItem.modelData.width + "×" + screenItem.modelData.height + " at " + screenItem.modelData.x + ", " + screenItem.modelData.y
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: screenPreviewFrame
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 200
+                    radius: Motion.shapeLarge
+                    color: Colors.surface_container_lowest
+                    clip: true
+
+                    readonly property var selection: picker.selectedScreen()
+                    readonly property real sourceRatio: screenPreview.sourceSize.height > 0 ? screenPreview.sourceSize.width / screenPreview.sourceSize.height : 1
+
+                    ScreencopyView {
+                        id: screenPreview
+                        anchors.centerIn: parent
+                        captureSource: screenPreviewFrame.selection ? screenPreviewFrame.selection.screen : null
+                        live: false
+                        paintCursor: false
+                        width: hasContent ? Math.min(screenPreviewFrame.width, screenPreviewFrame.height * screenPreviewFrame.sourceRatio) : 0
+                        height: hasContent ? width / screenPreviewFrame.sourceRatio : 0
+                    }
+                    Timer {
+                        id: screenPreviewRefreshTimer
+                        interval: 1000
+                        repeat: true
+                        running: picker.windowModelReady && tabs.currentIndex === 0 && screenPreview.captureSource !== null
+                        onTriggered: screenPreview.captureFrame()
+                    }
+
+                    PreviewPlaceholder {
+                        visible: !screenPreview.hasContent
+                        loading: !!screenPreviewFrame.selection && !!screenPreview.captureSource
+                        text: !screenPreviewFrame.selection ? "Select a screen to preview"
+                            : picker.testMode ? "Preview unavailable in mock mode"
+                            : !screenPreviewFrame.selection.screen ? "No preview available"
+                            : "Loading preview…"
+                    }
+
+                    PreviewCaption {
+                        visible: screenPreviewFrame.selection !== null
+                        icon: "desktop_windows"
+                        title: screenPreviewFrame.selection ? screenPreviewFrame.selection.name : ""
+                        subtitle: screenPreviewFrame.selection
+                            ? screenPreviewFrame.selection.width + "×" + screenPreviewFrame.selection.height + " · scale " + screenPreviewFrame.selection.scale
+                                + (screenPreviewFrame.selection.refreshRate > 0 ? " · " + Math.round(screenPreviewFrame.selection.refreshRate) + " Hz" : "")
+                            : ""
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------- windows
+            RowLayout {
+                spacing: 16
+
+                Rectangle {
+                    Layout.preferredWidth: 300
+                    Layout.minimumWidth: 220
+                    Layout.maximumWidth: 320
+                    Layout.fillHeight: true
+                    radius: Motion.shapeLarge
+                    color: Colors.surface_container
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        spacing: 4
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: picker.windowFilterActive
+                            spacing: 8
+
+                            TextField {
+                                id: windowFilter
+                                Layout.fillWidth: true
+                                label: "Filter windows"
+                                leadingIcon: "search"
+                                text: picker.windowFilterText
+                                onEdited: text => {
+                                    picker.windowFilterText = text;
+                                    picker.refreshFilteredWindows();
+                                }
+                                onAccepted: {
+                                    if (picker.selectedWindow())
+                                        picker.shareCurrent();
+                                }
+                                Keys.onDownPressed: event => {
+                                    picker.moveWindowSelection(1);
+                                    event.accepted = true;
+                                }
+                                Keys.onUpPressed: event => {
+                                    picker.moveWindowSelection(-1);
+                                    event.accepted = true;
+                                }
+                                Keys.onEscapePressed: event => {
+                                    if (text.length > 0) {
+                                        text = "";
+                                        picker.windowFilterText = "";
+                                        picker.refreshFilteredWindows();
+                                    } else {
+                                        picker.windowFilterActive = false;
+                                        windowList.forceActiveFocus();
+                                    }
+                                    event.accepted = true;
+                                }
+                            }
+                            StyledText {
+                                Layout.rightMargin: 8
+                                role: "labelMedium"
+                                color: Colors.on_surface_variant
+                                text: picker.filteredWindowEntries.length + " / " + picker.windowEntries.length
+                            }
+                        }
+
+                        ListView {
+                            id: windowList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 2
+                            model: picker.filteredWindowEntries
+                            activeFocusOnTab: true
+                            keyNavigationEnabled: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            section.property: "sectionLabel"
+                            section.criteria: ViewSection.FullString
+                            section.delegate: Item {
+                                required property string section
+                                width: windowList.width
+                                height: 36
+                                StyledText {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.leftMargin: 16
+                                    anchors.bottomMargin: 6
+                                    role: "labelLarge"
+                                    color: Colors.primary
+                                    elide: Text.ElideRight
+                                    text: parent.section
+                                }
+                            }
+                            Keys.onReturnPressed: event => {
+                                picker.windowOrderingFrozen = true;
+                                if (picker.selectedWindow())
+                                    picker.shareCurrent();
+                                event.accepted = true;
+                            }
+                            highlightFollowsCurrentItem: false
+                            ScrollIntoView { view: windowList }
+                            highlight: Rectangle {
+                                width: windowList.width
+                                height: 56
+                                radius: Motion.shapeLarge
+                                color: Colors.secondary_container
+                                y: windowList.currentItem ? windowList.currentItem.y : 0
+                                visible: windowList.count > 0
+                                Behavior on y { Spring {} }
+                            }
+
+                            delegate: Clickable {
+                                id: windowItem
+                                required property var modelData
+                                required property int index
+                                readonly property bool current: ListView.isCurrentItem
+
+                                width: windowList.width
+                                height: 56
+                                restRadius: Motion.shapeLarge
+                                pressedRadius: Motion.shapeSmall
+                                contentColor: current ? Colors.on_secondary_container : Colors.on_surface
+                                onClicked: {
+                                    picker.windowOrderingFrozen = true;
+                                    windowList.currentIndex = index;
+                                }
+                                Connections {
+                                    target: windowItem.mouseArea
+                                    function onDoubleClicked() {
+                                        picker.windowOrderingFrozen = true;
+                                        windowList.currentIndex = windowItem.index;
+                                        picker.finish("window:" + windowItem.modelData.handle);
+                                    }
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 16
+                                    anchors.rightMargin: 12
+                                    spacing: 16
+                                    Image {
+                                        Layout.preferredWidth: 24
+                                        Layout.preferredHeight: 24
+                                        sourceSize: Qt.size(48, 48)
+                                        fillMode: Image.PreserveAspectFit
+                                        source: picker.iconFor(windowItem.modelData.className)
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 0
+                                        StyledText {
+                                            id: windowTitle
+                                            Layout.fillWidth: true
+                                            role: "bodyLarge"
+                                            color: windowItem.contentColor
+                                            elide: Text.ElideRight
+                                            text: windowItem.modelData.title || windowItem.modelData.className
+                                        }
+                                        StyledText {
+                                            Layout.fillWidth: true
+                                            role: "bodySmall"
+                                            color: windowItem.current ? Colors.on_secondary_container : Colors.on_surface_variant
+                                            elide: Text.ElideRight
+                                            text: windowItem.modelData.className + (windowItem.modelData.matched ? "" : " · no preview")
+                                        }
+                                    }
+                                }
+
+                                // full title as an M3 plain tooltip when truncated
+                                Rectangle {
+                                    readonly property bool shown: windowItem.hovered && windowTitle.truncated && tipDelay.done
+                                    x: 16
+                                    y: windowItem.height + 4
+                                    z: 10
+                                    width: Math.min(420, tipText.implicitWidth + 16)
+                                    height: tipText.implicitHeight + 8
+                                    radius: Motion.shapeExtraSmall
+                                    color: Colors.inverse_surface
+                                    opacity: shown ? 1 : 0
+                                    visible: opacity > 0
+                                    Behavior on opacity { Fade {} }
+                                    StyledText {
+                                        id: tipText
+                                        x: 8
+                                        y: 4
+                                        width: Math.min(implicitWidth, 404)
+                                        role: "bodySmall"
+                                        color: Colors.inverse_on_surface
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 3
+                                        text: windowTitle.text
+                                    }
+                                    Timer {
+                                        id: tipDelay
+                                        property bool done: false
+                                        interval: 650
+                                        running: windowItem.hovered
+                                        onRunningChanged: if (!running) done = false
+                                        onTriggered: done = true
+                                    }
+                                }
+                            }
+
+                            StyledText {
+                                anchors.centerIn: parent
+                                width: parent.width - 32
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                role: "bodyLarge"
+                                color: Colors.on_surface_variant
+                                visible: picker.filteredWindowEntries.length === 0
+                                text: picker.windowFilterText ? "No windows match this filter" : "No shareable windows\nTry Screen or Region"
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: previewFrame
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: Motion.shapeLarge
+                    color: Colors.surface_container_lowest
+                    clip: true
+
+                    readonly property var selection: picker.selectedWindow()
+                    readonly property real sourceRatio: preview.sourceSize.height > 0 ? preview.sourceSize.width / preview.sourceSize.height : 1
+
+                    ScreencopyView {
+                        id: preview
+                        anchors.centerIn: parent
+                        captureSource: previewFrame.selection ? previewFrame.selection.captureSource : null
+                        live: false
+                        paintCursor: false
+                        width: hasContent ? Math.min(previewFrame.width, previewFrame.height * previewFrame.sourceRatio) : 0
+                        height: hasContent ? width / previewFrame.sourceRatio : 0
+                    }
+                    Timer {
+                        id: previewRefreshTimer
+                        interval: 1000
+                        repeat: true
+                        running: picker.windowModelReady && tabs.currentIndex === 1 && preview.captureSource !== null
+                        onTriggered: preview.captureFrame()
+                    }
+
+                    PreviewPlaceholder {
+                        visible: !preview.hasContent
+                        loading: !!previewFrame.selection && !!preview.captureSource
+                        text: !previewFrame.selection ? "Select a window to preview"
+                            : picker.testMode ? "Preview unavailable in mock mode"
+                            : !previewFrame.selection.matched || !previewFrame.selection.captureSource ? "No preview available"
+                            : "Loading preview…"
+                    }
+
+                    PreviewCaption {
+                        visible: previewFrame.selection !== null
+                        image: previewFrame.selection ? picker.iconFor(previewFrame.selection.className) : ""
+                        title: previewFrame.selection ? previewFrame.selection.className : ""
+                        subtitle: previewFrame.selection ? previewFrame.selection.title : ""
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------- region
+            Item {
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: Math.min(520, parent.width)
+                    height: regionCol.implicitHeight + 48
+                    radius: Motion.shapeExtraLarge
+                    color: Colors.surface_container
+
+                    ColumnLayout {
+                        id: regionCol
+                        anchors.centerIn: parent
+                        width: parent.width - 48
+                        spacing: 16
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            implicitWidth: 72
+                            implicitHeight: 72
+                            radius: Motion.shapeExtraLarge
+                            color: Colors.primary_container
+                            Icon { anchors.centerIn: parent; name: "crop_free"; size: 36; color: Colors.on_primary_container }
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            role: "headlineSmall"
+                            text: "Share a region"
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            role: "bodyMedium"
+                            color: picker.regionRecovery ? Colors.error : Colors.on_surface_variant
+                            text: picker.regionRecovery
+                                ? "Region selection was canceled. Choose again, repeat the last region, or use another tab."
+                                : "Drag a rectangle anywhere on your screens to share only that part."
+                        }
+                        Button {
+                            id: regionButton
+                            Layout.alignment: Qt.AlignHCenter
+                            size: "m"
+                            icon: "crop_free"
+                            enabled: picker.slurpAvailable
+                            text: picker.slurpAvailable ? "Select region" : "Select region (slurp is not installed)"
+                            onClicked: picker.selectRegion()
+                        }
+                        Button {
+                            Layout.alignment: Qt.AlignHCenter
+                            visible: picker.lastRegionAvailable()
+                            style: "tonal"
+                            icon: "replay"
+                            text: picker.session.lastRegion
+                                ? "Repeat " + picker.session.lastRegion.output + " · " + picker.session.lastRegion.width + "×" + picker.session.lastRegion.height
+                                : "Repeat last region"
+                            onClicked: picker.repeatLastRegion()
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- footer ----
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+
+            Item {
+                id: restoreToken
+                property bool checked: true
+                visible: picker.allowTokenSelection
+                implicitWidth: tokenRow.implicitWidth
+                implicitHeight: tokenRow.implicitHeight
+                Row {
+                    id: tokenRow
+                    spacing: 12
+                    Switch {
+                        anchors.verticalCenter: parent.verticalCenter
+                        checked: restoreToken.checked
+                        onToggled: restoreToken.checked = !restoreToken.checked
+                    }
+                    ColumnLayout {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 0
+                        StyledText { role: "bodyLarge"; text: "Remember this choice" }
+                        StyledText { role: "bodySmall"; color: Colors.on_surface_variant; text: "Gives the app a restore token so it can skip this picker" }
+                    }
+                }
+            }
+
+            StyledText {
+                visible: !restoreToken.visible
                 Layout.fillWidth: true
-                spacing: 8
+                role: "bodySmall"
+                color: Colors.on_surface_variant
+                elide: Text.ElideRight
+                text: tabs.currentIndex === 1
+                    ? "↑↓ select · Enter share · / filter · Ctrl+1–3 tabs · Esc cancel"
+                    : "↑↓ select · Enter share · Ctrl+1–3 tabs · Esc cancel"
+            }
+            Item { visible: restoreToken.visible; Layout.fillWidth: true }
 
-                Text {
-                    font.family: picker.fontFamily
-                    color: picker.mutedTextColor
-                    font.pixelSize: 11
-                    text: tabs.currentIndex === 1
-                        ? "↑↓ select   Enter share   / filter   Ctrl+1–3 tabs   Esc cancel"
-                        : "↑↓ select   Enter share   Ctrl+1–3 tabs   Esc cancel"
-                }
+            Button {
+                style: "text"
+                text: "Cancel"
+                onClicked: picker.cancel()
+            }
+            Button {
+                icon: "screen_share"
+                text: "Share"
+                enabled: picker.shareEnabled()
+                onClicked: picker.shareCurrent()
+            }
+        }
+    }
 
-                Item { Layout.fillWidth: true }
+    // preview pane placeholder: loading indicator or message
+    component PreviewPlaceholder: Column {
+        id: placeholder
+        property bool loading
+        property string text
+        anchors.centerIn: parent
+        spacing: 16
+        LoadingIndicator {
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: placeholder.loading
+            running: visible && placeholder.visible
+        }
+        StyledText {
+            anchors.horizontalCenter: parent.horizontalCenter
+            role: "bodyLarge"
+            color: Colors.on_surface_variant
+            text: placeholder.text
+        }
+    }
 
-                Button {
-                    id: cancelButton
-                    Layout.preferredHeight: 40
-                    Layout.preferredWidth: Math.max(88, implicitContentWidth + 32)
-                    text: "Cancel"
-                    onClicked: picker.cancel()
+    // caption chip floating over the bottom of a preview
+    component PreviewCaption: Rectangle {
+        id: caption
+        property string icon
+        property string image
+        property string title
+        property string subtitle
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 12
+        height: 64
+        radius: Motion.shapeLarge
+        color: Qt.alpha(Colors.surface_container_highest, 0.94)
 
-                    background: Rectangle {
-                        radius: height / 2
-                        color: cancelButton.down ? picker.tabHoverColor
-                            : cancelButton.hovered ? Qt.alpha(picker.tabHoverColor, 0.6) : "transparent"
-                        border.color: picker.borderColor
-                        border.width: 1
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                    }
-                    contentItem: Text {
-                        font.family: picker.fontFamily
-                        text: cancelButton.text
-                        color: picker.textColor
-                        font.weight: Font.Medium
-                        font.pixelSize: 13
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                Button {
-                    id: shareButton
-                    Layout.preferredHeight: 40
-                    Layout.preferredWidth: Math.max(96, implicitContentWidth + 36)
-                    text: "Share"
-                    enabled: picker.shareEnabled()
-                    highlighted: true
-                    onClicked: picker.shareCurrent()
-
-                    background: Rectangle {
-                        radius: height / 2
-                        color: !shareButton.enabled ? Qt.alpha(picker.accentColor, 0.4)
-                            : shareButton.down ? Qt.darker(picker.accentColor, 1.15)
-                            : shareButton.hovered ? Qt.lighter(picker.accentColor, 1.08) : picker.accentColor
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                    }
-                    contentItem: Text {
-                        font.family: picker.fontFamily
-                        text: shareButton.text
-                        color: picker.tooltipTextColor
-                        font.weight: Font.DemiBold
-                        font.pixelSize: 13
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            spacing: 16
+            Icon {
+                visible: caption.icon !== ""
+                name: caption.icon
+                color: Colors.primary
+            }
+            Image {
+                visible: caption.image !== ""
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                sourceSize: Qt.size(64, 64)
+                fillMode: Image.PreserveAspectFit
+                source: caption.image
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                StyledText { Layout.fillWidth: true; role: "titleSmall"; elide: Text.ElideRight; text: caption.title }
+                StyledText {
+                    Layout.fillWidth: true
+                    role: "bodySmall"
+                    color: Colors.on_surface_variant
+                    elide: Text.ElideRight
+                    maximumLineCount: 2
+                    wrapMode: Text.Wrap
+                    text: caption.subtitle
                 }
             }
         }

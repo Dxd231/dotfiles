@@ -1,294 +1,199 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import Quickshell.Wayland
-import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
+import qs
+import qs.Components
 
+// Power dialog: M3 basic dialog (scrim, surface-container-high, 28px corners, hero icon)
+// with large square icon buttons. Keys: ←/→ or h/l to move, Enter/Space to run, 1–6 direct.
 Scope {
     id: root
-    property var theme
-    property var settings
+
+    property var lockScreen: null
     property bool menuVisible: false
+    property int selectedIndex: 0
 
-    function open()   { menuVisible = true }
-    function close()  { menuVisible = false }
-    function toggle() { menuVisible = !menuVisible }
-
-    property int selectedIndex: 0          
-
-    onMenuVisibleChanged: {
-        if (menuVisible) 
-            selectedIndex = 0
+    function open() { menuVisible = true; }
+    function close() { menuVisible = false; }
+    function toggle() { menuVisible = !menuVisible; }
+    function lock() {
+        if (lockScreen)
+            lockScreen.lock();
+        else
+            Quickshell.execDetached(["qs", "ipc", "call", "lockscreen", "lock"]);
     }
+    function run(i) {
+        actions[i].run();
+        close();
+    }
+
+    onMenuVisibleChanged: if (menuVisible) selectedIndex = 0
 
     IpcHandler {
         target: "powermenu"
-        function open(): void   { root.open() }
-        function close(): void  { root.close() }
-        function toggle(): void { root.toggle() }
+        function open(): void { root.open(); }
+        function close(): void { root.close(); }
+        function toggle(): void { root.toggle(); }
     }
 
+    // lock first, then act once the lock surface is up
     Timer {
-        id: dpmsTimer
-        interval: 400          // 300–600 ms usually works well
-        repeat: false
-        onTriggered: {
-            Quickshell.execDetached([
-                "sh", "-c", 'qs ipc call lockscreen lock && sleep 1 && hyprctl dispatch "hl.dsp.dpms({ action = "off" })"'
-            ])
-        }
+        id: afterLock
+        property var command: []
+        interval: 1000
+        onTriggered: Quickshell.execDetached(command)
+    }
+    function lockThen(command) {
+        lock();
+        afterLock.command = command;
+        afterLock.restart();
     }
 
-    property var actions: [
-        { icon: "../assets/lock-fill.svg",                  label: "Lock",     run: () => Quickshell.execDetached(["qs", "ipc", "call", "lockscreen", "lock"]) },
-        { icon: "../assets/monitor.svg",                    label: "DPMS",     run: () => dpmsTimer.start() },
-        { icon: "../assets/moon.svg",                       label: "Suspend",  run: () => Quickshell.execDetached(["sh", "-c", "qs ipc call lockscreen lock && sleep 1 && systemctl suspend"]) }, 
-        { icon: "../assets/arrow-u-up-right-fill.svg",      label: "Logout",   run: () => Quickshell.execDetached(["hyprshutdown"]) },
-        { icon: "../assets/arrow-clockwise-fill.svg",       label: "Reboot",   run: () => Quickshell.execDetached(["sh", "-c", "hyprshutdown --post-cmd 'systemctl reboot'"]) },
-        { icon: "../assets/power-fill.svg",                 label: "Shutdown", run: () => Quickshell.execDetached(["sh", "-c", "hyprshutdown --post-cmd 'systemctl poweroff'"]) }
+    // role: "primary" | "tertiary" | "error"
+    readonly property var actions: [
+        { icon: "lock", label: "Lock", role: "primary", run: () => root.lock() },
+        { icon: "monitor", label: "Screen off", role: "primary", run: () => root.lockThen(["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\" })"]) },
+        { icon: "bedtime", label: "Suspend", role: "primary", run: () => root.lockThen(["systemctl", "suspend"]) },
+        { icon: "logout", label: "Log out", role: "tertiary", run: () => Quickshell.execDetached(["hyprshutdown"]) },
+        { icon: "restart_alt", label: "Restart", role: "tertiary", run: () => Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl reboot"]) },
+        { icon: "power_settings_new", label: "Shut down", role: "error", run: () => Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl poweroff"]) }
     ]
 
     Variants {
         model: Quickshell.screens
+
         PanelWindow {
             id: panelWindow
-            property var modelData
+            required property var modelData
             screen: modelData
-            visible: root.menuVisible || panelBg.opacity > 0       
+            visible: root.menuVisible || scrim.opacity > 0
             WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.keyboardFocus: root.menuVisible
-                ? WlrKeyboardFocus.OnDemand
-                : WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: root.menuVisible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
             WlrLayershell.namespace: "quickshell:powermenu"
-            exclusiveZone: -1   // -1 = extend under other windows' exclusive zones (bar/dock)
+            exclusiveZone: -1
             anchors { top: true; bottom: true; left: true; right: true }
             color: "transparent"
 
             Item {
-                id: keyHandler
                 anchors.fill: parent
                 focus: root.menuVisible
-                Keys.enabled: root.menuVisible
-
                 Keys.onPressed: event => {
-                    if (event.key === Qt.Key_Escape) {
-                        root.close()
-                        event.accepted = true
-                    }
-                    else if (event.key === Qt.Key_Left || event.key === Qt.Key_H) {
-                        root.selectedIndex = (root.selectedIndex - 1 + root.actions.length) % root.actions.length
-                        event.accepted = true
-                    }
-                    else if (event.key === Qt.Key_Right || event.key === Qt.Key_L) {
-                        root.selectedIndex = (root.selectedIndex + 1) % root.actions.length
-                        event.accepted = true
-                    }
-                    else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                        root.actions[root.selectedIndex].run()
-                        root.close()
-                        event.accepted = true
-                    }
-                    else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_6) {
-                        const idx = event.key - Qt.Key_1
-                        if (idx < root.actions.length) {
-                            root.selectedIndex = idx
-                            root.actions[idx].run()
-                            root.close()
-                        }
-                        event.accepted = true
-                    }
+                    const n = root.actions.length;
+                    if (event.key === Qt.Key_Escape)
+                        root.close();
+                    else if (event.key === Qt.Key_Left || event.key === Qt.Key_H)
+                        root.selectedIndex = (root.selectedIndex - 1 + n) % n;
+                    else if (event.key === Qt.Key_Right || event.key === Qt.Key_L || event.key === Qt.Key_Tab)
+                        root.selectedIndex = (root.selectedIndex + 1) % n;
+                    else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+                        root.run(root.selectedIndex);
+                    else if (event.key >= Qt.Key_1 && event.key < Qt.Key_1 + n)
+                        root.run(event.key - Qt.Key_1);
+                    else
+                        return;
+                    event.accepted = true;
                 }
             }
 
-            MouseArea {
+            Rectangle {
+                id: scrim
                 anchors.fill: parent
-                enabled: root.menuVisible
-                onClicked: root.close()
+                color: Qt.alpha(Colors.scrim, 0.32)
+                opacity: root.menuVisible ? 1 : 0
+                Behavior on opacity { Fade { speed: "default" } }
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: root.menuVisible
+                    onClicked: root.close()
+                }
             }
 
-
+            Elevation {
+                anchors.fill: dialog
+                radius: dialog.radius
+                level: 3
+                opacity: dialog.opacity
+                scale: dialog.scale
+            }
 
             Rectangle {
-                id: panelBg
-                anchors.fill: parent
-                scale: 0
-                opacity: 0
-                radius: 0
-                color: Qt.alpha(root.theme.background, 0.3)
-                border.width: 0
-                transformOrigin: Item.Center
+                id: dialog
+                anchors.centerIn: parent
+                width: content.implicitWidth + 48
+                height: content.implicitHeight + 48
+                radius: Motion.shapeExtraLarge
+                color: Colors.surface_container_high
+                opacity: root.menuVisible ? 1 : 0
+                scale: root.menuVisible ? 1 : 0.9
+                Behavior on opacity { Fade { speed: "default" } }
+                Behavior on scale { Spring { speed: "default" } }
 
-                states: [
-                    State {
-                        name: "open"
-                        when: root.menuVisible
-                        PropertyChanges {
-                            target: panelBg
-                            scale: 1
-                            opacity: 1
-                        }
-                        PropertyChanges {
-                            target: buttonrow
-                            opacity: 1
-                        }
-                    },
-                    State {
-                        name: "closed"
-                        when: !root.menuVisible
-                        PropertyChanges {
-                            target: panelBg
-                            scale: 0
-                            opacity: 0
-                        }
-                        PropertyChanges {
-                            target: buttonrow
-                            opacity: 0
-                        }
-                    }
-                ]
+                // swallow clicks so they don't reach the scrim
+                MouseArea { anchors.fill: parent }
 
-                transitions: [
-                    Transition {
-                        from: "closed"
-                        to: "open"
-
-                        ParallelAnimation {
-                            NumberAnimation {
-                                target: panelBg
-                                property: "opacity"
-                                duration: 160
-                                easing.type: Easing.OutQuad
-                            }
-                            NumberAnimation {
-                                target: panelBg
-                                property: "scale"
-                                duration: 250
-                                easing.type: Easing.OutBack
-                                easing.overshoot: 1.15
-                            }
-                            NumberAnimation {
-                                target: buttonrow
-                                property: "opacity"
-                                duration: 180
-                                easing.type: Easing.OutQuad
-                            }
-                        }
-                    },
-                    Transition {
-                        from: "open"
-                        to: "closed"
-
-                        ParallelAnimation {
-                            NumberAnimation {
-                                target: buttonrow
-                                property: "opacity"
-                                duration: 120
-                                easing.type: Easing.InQuad
-                            }
-                            NumberAnimation {
-                                target: panelBg
-                                property: "scale"
-                                duration: 180
-                                easing.type: Easing.InCirc
-                            }
-                            NumberAnimation {
-                                target: panelBg
-                                property: "opacity"
-                                duration: 150
-                                easing.type: Easing.InQuad
-                            }
-                        }
-                    }
-                ]
-
-                RowLayout {
-                    id: buttonrow
+                ColumnLayout {
+                    id: content
                     anchors.centerIn: parent
-                    spacing: 20
-                    opacity: 0
+                    spacing: 16
 
-                    Repeater {
-                        model: root.actions
+                    Icon {
+                        Layout.alignment: Qt.AlignHCenter
+                        name: "settings_power"
+                        color: Colors.secondary
+                    }
+                    StyledText {
+                        Layout.alignment: Qt.AlignHCenter
+                        role: "headlineSmall"
+                        text: "Power"
+                    }
+                    StyledText {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.bottomMargin: 8
+                        role: "bodyMedium"
+                        color: Colors.on_surface_variant
+                        text: "Choose an action, or press 1–6"
+                    }
 
-                        Rectangle {
-                            id: buttons
-                            required property var modelData
-                            required property int index
-                            width: 200; height: 200; radius: 18
+                    Row {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 12
 
-                            readonly property bool isSelected: index === root.selectedIndex || hover.containsMouse
+                        Repeater {
+                            model: root.actions
+                            delegate: Column {
+                                id: action
+                                required property var modelData
+                                required property int index
+                                readonly property bool selected: index === root.selectedIndex
+                                spacing: 8
 
-                            Behavior on scale {
-                                NumberAnimation { duration: 180; easing.type: Easing.OutCirc }
-                            }
-
-                            border.color: isSelected ? root.theme.primary : "transparent"
-                            border.width: 0
-                            color: "transparent"
-
-                            Behavior on border.color {
-                                ColorAnimation {
-                                    duration: 200
-                                    easing.type: Easing.InOutCirc
-                                }
-                            }
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 14
-
-                                Image {
-                                    id: icon
-                                    source: buttons.modelData.icon
-                                    sourceSize.width: hover.containsMouse || buttons.isSelected ? 180 : 100
-                                    sourceSize.height: hover.containsMouse || buttons.isSelected ? 180 : 100
+                                // selection (keyboard or hover) morphs the square to a circle and
+                                // switches from the container role to the full-strength role
+                                IconButton {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    visible: false
-
-                                    Behavior on sourceSize.width {
-                                        NumberAnimation {
-                                            duration: 200
-                                            easing.type: Easing.OutCirc
-                                        }
-                                    }
-
-                                    Behavior on sourceSize.height {
-                                        NumberAnimation {
-                                            duration: 200
-                                            easing.type: Easing.OutCirc
-                                        }
-                                    }
+                                    readonly property string role: action.modelData.role
+                                    size: "l"
+                                    square: true
+                                    restRadius: action.selected ? height / 2 : Motion.shapeExtraLarge
+                                    icon: action.modelData.icon
+                                    color: role === "error" ? (action.selected ? Colors.error : Colors.error_container)
+                                         : role === "tertiary" ? (action.selected ? Colors.tertiary : Colors.tertiary_container)
+                                         : (action.selected ? Colors.primary : Colors.secondary_container)
+                                    contentColor: role === "error" ? (action.selected ? Colors.on_error : Colors.on_error_container)
+                                         : role === "tertiary" ? (action.selected ? Colors.on_tertiary : Colors.on_tertiary_container)
+                                         : (action.selected ? Colors.on_primary : Colors.on_secondary_container)
+                                    onClicked: root.run(action.index)
+                                    onHoveredChanged: if (hovered) root.selectedIndex = action.index
                                 }
-
-                                MultiEffect {
-                                    source: icon
-                                    width: icon.sourceSize.width
-                                    height: icon.sourceSize.height
+                                StyledText {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    colorization: 1.0
-                                    colorizationColor: root.theme.primary
+                                    role: "labelLarge"
+                                    color: action.selected ? Colors.on_surface : Colors.on_surface_variant
+                                    text: action.modelData.label
                                 }
-
-                                Text {
-                                    text: buttons.modelData.label
-                                    font.pixelSize: 16
-                                    font.family: root.settings.fontmedium
-                                    color: root.theme.on_background
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-                            }
-
-                            MouseArea {
-                                id: hover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: root.menuVisible
-                                onClicked: {
-                                    buttons.modelData.run()
-                                    root.close()
-                                }
-                                onEntered: root.selectedIndex = buttons.index
                             }
                         }
                     }
@@ -297,4 +202,3 @@ Scope {
         }
     }
 }
-

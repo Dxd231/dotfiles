@@ -1,52 +1,92 @@
 pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import QtQuick
-import QtQuick.Layouts
-import QtQuick.Effects
+import Quickshell.Widgets
+import qs
+import qs.Components
 
+// Clipboard history (cliphist) as an M3 search view: list + preview, copy / delete.
+// Also shows the "Copied" snackbar whenever something new lands on the clipboard.
 Item {
     id: root
 
-    property var theme
-    property var settings
     property var copyToast
-    property int global_radius: 8
 
     property bool isOpenClipB: false
     property string query: ""
-    onIsOpenClipBChanged: {
-        if (isOpenClipB) {
-            closeAnim.stop();
-            openAnim.restart();
-            searchField.forceActiveFocus();
-        } else {
-            openAnim.stop();
-            closeAnim.restart();
-        }
-    }
+    onIsOpenClipBChanged: if (isOpenClipB) searchField.forceActiveFocus()
     property var entries: []          
     property var knownClipboardIds: ({})
     property bool hasClipboardBaseline: false
     property var selectedEntry: null
     property int selectedIndex: 0
+    property int _prevSelectedIndex: 0
+    property int _lastRecordedIndex: 0
+    property real lastMouseX: -1
+    property real lastMouseY: -1
     property string previewMode: "none" 
     property string previewText: ""
     property string previewImagePath: ""
+
+    FileView {
+        id: timestampsFile
+        path: Quickshell.dataPath("clipboard-timestamps.json")
+        watchChanges: true
+        onFileChanged: reload()
+        onAdapterUpdated: writeAdapter()
+
+        JsonAdapter {
+            id: timestampsAdapter
+            property var timestamps: ({})
+        }
+    }
+
+    readonly property var imageTimestamps: (timestampsAdapter && timestampsAdapter.timestamps) ? timestampsAdapter.timestamps : ({})
+
+    function formatImageDate(id) {
+        const ts = (root.imageTimestamps && root.imageTimestamps[id]) ? root.imageTimestamps[id] : null;
+        if (!ts)
+            return Qt.formatDateTime(new Date(), "MMM d, HH:mm");
+        const d = new Date(ts);
+        if (isNaN(d.getTime()))
+            return Qt.formatDateTime(new Date(), "MMM d, HH:mm");
+        const now = new Date();
+        if (d.getFullYear() === now.getFullYear()) {
+            return Qt.formatDateTime(d, "MMM d, HH:mm");
+        }
+        return Qt.formatDateTime(d, "MMM d, yyyy, HH:mm");
+    }
 
     property var filteredEntries: {
         const q = root.query.trim().toLowerCase();
         if (q === "")
             return root.entries;
-        return root.entries.filter(e => e.preview.toLowerCase().includes(q));
+        return root.entries.filter(e => {
+            if (e.preview.toLowerCase().includes(q))
+                return true;
+            if (e.isImage) {
+                if ("image".includes(q) || e.ext.toLowerCase().includes(q))
+                    return true;
+                const dStr = root.formatImageDate(e.id).toLowerCase();
+                if (dStr.includes(q))
+                    return true;
+            }
+            return false;
+        });
     }
 
     // How long the selection has to stay put before we actually decode/preview it.
     // Prevents spamming `cliphist decode` processes when scrolling/arrow-keying fast.
     property int selectionDebounceMs: 120
 
-    onQueryChanged: root.selectedIndex = 0
+    onQueryChanged: {
+        root.selectedIndex = 0;
+        root._prevSelectedIndex = 0;
+        root._lastRecordedIndex = 0;
+    }
     onFilteredEntriesChanged: {
         if (root.selectedIndex >= root.filteredEntries.length)
             root.selectedIndex = Math.max(0, root.filteredEntries.length - 1);
@@ -59,6 +99,8 @@ Item {
         }
     }
     onSelectedIndexChanged: {
+        root._prevSelectedIndex = root._lastRecordedIndex;
+        root._lastRecordedIndex = root.selectedIndex;
         if (root.filteredEntries.length > 0 && root.selectedIndex >= 0)
             root.queueSelectEntry(root.filteredEntries[root.selectedIndex]);
     }
@@ -99,6 +141,8 @@ Item {
 
     function refreshList() {
         root.selectedIndex = 0;
+        root._prevSelectedIndex = 0;
+        root._lastRecordedIndex = 0;
         listProc.running = false;
         listProc.running = true;
     }
@@ -174,6 +218,11 @@ Item {
         if (!root.selectedEntry)
             return;
         const entry = root.selectedEntry;
+        if (entry.isImage && timestampsAdapter.timestamps && timestampsAdapter.timestamps[entry.id]) {
+            const cur = Object.assign({}, timestampsAdapter.timestamps);
+            delete cur[entry.id];
+            timestampsAdapter.timestamps = cur;
+        }
         deleteProc.stdinEnabled = true;
         deleteProc.running = false;
         deleteProc.running = true;
@@ -230,28 +279,52 @@ Item {
         command: ["cliphist", "list"]
         stdout: StdioCollector {
             onStreamFinished: {
-                const ids = text.split("\n")
+                const parsed = text.split("\n")
                     .map(line => root.parseLine(line))
-                    .filter(entry => entry !== null)
-                    .map(entry => entry.id);
+                    .filter(entry => entry !== null);
+                const ids = parsed.map(entry => entry.id);
 
                 if (root.hasClipboardBaseline && ids.length > 0 && !root.knownClipboardIds[ids[0]]) {
                     if (root.copyToast)
                         root.copyToast.showToast("Copied to clipboard");
+                    if (root.isOpenClipB)
+                        root.refreshList();
                 }
 
                 const known = Object.assign({}, root.knownClipboardIds);
                 ids.forEach(id => known[id] = true);
                 root.knownClipboardIds = known;
                 root.hasClipboardBaseline = true;
+
+                const cur = Object.assign({}, timestampsAdapter.timestamps || {});
+                let changed = false;
+                const now = Date.now();
+                for (let i = 0; i < parsed.length; i++) {
+                    const e = parsed[i];
+                    if (e.isImage && !cur[e.id]) {
+                        cur[e.id] = now;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    timestampsAdapter.timestamps = cur;
+                }
             }
         }
     }
 
-    Timer {
-        interval: 500
+    // Event-driven: one long-running watcher prints a line per clipboard change, and the
+    // history is listed once per change (after cliphist's own store has landed).
+    Process {
         running: true
-        repeat: true
+        command: ["wl-paste", "--watch", "echo", "changed"]
+        stdout: SplitParser {
+            onRead: clipboardSettle.restart()
+        }
+    }
+    Timer {
+        id: clipboardSettle
+        interval: 250
         onTriggered: root.pollClipboardHistory()
     }
 
@@ -289,6 +362,7 @@ Item {
         id: wipeProc
         command: ["cliphist", "wipe"]
         onExited: {
+            timestampsAdapter.timestamps = {};
             root.refreshList();
             root.selectedEntry = null;
             root.previewMode = "none";
@@ -322,516 +396,297 @@ Item {
         WlrLayershell.namespace: "quickshell:clipboardmanager"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: root.isOpenClipB ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-        anchors.top: true
-        anchors.left: true
-        anchors.right: true
-        exclusiveZone: 0
+        anchors { top: true; bottom: true; left: true; right: true }
+        exclusiveZone: -1
         color: "transparent"
-        margins.top: 0
-        margins.left: 0
-        margins.right: 0
-        implicitHeight: 1000
-        property bool animatingClosed: false
-        visible: root.isOpenClipB || animatingClosed
+        visible: root.isOpenClipB || panel.opacity > 0
 
         MouseArea {
             anchors.fill: parent
             onClicked: root.isOpenClipB = false
         }
 
-        Rectangle {
-            id: panelBg
-            width: 660
-            height: 440
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 250
-            radius: 18
-            border.width: 0
-            color: Qt.lighter(root.theme.background, 1.15)
-            clip: true
+        Elevation {
+            anchors.fill: panel
+            radius: panel.radius
+            level: 3
+            opacity: panel.opacity
+            scale: panel.scale
             transformOrigin: Item.Top
-            scale: 0.90
-            opacity: 0
-            transform: Translate {
-                id: dropTrans
-                y: -18
-            }
+        }
 
-            ParallelAnimation {
-                id: closeAnim
+        Rectangle {
+            id: panel
+            width: 720
+            height: 480
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 240
+            radius: Motion.shapeExtraLarge
+            color: Colors.surface_container_high
+            transformOrigin: Item.Top
+            opacity: root.isOpenClipB ? 1 : 0
+            scale: root.isOpenClipB ? 1 : 0.92
+            Behavior on opacity { Fade { speed: "default" } }
+            Behavior on scale { Spring { speed: "default" } }
 
-                onStarted: panelWindow.animatingClosed = true
-                onStopped: panelWindow.animatingClosed = false
+            MouseArea { anchors.fill: parent }
 
-                NumberAnimation { target: content; property: "opacity"; to: 0; duration: 120; easing.type: Easing.InQuad }
-                NumberAnimation { target: panelBg; property: "scale"; to: 0.90; duration: 180; easing.type: Easing.InCirc }
-                NumberAnimation { target: dropTrans; property: "y"; to: -18; duration: 180; easing.type: Easing.InCirc }
-                NumberAnimation { target: panelBg; property: "opacity"; to: 0; duration: 160; easing.type: Easing.InQuad }
-            }
-
-            ParallelAnimation {
-                id: openAnim
-                NumberAnimation { target: panelBg; property: "opacity"; to: 1.0; duration: 180; easing.type: Easing.OutQuad }
-                NumberAnimation {
-                    target: panelBg
-                    property: "scale"
-                    to: 1.0
-                    duration: 240
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 1.12
-                }
-                NumberAnimation {
-                    target: dropTrans
-                    property: "y"
-                    to: 0
-                    duration: 240
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 1.12
-                }
-                NumberAnimation {
-                    target: content
-                    property: "opacity"
-                    to: 1.0
-                    duration: 180
-                    easing.type: Easing.OutQuad
-                }
-            }
-
-            MouseArea {
+            ColumnLayout {
                 anchors.fill: parent
-                onClicked: {}
-            }
+                anchors.margins: 16
+                spacing: 12
 
-            Column {
-                id: content
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 10
-                opacity: 0
-
-                // Search field
+                // ---- search bar ----
                 Rectangle {
-                    id: searchContainer
-                    width: parent.width
-                    height: 46
-                    radius: 14
-                    color: Qt.alpha(root.theme.on_background, 0.06)
-                    border.width: 0
+                    Layout.fillWidth: true
+                    implicitHeight: 56
+                    radius: height / 2
+                    color: Colors.surface_container_highest
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 12
-                        spacing: 10
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 8
+                        spacing: 16
 
-                        Image {
-                            id: searchIcon
-                            Layout.alignment: Qt.AlignVCenter
-                            source: "../assets/magnifying-glass-bold.svg"
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                            sourceSize.width: 22
-                            sourceSize.height: 22
-                            fillMode: Image.PreserveAspectFit
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                colorization: 1.0
-                                colorizationColor: root.theme.primary
-                            }
-                        }
+                        Icon { name: searchField.text.length > 0 ? "search" : "content_paste"; color: Colors.on_surface }
 
                         TextInput {
                             id: searchField
                             Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
                             text: root.query
-                            color: root.theme.on_background
-                            font.pixelSize: 17
-                            font.family: root.settings.fontdefault
+                            color: Colors.on_surface
+                            selectionColor: Colors.primary
+                            selectedTextColor: Colors.on_primary
+                            font.family: Typography.family
+                            font.pixelSize: Typography.size("bodyLarge")
+                            font.weight: Typography.weight("bodyLarge")
                             clip: true
-
                             onTextChanged: root.query = text
-
                             Keys.onDownPressed: root.selectedIndex = Math.min(root.filteredEntries.length - 1, root.selectedIndex + 1)
                             Keys.onUpPressed: root.selectedIndex = Math.max(0, root.selectedIndex - 1)
                             Keys.onReturnPressed: root.copySelected()
                             Keys.onEnterPressed: root.copySelected()
                             Keys.onEscapePressed: root.isOpenClipB = false
 
-                            Text {
-                                visible: parent.text.length === 0
+                            StyledText {
+                                visible: searchField.text.length === 0
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "Search clipboard history\u2026"
-                                color: root.theme.on_background
-                                opacity: 0.4
-                                font.pixelSize: 17
-                                font.family: root.settings.fontdefault
+                                role: "bodyLarge"
+                                color: Colors.on_surface_variant
+                                text: "Search clipboard history"
                             }
                         }
 
-                        Item {
-                            id: clearBtn
-                            Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredWidth: 26
-                            Layout.preferredHeight: 26
+                        IconButton {
                             visible: searchField.text.length > 0
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 8
-                                color: clearHover.containsMouse ? Qt.alpha(root.theme.on_background, 0.12) : "transparent"
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "\u2715"
-                                    font.pixelSize: 14
-                                    font.family: root.settings.fontdefault
-                                    color: clearHover.containsMouse ? root.theme.primary : root.theme.on_background
-                                    opacity: clearHover.containsMouse ? 1.0 : 0.6
-                                }
+                            icon: "close"
+                            onClicked: {
+                                searchField.text = "";
+                                searchField.forceActiveFocus();
                             }
-
-                            MouseArea {
-                                id: clearHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    searchField.text = "";
-                                    root.query = "";
-                                    searchField.forceActiveFocus();
-                                }
-                            }
+                        }
+                        Button {
+                            visible: root.entries.length > 0
+                            style: "text"
+                            icon: "delete_sweep"
+                            text: "Clear all"
+                            onClicked: wipeProc.running = true
                         }
                     }
                 }
 
-                Rectangle {
-                    id: separator
-                    height: 1
-                    width: parent.width
-                    color: Qt.alpha(root.theme.on_background, 0.08)
-                }
-
-                // Body: list (left) + preview (right)
                 RowLayout {
-                    width: parent.width
-                    height: content.height - searchContainer.height - separator.height - content.spacing * 2
-                    spacing: 10
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 8
 
-                    // Left list container
+                    // ---- history list ----
                     Rectangle {
-                        Layout.preferredWidth: 250
+                        Layout.preferredWidth: 280
                         Layout.fillHeight: true
-                        radius: 14
-                        color: Qt.alpha(root.theme.on_background, 0.04)
-                        border.width: 0
-                        clip: true
+                        radius: Motion.shapeLarge
+                        color: Colors.surface_container
 
                         ListView {
                             id: entryList
                             anchors.fill: parent
-                            anchors.margins: 6
-                            spacing: 4
+                            anchors.margins: 4
+                            spacing: 2
                             clip: true
                             reuseItems: true
+                            boundsBehavior: Flickable.StopAtBounds
                             model: root.filteredEntries
                             currentIndex: root.selectedIndex
-                            highlightMoveDuration: 140
-                            highlightMoveVelocity: -1
-                            highlightFollowsCurrentItem: true
-                            highlightResizeDuration: 0
-
+                            highlightFollowsCurrentItem: false
+                            ScrollIntoView { view: entryList }
                             highlight: Rectangle {
-                                radius: 12
-                                color: Qt.alpha(root.theme.primary, 0.85)
-                                border.width: 0
+                                width: entryList.width
+                                height: 56
+                                radius: Motion.shapeMedium
+                                color: Colors.secondary_container
+                                y: entryList.currentItem ? entryList.currentItem.y : 0
+                                visible: entryList.count > 0
+                                Behavior on y { Spring {} }
                             }
 
-                            delegate: Item {
+                            delegate: Clickable {
                                 id: entryRow
                                 required property var modelData
                                 required property int index
+                                readonly property bool selected: index === root.selectedIndex
+
                                 width: entryList.width
-                                height: 52
-                                readonly property bool isSelected: entryRow.index === root.selectedIndex
+                                height: 56
+                                restRadius: Motion.shapeMedium
+                                pressedRadius: Motion.shapeSmall
+                                contentColor: selected ? Colors.on_secondary_container : Colors.on_surface
+                                onClicked: root.selectedIndex = index
 
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 12
-                                    color: hoverArea.containsMouse && !entryRow.isSelected
-                                        ? Qt.alpha(root.theme.on_background, 0.06)
-                                        : "transparent"
-
-                                    Behavior on color {
-                                        ColorAnimation { duration: 120 }
+                                Connections {
+                                    target: entryRow.mouseArea
+                                    function onDoubleClicked() { root.copySelected(); }
+                                    function onPositionChanged(mouse) {
+                                        const p = entryRow.mapToItem(null, mouse.x, mouse.y);
+                                        if (p.x === root.lastMouseX && p.y === root.lastMouseY)
+                                            return;
+                                        root.lastMouseX = p.x;
+                                        root.lastMouseY = p.y;
+                                        root.selectedIndex = entryRow.index;
                                     }
-                                }
-
-                                MouseArea {
-                                    id: hoverArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.selectedIndex = entryRow.index
-                                    onDoubleClicked: root.copySelected()
                                 }
 
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 8
-                                    anchors.rightMargin: 8
-                                    spacing: 10
-
-                                    Rectangle {
-                                        Layout.alignment: Qt.AlignVCenter
-                                        Layout.preferredWidth: 32
-                                        Layout.preferredHeight: 32
-                                        radius: 8
-                                        color: entryRow.isSelected
-                                            ? Qt.alpha(root.theme.background, 0.22)
-                                            : Qt.alpha(root.theme.on_background, 0.06)
-
-                                        Image {
-                                            anchors.centerIn: parent
-                                            source: entryRow.modelData.isImage ? "../assets/image.svg" : "../assets/text.svg"
-                                            width: 18
-                                            height: 18
-                                            sourceSize.width: 20
-                                            sourceSize.height: 20
-                                            fillMode: Image.PreserveAspectFit
-                                            layer.enabled: true
-                                            layer.effect: MultiEffect {
-                                                colorization: 1.0
-                                                colorizationColor: entryRow.isSelected ? root.theme.background : root.theme.primary
-                                            }
-                                        }
+                                    anchors.leftMargin: 12
+                                    anchors.rightMargin: 12
+                                    spacing: 12
+                                    Icon {
+                                        name: entryRow.modelData.isImage ? "image" : "notes"
+                                        size: 20
+                                        color: entryRow.selected ? Colors.on_secondary_container : Colors.on_surface_variant
                                     }
-
                                     ColumnLayout {
                                         Layout.fillWidth: true
-                                        Layout.alignment: Qt.AlignVCenter
-                                        spacing: 1
-
-                                        Text {
+                                        spacing: 0
+                                        StyledText {
                                             Layout.fillWidth: true
-                                            text: entryRow.modelData.isImage ? "Image" : entryRow.modelData.preview
-                                            color: entryRow.isSelected ? root.theme.background : root.theme.on_background
-                                            font.pixelSize: 16
-                                            font.family: root.settings.fontmedium
+                                            role: "bodyLarge"
+                                            color: entryRow.contentColor
                                             elide: Text.ElideRight
                                             maximumLineCount: 1
-
-                                            Behavior on color {
-                                                ColorAnimation { duration: 120 }
-                                            }
+                                            text: entryRow.modelData.isImage ? root.formatImageDate(entryRow.modelData.id) : entryRow.modelData.preview
                                         }
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: entryRow.modelData.isImage ? entryRow.modelData.ext.toUpperCase() : "Text"
-                                            color: entryRow.isSelected ? Qt.alpha(root.theme.background, 0.72) : Qt.alpha(root.theme.on_background, 0.55)
-                                            font.pixelSize: 13
-                                            font.family: root.settings.fontdefault
-
-                                            Behavior on color {
-                                                ColorAnimation { duration: 120 }
-                                            }
+                                        StyledText {
+                                            role: "bodySmall"
+                                            color: entryRow.selected ? Colors.on_secondary_container : Colors.on_surface_variant
+                                            text: entryRow.modelData.isImage ? entryRow.modelData.ext.toUpperCase() + " image" : "Text"
                                         }
                                     }
                                 }
                             }
 
-                            Text {
+                            StyledText {
                                 anchors.centerIn: parent
                                 visible: entryList.count === 0
-                                text: "No clipboard history"
-                                color: root.theme.on_background
-                                opacity: 0.4
-                                font.pixelSize: 15
-                                font.family: root.settings.fontdefault
+                                role: "bodyLarge"
+                                color: Colors.on_surface_variant
+                                text: root.query ? "No matches" : "Clipboard is empty"
                             }
                         }
                     }
 
-                    // Right preview container
+                    // ---- preview ----
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        radius: 14
-                        color: Qt.alpha(root.theme.on_background, 0.04)
-                        border.width: 0
+                        radius: Motion.shapeLarge
+                        color: Colors.surface_container
                         clip: true
 
-                        Text {
+                        StyledText {
                             anchors.centerIn: parent
                             visible: root.previewMode === "none"
+                            role: "bodyLarge"
+                            color: Colors.on_surface_variant
                             text: "Select an item to preview"
-                            color: root.theme.on_background
-                            opacity: 0.4
-                            font.pixelSize: 15
-                            font.family: root.settings.fontdefault
                         }
 
                         Flickable {
                             id: previewFlick
                             anchors.fill: parent
-                            anchors.margins: 14
-                            anchors.bottomMargin: 52
-                            anchors.rightMargin: 16
+                            anchors.margins: 16
+                            anchors.bottomMargin: 72
                             visible: root.previewMode === "text"
                             contentWidth: width
-                            contentHeight: previewTextLabel.implicitHeight
+                            contentHeight: previewText.implicitHeight
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
 
                             TextEdit {
-                                id: previewTextLabel
+                                id: previewText
                                 width: parent.width
                                 text: root.previewText
-                                color: root.theme.on_background
-                                font.pixelSize: 16
-                                font.family: root.settings.fontdefault
+                                color: Colors.on_surface
+                                font.family: Typography.family
+                                font.pixelSize: Typography.size("bodyLarge")
+                                font.weight: Typography.weight("bodyLarge")
                                 wrapMode: Text.Wrap
                                 readOnly: true
                                 selectByMouse: true
-                                selectionColor: root.theme.primary
-                                selectedTextColor: root.theme.background
-                                persistentSelection: true
+                                selectionColor: Colors.primary
+                                selectedTextColor: Colors.on_primary
                             }
                         }
 
-                        // Scroll bar
-                        Rectangle {
-                            visible: root.previewMode === "text" && previewFlick.contentHeight > previewFlick.height
-                            anchors.top: previewFlick.top
-                            anchors.right: parent.right
-                            anchors.rightMargin: 4
-                            width: 3
-                            radius: 2
-                            color: Qt.alpha(root.theme.on_background, 0.1)
-                            height: previewFlick.height
-
-                            property real handleHeight: Math.max(20, previewFlick.height * (previewFlick.height / previewFlick.contentHeight))
-                            property real handleY: (previewFlick.contentY / Math.max(1, previewFlick.contentHeight - previewFlick.height)) * (previewFlick.height - handleHeight)
-
-                            Rectangle {
-                                width: parent.width
-                                radius: 2
-                                color: Qt.alpha(root.theme.primary, 0.7)
-                                y: parent.handleY
-                                height: parent.handleHeight
-                            }
-                        }
-
-                        Image {
-                            anchors.top: parent.top
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.bottom: parent.bottom
-                            anchors.margins: 14
-                            anchors.bottomMargin: 52
+                        Item {
+                            id: imageArea
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            anchors.bottomMargin: 72
                             visible: root.previewMode === "image" && root.previewImagePath !== ""
-                            source: root.previewImagePath ? ("file://" + root.previewImagePath) : ""
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
+
+                            Image {
+                                id: probe
+                                visible: false
+                                source: root.previewImagePath ? "file://" + root.previewImagePath : ""
+                                asynchronous: true
+                                readonly property real ratio: implicitHeight > 0 ? implicitWidth / implicitHeight : 1
+                            }
+                            ClippingRectangle {
+                                anchors.centerIn: parent
+                                readonly property real fitW: Math.min(imageArea.width, imageArea.height * probe.ratio, Math.max(1, probe.implicitWidth))
+                                width: fitW
+                                height: fitW / probe.ratio
+                                radius: Motion.shapeMedium
+                                color: "transparent"
+                                Image {
+                                    anchors.fill: parent
+                                    source: probe.source
+                                    fillMode: Image.PreserveAspectFit
+                                    asynchronous: true
+                                }
+                            }
                         }
 
-                        // Action bar
                         Row {
                             visible: root.previewMode !== "none"
-                            anchors.bottom: parent.bottom
                             anchors.right: parent.right
-                            anchors.margins: 10
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 16
                             spacing: 8
-
-                            Rectangle {
-                                width: deleteRow.implicitWidth + 22
-                                height: 32
-                                radius: 10
-                                color: deleteArea.containsMouse ? Qt.alpha(root.theme.error, 0.25) : Qt.alpha(root.theme.on_background, 0.06)
-                                border.width: 0
-
-                                Behavior on color { ColorAnimation { duration: 120 } }
-
-                                Row {
-                                    id: deleteRow
-                                    anchors.centerIn: parent
-                                    spacing: 6
-
-                                    Image {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        source: "../assets/trash-simple-bold.svg"
-                                        sourceSize.width: 15
-                                        sourceSize.height: 15
-                                        fillMode: Image.PreserveAspectFit
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: root.theme.error
-                                        }
-                                    }
-
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: "Delete"
-                                        color: root.theme.error
-                                        font.pixelSize: 13
-                                        font.family: root.settings.fontmedium
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: deleteArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.deleteSelected()
-                                }
+                            Button {
+                                style: "tonal"
+                                icon: "delete"
+                                text: "Delete"
+                                color: Colors.error_container
+                                contentColor: Colors.on_error_container
+                                onClicked: root.deleteSelected()
                             }
-
-                            Rectangle {
-                                width: copyRow.implicitWidth + 22
-                                height: 32
-                                radius: 10
-                                color: copyArea.containsMouse ? Qt.lighter(root.theme.primary, 1.1) : root.theme.primary
-                                border.width: 0
-
-                                Behavior on color { ColorAnimation { duration: 120 } }
-
-                                Row {
-                                    id: copyRow
-                                    anchors.centerIn: parent
-                                    spacing: 6
-
-                                    Image {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        source: "../assets/check-fat-fill.svg"
-                                        sourceSize.width: 14
-                                        sourceSize.height: 14
-                                        fillMode: Image.PreserveAspectFit
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: root.theme.background
-                                        }
-                                    }
-
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: "Copy"
-                                        color: root.theme.background
-                                        font.pixelSize: 13
-                                        font.family: root.settings.fontmedium
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: copyArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.copySelected()
-                                }
+                            Button {
+                                icon: "content_copy"
+                                text: "Copy"
+                                onClicked: root.copySelected()
                             }
                         }
                     }

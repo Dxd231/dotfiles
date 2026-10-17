@@ -31,6 +31,10 @@ Variants {
         Shape {
             anchors.fill: parent
             preferredRendererType: Shape.CurveRenderer
+            antialiasing: true
+            layer.enabled: true
+            layer.smooth: true
+            layer.samples: 4
 
             ShapePath {
                 fillColor: frameWindow.frameColor

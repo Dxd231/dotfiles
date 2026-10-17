@@ -2,396 +2,266 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Services.Notifications
+import qs
+import qs.Components
 
-// One notification card, used for both the popups and the history list.
-//
-// - Fixed collapsed height (collapsedHeight). Short notifications never change it.
-// - If the body needs more than `collapsedLines` lines, a chevron appears in the footer;
-//   clicking it expands the card (up to `expandedLines` lines) and collapses it again.
-// - Optional auto-dismiss (timeoutMs > 0) with a thin progress line; pauses while hovered or expanded.
-Rectangle {
+// One notification, used for popups and for the history list.
+// History cards stack as an M3 Expressive segmented group (`first` / `last` get the outer
+// corners); popups stand alone with level-3 elevation. Optional auto-dismiss (timeoutMs > 0)
+// pauses while hovered or expanded.
+Item {
     id: card
 
-    // ---- inputs ----
-    property var theme
-    property var settings
     property string summary: ""
     property string body: ""
     property string appName: ""
     property string timeText: ""
     property string iconSource: ""
+    property string desktopEntry: ""
+    property string appIcon: ""
+    property string url: ""
     property int urgency: NotificationUrgency.Normal
-    property var actions: []        // NotificationAction list (popups only)
-    property int timeoutMs: 0       // 0 = never auto-close
-    property bool slideIn: false    // popups slide in from the left
+    property var actions: []
+    property int timeoutMs: 0
+    property bool slideIn: false
+    property bool isPopup: false
+    property bool first: true
+    property bool last: true
 
-    // ---- state ----
     property bool expanded: false
     property bool closing: false
     property bool shown: !slideIn
-    property real remaining          // 1 -> 0 while the auto-dismiss countdown runs
+    property real remaining: 1
+    property bool heightAnimated: false
 
-    readonly property bool hovered: hoverHandler.hovered
-    readonly property bool expandable: measurer.lineCount > card.collapsedLines
-
-    // ---- tuning ----
-    readonly property int collapsedLines: 2
-    readonly property int expandedLines: 12
-    readonly property real collapsedHeight: 102
-    readonly property real pad: 10
-
-    readonly property color accentColor: {
-        if (card.urgency === NotificationUrgency.Critical)
-            return card.theme.error;
-        if (card.urgency === NotificationUrgency.Low)
-            return Qt.alpha(card.theme.on_background, 0.25);
-        return Qt.alpha(card.theme.primary, 0.7);
-    }
+    readonly property bool critical: urgency === NotificationUrgency.Critical
+    readonly property bool hovered: surface.hovered || hover.hovered
+    readonly property bool expandable: measure.lineCount > 2
+    readonly property var visibleActions: (actions || []).filter(a => a && a.identifier !== "default").slice(0, 3)
 
     signal activated
     signal closeRequested
+    signal expired
+    signal dismissFinished
 
-    function toggleExpanded() {
-        if (card.expandable)
-            card.expanded = !card.expanded;
-    }
-
-    implicitWidth: 340
-    // implicitHeight (not height) so it works in both ColumnLayout and ListView.
-    implicitHeight: Math.max(card.collapsedHeight, content.implicitHeight + card.pad * 2)
-    Behavior on implicitHeight {
-        NumberAnimation {
-            duration: 180
-            easing.type: Easing.OutCirc
+    function triggerClose() {
+        if (closing)
+            return;
+        if (slideIn) {
+            closing = true;
+            exitTimer.restart();
+        } else {
+            closeRequested();
         }
     }
-
-    radius: 14
-    clip: true
-    color: Qt.tint(Qt.alpha(card.theme.background, 1), Qt.alpha(card.theme.on_background, 0.05))
-    border.width: 0
-
-    opacity: card.closing ? 0 : 1
-    Behavior on opacity {
-        NumberAnimation {
-            duration: 180
-            easing.type: card.closing ? Easing.InCirc : Easing.OutCirc
+    function triggerExpire() {
+        if (closing)
+            return;
+        if (slideIn) {
+            closing = true;
+            exitTimer.restart();
+        } else {
+            expired();
         }
     }
-    transform: Translate {
-        x: card.closing ? -(card.width + 40) : 0
-        y: (!card.shown && !card.closing) ? -(card.y + card.height + 70) : 0
-        Behavior on x {
-            NumberAnimation {
-                duration: 200
-                easing.type: Easing.InCirc
-            }
-        }
-        Behavior on y {
-            NumberAnimation {
-                duration: 260
-                easing.type: Easing.OutBack
-                easing.overshoot: 1.12
-            }
-        }
+
+    implicitWidth: 360
+    implicitHeight: surface.implicitHeight
+
+    Component.onCompleted: if (slideIn) Qt.callLater(() => card.shown = true)
+    Timer {
+        running: true
+        interval: Motion.short4
+        onTriggered: card.heightAnimated = true
     }
     Timer {
-        id: enterTimer
-        interval: 35
-        running: card.slideIn
-        onTriggered: card.shown = true
-    }
-    Component.onCompleted: {
-        if (!card.slideIn) card.shown = true
+        id: exitTimer
+        interval: Motion.short4
+        onTriggered: {
+            card.dismissFinished();
+            card.closeRequested();
+        }
     }
 
-    // auto-dismiss countdown
     NumberAnimation on remaining {
         from: 1
         to: 0
         duration: Math.max(1, card.timeoutMs)
-        running: card.timeoutMs > 0 && !card.closing
+        running: card.timeoutMs > 0 && !card.closing && card.shown
         paused: running && (card.hovered || card.expanded)
-        onFinished: card.closeRequested()
+        onFinished: card.triggerExpire()
     }
 
-    HoverHandler {
-        id: hoverHandler
+    // enter: spring in from the left; exit: accelerate out
+    opacity: shown && !closing ? 1 : 0
+    Behavior on opacity { Fade { speed: card.closing ? "fast" : "default" } }
+    transform: Translate {
+        x: card.closing ? -(card.width + 32) : card.shown ? 0 : -(card.width + 32)
+        Behavior on x {
+            enabled: card.slideIn
+            Spring { speed: "default" }
+        }
     }
 
-    // whole-card click: left = activated, right = close
-    MouseArea {
-        anchors.fill: parent
-        z: -1
+    HoverHandler { id: hover }
+
+    Elevation {
+        anchors.fill: surface
+        radius: surface.radius
+        level: card.isPopup ? (card.hovered ? 4 : 3) : 0
+    }
+
+    Clickable {
+        id: surface
+        width: parent.width
+        implicitHeight: content.implicitHeight + 32
+        // expand/collapse and action rows grow on a spring (not during the first layout pass,
+        // or a new card would spring up to its size while sliding in)
+        Behavior on implicitHeight { enabled: card.heightAnimated; Spring { speed: "default" } }
+        clip: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        cursorShape: Qt.PointingHandCursor
+        color: card.isPopup ? Colors.surface_container_high : Colors.surface_container_highest
+        contentColor: Colors.on_surface
+        restRadius: card.isPopup ? Motion.shapeLargeIncreased : Motion.shapeExtraSmall
+        pressedRadius: card.isPopup ? Motion.shapeLarge : Motion.shapeExtraSmall
+        topLeftRadius: card.isPopup || card.first ? (pressed ? Motion.shapeLarge : Motion.shapeLargeIncreased) : radius
+        topRightRadius: topLeftRadius
+        bottomLeftRadius: card.isPopup || card.last ? (pressed ? Motion.shapeLarge : Motion.shapeLargeIncreased) : radius
+        bottomRightRadius: bottomLeftRadius
         onClicked: mouse => {
             if (mouse.button === Qt.RightButton)
-                card.closeRequested();
-            else
+                card.triggerClose();
+            else if (!card.closing)
                 card.activated();
         }
-    }
 
-    // urgency accent bar
-    Rectangle {
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: 6
-        anchors.topMargin: 12
-        anchors.bottomMargin: 12
-        width: 5
-        radius: 5
-        color: card.accentColor
-    }
-
-    // invisible copy of the body with no line limit, only used to know if the text is long
-    Text {
-        id: measurer
-        width: bodyText.width
-        text: card.body
-        font: bodyText.font
-        wrapMode: Text.Wrap
-        opacity: 0
-        enabled: false
-    }
-
-    RowLayout {
-        id: content
-        anchors.fill: parent
-        anchors.leftMargin: 20
-        anchors.rightMargin: 12
-        anchors.topMargin: card.pad
-        anchors.bottomMargin: card.pad
-        spacing: 10
-
-        // icon, with a lettered fallback when there is no usable image
-        Item {
-            Layout.preferredWidth: 36
-            Layout.preferredHeight: 36
-            Layout.alignment: Qt.AlignTop
-
-            Rectangle {
-                anchors.fill: parent
-                radius: 10
-                visible: iconImage.status !== Image.Ready
-                color: Qt.alpha(card.theme.primary, 0.15)
-                Text {
-                    anchors.centerIn: parent
-                    text: card.appName.length > 0 ? card.appName.charAt(0).toUpperCase() : "?"
-                    color: card.theme.primary
-                    font.family: card.settings.fontdefault
-                    font.pixelSize: 18
-                    font.bold: true
-                }
-            }
-            Image {
-                id: iconImage
-                anchors.fill: parent
-                visible: status === Image.Ready
-                source: card.iconSource
-                sourceSize.width: 72
-                sourceSize.height: 72
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-            }
+        // invisible copy used to decide whether the body can expand
+        Text {
+            id: measure
+            visible: false
+            width: bodyText.width
+            text: card.body
+            font: bodyText.font
+            wrapMode: Text.Wrap
         }
 
-        ColumnLayout {
-            id: col
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: 2
+        RowLayout {
+            id: content
+            x: 16
+            y: 16
+            width: parent.width - 32
+            spacing: 16
 
-            // header: summary + time (swaps to a close button on hover)
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 20
-                spacing: 6
-
-                Text {
-                    Layout.fillWidth: true
-                    text: card.summary
-                    color: card.theme.on_background
-                    opacity: 0.95
-                    font.family: card.settings.fontdefault
-                    font.pixelSize: 16
-                    font.bold: true
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                }
-                Item {
-                    Layout.preferredWidth: Math.max(timeLabel.implicitWidth, closeLabel.implicitWidth)
-                    Layout.preferredHeight: 20
-
-                    Text {
-                        id: timeLabel
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: card.timeText
-                        color: card.theme.on_background
-                        opacity: card.hovered ? 0 : 0.55
-                        font.family: card.settings.fontdefault
-                        font.pixelSize: 13
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: 120
-                            }
-                        }
-                    }
-                    Text {
-                        id: closeLabel
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "\u00d7"
-                        color: card.theme.on_background
-                        opacity: card.hovered ? 0.7 : 0
-                        font.pixelSize: 20
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: 120
-                            }
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -4
-                            enabled: card.hovered
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: card.closeRequested()
-                        }
-                    }
-                }
-            }
-
-            // body: clamped to 2 lines, or up to 12 when expanded
-            Text {
-                id: bodyText
-                Layout.fillWidth: true
-                visible: card.body !== ""
-                text: card.body
-                color: card.theme.on_background
-                opacity: 0.75
-                font.family: card.settings.fontdefault
-                font.pixelSize: 14
-                wrapMode: Text.Wrap
-                maximumLineCount: card.expanded ? card.expandedLines : card.collapsedLines
-                elide: Text.ElideRight
-            }
-
-            // pushes the footer to the bottom so the collapsed height stays constant
+            // avatar: app icon, or the app's initial on a tonal container
             Item {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.alignment: Qt.AlignTop
+                implicitWidth: 40
+                implicitHeight: 40
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    visible: iconImage.status !== Image.Ready
+                    color: card.critical ? Colors.error_container : Colors.primary_container
+                    StyledText {
+                        anchors.centerIn: parent
+                        role: "titleMedium"
+                        color: card.critical ? Colors.on_error_container : Colors.on_primary_container
+                        text: card.appName.length > 0 ? card.appName.charAt(0).toUpperCase() : "?"
+                    }
+                }
+                Image {
+                    id: iconImage
+                    anchors.fill: parent
+                    visible: status === Image.Ready
+                    source: card.iconSource
+                    sourceSize: Qt.size(80, 80)
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                }
             }
 
-            // footer: app name, action chips, expand/collapse chevron
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 22
-                spacing: 6
+                spacing: 2
 
-                Text {
+                RowLayout {
                     Layout.fillWidth: true
-                    text: card.appName
-                    color: card.theme.on_background
-                    opacity: 0.6
-                    font.family: card.settings.fontdefault
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
-                }
-
-                Repeater {
-                    model: card.actions
-                    delegate: Rectangle {
-                        id: chip
-                        required property var modelData
-                        required property int index
-                        visible: chip.index < 3 && chip.modelData.identifier !== "default"
-                        Layout.preferredHeight: 22
-                        Layout.preferredWidth: Math.min(96, chipText.implicitWidth + 18)
-                        radius: 11
-                        color: Qt.alpha(card.theme.primary, chipMouse.containsMouse ? 0.3 : 0.15)
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: 100
-                            }
-                        }
-
-                        Text {
-                            id: chipText
-                            anchors.centerIn: parent
-                            width: parent.width - 12
-                            horizontalAlignment: Text.AlignHCenter
-                            text: chip.modelData.text
-                            elide: Text.ElideRight
-                            color: card.theme.primary
-                            font.family: card.settings.fontdefault
-                            font.pixelSize: 12
-                            font.bold: true
-                        }
-                        MouseArea {
-                            id: chipMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                chip.modelData.invoke();
-                                card.closeRequested();
-                            }
-                        }
+                    spacing: 4
+                    StyledText {
+                        Layout.fillWidth: true
+                        role: "labelMedium"
+                        color: card.critical ? Colors.error : Colors.on_surface_variant
+                        elide: Text.ElideRight
+                        text: card.appName + (card.timeText ? " · " + card.timeText : "")
                     }
-                }
-
-                Rectangle {
-                    id: chevron
-                    visible: card.expandable
-                    Layout.preferredWidth: 22
-                    Layout.preferredHeight: 22
-                    radius: 11
-                    color: chevMouse.containsMouse ? Qt.alpha(card.theme.primary, 0.18) : "transparent"
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: 100
-                        }
-                    }
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "\u25be"
-                        color: card.theme.primary
-                        font.pixelSize: 13
+                    IconButton {
+                        visible: card.expandable
+                        size: "xs"
+                        icon: "expand_more"
+                        iconSize: 20
                         rotation: card.expanded ? 180 : 0
-                        Behavior on rotation {
-                            NumberAnimation {
-                                duration: 180
-                                easing.type: Easing.OutCubic
+                        Behavior on rotation { Spring {} }
+                        onClicked: card.expanded = !card.expanded
+                    }
+                    IconButton {
+                        size: "xs"
+                        icon: "close"
+                        iconSize: 20
+                        opacity: card.hovered ? 1 : 0
+                        Behavior on opacity { Fade {} }
+                        onClicked: card.triggerClose()
+                    }
+                }
+
+                StyledText {
+                    Layout.fillWidth: true
+                    role: "titleSmall"
+                    elide: Text.ElideRight
+                    text: card.summary
+                }
+
+                StyledText {
+                    id: bodyText
+                    Layout.fillWidth: true
+                    visible: card.body !== ""
+                    role: "bodyMedium"
+                    color: Colors.on_surface_variant
+                    wrapMode: Text.Wrap
+                    maximumLineCount: card.expanded ? 12 : 2
+                    elide: Text.ElideRight
+                    text: card.body
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    visible: card.visibleActions.length > 0
+                    spacing: 8
+                    Repeater {
+                        model: card.visibleActions
+                        delegate: Button {
+                            required property var modelData
+                            size: "xs"
+                            style: "tonal"
+                            text: modelData.text
+                            onClicked: {
+                                modelData.invoke();
+                                card.triggerClose();
                             }
                         }
                     }
-                    MouseArea {
-                        id: chevMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: card.toggleExpanded()
-                    }
+                }
+
+                LinearProgress {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    visible: card.timeoutMs > 0
+                    value: card.remaining
+                    showStop: false
+                    activeColor: card.critical ? Colors.error : Colors.primary
+                    animated: false
                 }
             }
         }
-    }
-
-    // auto-dismiss progress line
-    Rectangle {
-        visible: card.timeoutMs > 0
-        anchors.left: parent.left
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: 16
-        anchors.bottomMargin: 3
-        height: 2
-        radius: 1
-        width: Math.max(0, (card.width - 32) * card.remaining)
-        color: card.theme.primary
-        opacity: 0.55
     }
 }

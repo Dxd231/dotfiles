@@ -1,18 +1,19 @@
 pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import QtQuick
 import Quickshell.Widgets
+import qs
+import qs.Components
 
+// Wallpaper picker: a full-screen hero carousel over ~/Pictures/Wallpapers plus a random
+// online slot, with matugen color mode / preference controls. Applying a wallpaper re-themes
+// the whole shell (matugen writes colors.json, which Colors.qml watches).
 Item {
     id: root
 
-    property var theme
-    property var theme2
-    property var settings
-    property string fontdefault: "Space Grotesk"
-    property int global_radius: 18
 
     property string wallpaperDir: "$HOME/Pictures/Wallpapers"
     property int cardWidth: 500
@@ -29,34 +30,30 @@ Item {
     property int currentIndex: 0
     property bool wallpapersLoadedOnce: false
     property string colorMode: "dark"                 // "dark" | "light"
-    property string schemeType: "scheme-tonal-spot"
-    property real contrast: 0.1                       // -1 .. 1
+    property string schemeType: "scheme-content"
+    property real contrast: 0.2                       // -1 .. 1
     property string colorPreference: "lightness"      // matugen --prefer: "lightness" | "darkness"
 
     property string _listing: ""                      // last file list, so reopening doesn't rebuild the carousel
     property double _lastNav: 0
     property bool snapNav: false                      // true for a moment when we jump (not slide) to the current wallpaper
 
-    readonly property string boorusApi: "https://konachan.net/post.json?tags=order:random+rating:safe+width:%3E=1920+height:%3E=1080&limit=1"
-
     property bool previewFetching: false
     property string previewThumbUrl: ""   // remote URL shown directly in the card, nothing downloaded yet
     property string previewFileUrl: ""    // the full-res URL confirmDownload() will save -- same post as the thumb
     property string previewId: ""
+    property string previewTags: ""       // file-name-safe tags of the previewed post, may be empty
     property bool fetchInProgress: false  // true only during the actual confirmDownload save
 
-    // Fetches metadata for one random post and points the card at its remote
-    // thumbnail -- no local download happens here. Called whenever the panel
-    // opens, and again on demand (right-click the card) to reroll without
-    // committing to a download.
+    // Fetches metadata for a high-quality, widescreen desktop wallpaper and points
+    // the card at its remote thumbnail. Called whenever the panel opens, and again
+    // on demand (right-click the card) to reroll without committing to a download.
     function fetchPreview() {
         if (root.previewFetching) return;
         root.previewFetching = true;
 
-        const cmd = 'json=$(curl -sf -A "Mozilla/5.0" "' + root.boorusApi + '") && ' +
-            'echo "$json" | jq -r "[.[0].sample_url, .[0].file_url, (.[0].id|tostring)] | join(\\"\\u0009\\")"';
-
-        previewProc.command = ["sh", "-c", cmd];
+        const scriptPath = Qt.resolvedUrl("../scripts/fetch_wallpaper.py").toString().replace(/^file:\/\//, "");
+        previewProc.command = ["python3", scriptPath];
         previewProc.running = false;
         previewProc.running = true;
     }
@@ -67,7 +64,7 @@ Item {
             onStreamFinished: {
                 root.previewFetching = false;
                 const parts = text.trim().split("\t");
-                if (parts.length !== 3 || parts.some(p => p === "" || p === "null")) {
+                if (parts.length < 3 || parts.slice(0, 3).some(p => p === "" || p === "null")) {
                     // left the old preview (if any) in place rather than blanking
                     // it out on a transient failure
                     return;
@@ -75,6 +72,28 @@ Item {
                 root.previewThumbUrl = parts[0];
                 root.previewFileUrl = parts[1];
                 root.previewId = parts[2];
+                root.previewTags = parts[3] ?? "";
+            }
+        }
+    }
+
+    property var pendingDownloadCmd: []
+
+    function executeDownload(cmd) {
+        fetchProc.command = cmd;
+        fetchProc.running = false;
+        fetchProc.running = true;
+    }
+
+    Timer {
+        id: downloadDelayTimer
+        interval: Motion.short4 + 50
+        repeat: false
+        onTriggered: {
+            if (root.pendingDownloadCmd.length > 0) {
+                const cmd = root.pendingDownloadCmd;
+                root.pendingDownloadCmd = [];
+                root.executeDownload(cmd);
             }
         }
     }
@@ -82,18 +101,31 @@ Item {
     // Downloads the exact post currently shown as the preview -- deliberately
     // does not re-query the API, so what you confirm is what you saw.
     function confirmDownload() {
-        if (root.fetchInProgress || root.previewFileUrl === "") return;
+        if (root.fetchInProgress) return;
+        if (root.previewFileUrl === "") {
+            root.fetchPreview();
+            return;
+        }
         root.fetchInProgress = true;
 
-        const cmd = 'url="' + root.previewFileUrl + '" && ' +
-            'ext="${url##*.}" && ' +
-            'mkdir -p "' + root.wallpaperDir + '" && ' +
-            'out="' + root.wallpaperDir + '/konachan-' + root.previewId + '-$(date +%s).${ext}" && ' +
-            'curl -sLf -A "Mozilla/5.0" -o "$out" "$url" && echo "$out"';
+        // url / dir / name go in as positional args rather than into the shell string; the post id keeps names unique
+        const base = "konachan-" + root.previewId + (root.previewTags !== "" ? " " + root.previewTags : "");
+        const cmd = ["sh", "-c",
+            'ext="${1##*.}"; mkdir -p "$2" && out="$2/$3.$ext" && curl -sLf -A "Mozilla/5.0" -o "$out" "$1" && echo "$out"',
+            "sh", root.previewFileUrl, root.wallpaperDir.replace("$HOME", Quickshell.env("HOME")), base];
 
-        fetchProc.command = ["sh", "-c", cmd];
-        fetchProc.running = false;
-        fetchProc.running = true;
+        root.previewThumbUrl = "";
+        root.previewFileUrl = "";
+        root.previewId = "";
+        root.previewTags = "";
+
+        if (root.isOpen || stage.openT > 0.001) {
+            root.pendingDownloadCmd = cmd;
+            root.isOpen = false;
+            downloadDelayTimer.restart();
+        } else {
+            root.executeDownload(cmd);
+        }
     }
 
     Process {
@@ -108,11 +140,15 @@ Item {
                     // at minimum don't silently pretend it worked.
                     return;
                 }
+                // Immediately apply wallpaper and color scheme
+                root.applyWallpaper(savedPath, 0);
+
                 // clear so the next time the panel opens, fetchPreview() rolls
                 // a fresh one instead of showing the just-downloaded post again
                 root.previewThumbUrl = "";
                 root.previewFileUrl = "";
                 root.previewId = "";
+                root.previewTags = "";
                 root.isOpen = false;   // next open's refreshWallpapers() picks up the new file
             }
         }
@@ -124,15 +160,47 @@ Item {
         onTriggered: root.snapNav = false
     }
 
-    readonly property color pillColor: Qt.lighter(Qt.alpha(root.theme.background, 1), 1.8)
-    readonly property color capColor: Qt.alpha(root.theme.on_background, 0.14)
 
     readonly property string selectedPath: (wallpaperModel.count > 0 && root.currentIndex >= 0 && root.currentIndex < wallpaperModel.count) ? wallpaperModel.get(root.currentIndex).path : ""
     readonly property string selectedName: root.selectedPath.split("/").pop().replace(/\.[^.]+$/, "")
+    readonly property bool isSelectedFetch: (wallpaperModel.count > 0 && root.currentIndex >= 0 && root.currentIndex < wallpaperModel.count) ? (wallpaperModel.get(root.currentIndex).isFetch === true) : false
+
+    function toggleColorMode() {
+        root.setColorMode(root.colorMode === "dark" ? "light" : "dark");
+    }
+
+    function setColorMode(mode) {
+        if (mode !== "dark" && mode !== "light")
+            return;
+        root.colorMode = mode;
+        root.saveColorMode(mode);
+        root.applyColorMode();
+    }
+
+    function applyColorMode() {
+        const wp = root.currentWallpaper !== "" ? root.currentWallpaper : root.selectedPath;
+        if (!wp)
+            return;
+        var safePath = wp.replace(/'/g, "'\\''");
+        var matugenCmd = "(matugen image '" + safePath + "' -m " + root.colorMode + " --type " + root.schemeType + " --contrast " + root.contrast + " --prefer " + root.colorPreference + "; ~/.config/matugen/post-hook-scripts/cursor_matugen.sh) >/dev/null 2>&1 &";
+        applyProc.command = ["sh", "-c", matugenCmd];
+        applyProc.running = false;
+        applyProc.running = true;
+    }
 
     function toggleColorPreference() {
-        root.colorPreference = root.colorPreference === "darkness" ? "lightness" : "darkness";
+        root.setColorPreference(root.colorPreference === "darkness" ? "lightness" : "darkness");
     }
+
+    function setColorPreference(pref) {
+        if (pref !== "darkness" && pref !== "lightness")
+            return;
+        root.colorPreference = pref;
+        root.saveColorPreference(pref);
+        root.applyColorMode();
+    }
+
+
 
     // awww may report just the file name or the full path, so accept either
     function samePath(p, cur) {
@@ -276,22 +344,114 @@ Item {
         command: ["sh", "-c", "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell\"; mkdir -p \"$d\" && printf %s \"$1\" > \"$d/current-wallpaper\"", "sh", payload]
     }
 
+    Process {
+        id: loadColorModeProc
+        running: true
+        command: ["sh", "-c", "cat \"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell/color-mode\" 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const m = text.trim();
+                if (m === "dark" || m === "light") {
+                    root.colorMode = m;
+                }
+            }
+        }
+    }
+
+    Process {
+        id: saveColorModeProc
+        property string payload: ""
+        command: ["sh", "-c", "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell\"; mkdir -p \"$d\" && printf %s \"$1\" > \"$d/color-mode\"", "sh", payload]
+    }
+
+    function saveColorMode(mode) {
+        saveColorModeProc.payload = mode;
+        saveColorModeProc.running = false;
+        saveColorModeProc.running = true;
+    }
+
+    Process {
+        id: loadColorPrefProc
+        running: true
+        command: ["sh", "-c", "cat \"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell/color-preference\" 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const m = text.trim();
+                if (m === "darkness" || m === "lightness") {
+                    root.colorPreference = m;
+                }
+            }
+        }
+    }
+
+    Process {
+        id: saveColorPrefProc
+        property string payload: ""
+        command: ["sh", "-c", "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/quickshell\"; mkdir -p \"$d\" && printf %s \"$1\" > \"$d/color-preference\"", "sh", payload]
+    }
+
+    function saveColorPreference(pref) {
+        saveColorPrefProc.payload = pref;
+        saveColorPrefProc.running = false;
+        saveColorPrefProc.running = true;
+    }
+
+
+
     function refreshWallpapers() {
         listProc.running = false;
         listProc.running = true;
     }
 
-    function applyWallpaper(path, index) {
+    property string pendingApplyPath: ""
+
+    function executeApply(path) {
         root.currentWallpaper = path;
         root.saveCurrent(path);
         var safePath = path.replace(/'/g, "'\\''");
 
-        var matugenCmd = "matugen image '" + safePath + "'" + " -m " + root.colorMode + " --type " + root.schemeType + " --contrast " + root.contrast + " --prefer " + root.colorPreference + " >/dev/null 2>&1 &";
+        var matugenCmd = "(matugen image '" + safePath + "' -m " + root.colorMode + " --type " + root.schemeType + " --contrast " + root.contrast + " --prefer " + root.colorPreference + "; ~/.config/matugen/post-hook-scripts/cursor_matugen.sh) >/dev/null 2>&1 &";
 
         var cmd = "awww img '" + safePath + "' --transition-type random --transition-fps 100 --transition-duration 2 >/dev/null 2>&1 & " + matugenCmd;
 
         applyProc.command = ["sh", "-c", cmd];
+        applyProc.running = false;
         applyProc.running = true;
+    }
+
+    Timer {
+        id: applyDelayTimer
+        interval: Motion.short4 + 50
+        repeat: false
+        onTriggered: {
+            if (root.pendingApplyPath !== "") {
+                const p = root.pendingApplyPath;
+                root.pendingApplyPath = "";
+                root.executeApply(p);
+            }
+        }
+    }
+
+    function applyWallpaper(path, index) {
+        if (!path) return;
+        root.currentWallpaper = path;
+        if (root.isOpen || stage.openT > 0.001) {
+            root.pendingApplyPath = path;
+            root.isOpen = false;
+            applyDelayTimer.restart();
+        } else {
+            root.executeApply(path);
+        }
+    }
+
+    // Enter / Apply chip: download the random slot, or apply the selected file
+    function applySelected() {
+        if (wallpaperModel.count === 0)
+            return;
+        if (wallpaperModel.get(coverflow.currentIndex).isFetch)
+            root.confirmDownload();
+        else
+            root.applyWallpaper(root.selectedPath, root.currentIndex);
     }
 
     IpcHandler {
@@ -306,6 +466,18 @@ Item {
         function close(): void {
             root.isOpen = false;
         }
+        function toggleMode(): void {
+            root.toggleColorMode();
+        }
+        function setMode(mode: string): void {
+            root.setColorMode(mode);
+        }
+        function togglePreference(): void {
+            root.toggleColorPreference();
+        }
+        function setPreference(pref: string): void {
+            root.setColorPreference(pref);
+        }
     }
 
     PanelWindow {
@@ -313,12 +485,7 @@ Item {
         WlrLayershell.namespace: "quickshell:wallpaperswitcher"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: root.isOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-        anchors {
-            top: true
-            bottom: true
-            left: true
-            right: true
-        }
+        anchors { top: true; bottom: true; left: true; right: true }
         exclusionMode: ExclusionMode.Ignore
         color: "transparent"
         visible: root.isOpen || stage.openT > 0.001
@@ -327,19 +494,37 @@ Item {
             id: stage
             anchors.fill: parent
 
-            // 0 = closed, 1 = open. Everything below derives from this one value.
+            // 0 = closed, 1 = open; everything below derives from this one value
             property real openT: root.isOpen ? 1 : 0
             Behavior on openT {
                 NumberAnimation {
-                    duration: root.isOpen ? 280 : 180
-                    easing.type: root.isOpen ? Easing.OutCirc : Easing.InCirc
+                    duration: root.isOpen ? Motion.expressiveDefaultSpatialDuration : Motion.short4
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: root.isOpen ? Motion.expressiveDefaultSpatial : Motion.emphasizedAccelerate
                 }
             }
 
-            // dim the screen; clicking anywhere outside the carousel closes it
+            // run a pending apply / download once the close animation has finished
+            onOpenTChanged: {
+                if (root.isOpen || openT > 0.001)
+                    return;
+                if (root.pendingApplyPath !== "") {
+                    applyDelayTimer.stop();
+                    const p = root.pendingApplyPath;
+                    root.pendingApplyPath = "";
+                    root.executeApply(p);
+                }
+                if (root.pendingDownloadCmd.length > 0) {
+                    downloadDelayTimer.stop();
+                    const cmd = root.pendingDownloadCmd;
+                    root.pendingDownloadCmd = [];
+                    root.executeDownload(cmd);
+                }
+            }
+
             Rectangle {
                 anchors.fill: parent
-                color: Qt.alpha(root.theme.background, root.scrimOpacity)
+                color: Qt.alpha(Colors.scrim, root.scrimOpacity)
                 opacity: stage.openT
             }
             MouseArea {
@@ -347,7 +532,41 @@ Item {
                 onClicked: root.isOpen = false
             }
 
-            // ------------------------------------------------------------ carousel
+            // ---- header ----
+            RowLayout {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.topMargin: 32 - (1 - stage.openT) * 16
+                anchors.leftMargin: 40
+                anchors.rightMargin: 40
+                spacing: 16
+                opacity: stage.openT
+
+                Rectangle {
+                    implicitWidth: 48
+                    implicitHeight: 48
+                    radius: Motion.shapeLarge
+                    color: Colors.primary_container
+                    Icon { anchors.centerIn: parent; name: "wallpaper"; color: Colors.on_primary_container }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+                    // fillWidth on the children lets the column take up the row's spare width,
+                    // which keeps the title beside the icon and the close button at the edge
+                    StyledText { Layout.fillWidth: true; role: "headlineSmall"; color: "white"; elide: Text.ElideRight; text: "Wallpaper & style" }
+                    StyledText { Layout.fillWidth: true; role: "bodyMedium"; color: Qt.alpha("white", 0.8); elide: Text.ElideRight; text: "Colors follow your wallpaper" }
+                }
+                IconButton {
+                    icon: "close"
+                    style: "tonal"
+                    size: "m"
+                    onClicked: root.isOpen = false
+                }
+            }
+
+            // ---- carousel (M3 hero carousel: 28px item corners) ----
             Item {
                 id: carousel
                 anchors.left: parent.left
@@ -361,80 +580,70 @@ Item {
                     id: coverflow
                     anchors.fill: parent
                     orientation: ListView.Horizontal
-                    reuseItems: true
+                    reuseItems: false
                     model: wallpaperModel
                     spacing: 40
                     focus: root.isOpen
-                    cacheBuffer: (root.cardWidth + 40) * 4      // keep neighbours decoded so nothing pops in
+                    cacheBuffer: (root.cardWidth + 40) * 4
                     highlightFollowsCurrentItem: true
-                    highlightMoveDuration: root.snapNav ? 0 : 220
+                    highlightMoveDuration: root.snapNav ? 0 : Motion.expressiveFastSpatialDuration
                     highlightMoveVelocity: -1
                     highlightRangeMode: ListView.StrictlyEnforceRange
                     preferredHighlightBegin: (width - root.cardWidth) / 2
                     preferredHighlightEnd: (width + root.cardWidth) / 2
 
-                    onCurrentIndexChanged: {
-                        if (currentIndex >= 0)
-                            root.currentIndex = currentIndex;
-                    }
-
+                    onCurrentIndexChanged: if (currentIndex >= 0) root.currentIndex = currentIndex
                     // the layer-shell window can get its real width a moment after it opens
-                    onWidthChanged: {
-                        if (root.isOpen && width > 0)
-                            root.focusCurrent(true);
-                    }
+                    onWidthChanged: if (root.isOpen && width > 0) root.focusCurrent(true)
 
                     Keys.onPressed: event => {
+                        if (!root.isOpen)
+                            return;
                         switch (event.key) {
-                        case Qt.Key_Left:
-                            root.step(-1, event.isAutoRepeat);
-                            break;
-                        case Qt.Key_Right:
-                            root.step(1, event.isAutoRepeat);
-                            break;
-                        case Qt.Key_Down:
-                            root.fetchPreview();
-                            break;
-                        case Qt.Key_PageUp:
-                            root.step(-5, event.isAutoRepeat);
-                            break;
-                        case Qt.Key_PageDown:
-                            root.step(5, event.isAutoRepeat);
-                            break;
-                        case Qt.Key_Home:
-                            root.step(-coverflow.count, false);
-                            break;
-                        case Qt.Key_End:
-                            root.step(coverflow.count, false);
-                            break;
+                        case Qt.Key_Left: root.step(-1, event.isAutoRepeat); break;
+                        case Qt.Key_Right: root.step(1, event.isAutoRepeat); break;
+                        case Qt.Key_Down: if (root.isSelectedFetch) root.fetchPreview(); break;
+                        case Qt.Key_PageUp: root.step(-5, event.isAutoRepeat); break;
+                        case Qt.Key_PageDown: root.step(5, event.isAutoRepeat); break;
+                        case Qt.Key_Home: root.step(-coverflow.count, false); break;
+                        case Qt.Key_End: root.step(coverflow.count, false); break;
                         case Qt.Key_Return:
                         case Qt.Key_Enter:
-                            if (!event.isAutoRepeat && wallpaperModel.count > 0) {
-                                if (wallpaperModel.get(coverflow.currentIndex).isFetch)
-                                    root.confirmDownload();
-                                else
-                                    root.applyWallpaper(root.selectedPath, root.currentIndex);
-                            }
+                            if (!event.isAutoRepeat)
+                                root.applySelected();
+                            break;
+                        case Qt.Key_D:
+                        case Qt.Key_M:
+                            if (!event.isAutoRepeat) root.toggleColorMode();
                             break;
                         case Qt.Key_X:
-                            if (!event.isAutoRepeat)
-                                root.toggleColorPreference();
+                            if (!event.isAutoRepeat) root.toggleColorPreference();
                             break;
-                        case Qt.Key_Escape:
-                            root.isOpen = false;
-                            break;
-                        default:
-                            return;
+                        case Qt.Key_Escape: root.isOpen = false; break;
+                        default: return;
                         }
                         event.accepted = true;
                     }
 
+                    Timer {
+                        id: wheelResetTimer
+                        interval: 150
+                        onTriggered: wheelH.accum = 0
+                    }
                     WheelHandler {
+                        id: wheelH
                         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        property int accum: 0
                         onWheel: event => {
                             const d = event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x;
-                            if (d !== 0)
-                                root.step(d > 0 ? -1 : 1, true);
+                            if (d === 0)
+                                return;
+                            wheelH.accum += d;
+                            wheelResetTimer.restart();
+                            if (Math.abs(wheelH.accum) >= 60) {
+                                root.step(wheelH.accum > 0 ? -1 : 1, false);
+                                wheelH.accum = 0;
+                            }
                         }
                     }
 
@@ -448,251 +657,287 @@ Item {
                         height: root.cardHeight
                         y: (coverflow.height - height) / 2
 
-                        // Position relative to the centre, measured continuously (not just "is it selected"),
-                        // so size / fade / spacing all animate smoothly while the list slides.
-                        readonly property real dist: (card.x + card.width / 2 - coverflow.contentX - coverflow.width / 2) / (card.width + coverflow.spacing)
-                        readonly property real a: Math.abs(card.dist)
-                        readonly property real fall: Math.min(1, card.a)
-                        readonly property bool isCurrent: root.samePath(card.path, root.currentWallpaper)
+                        // continuous distance from centre so size/fade/spacing follow the slide
+                        readonly property real dist: (x + width / 2 - coverflow.contentX - coverflow.width / 2) / (width + coverflow.spacing)
+                        readonly property real a: Math.abs(dist)
+                        readonly property real fall: Math.min(1, a)
+                        readonly property bool isCurrent: root.samePath(path, root.currentWallpaper)
+                        // pull side cards in so the visible gap stays constant as they shrink
+                        readonly property real pull: root.cardWidth * (a <= 1 ? (1 - (root.centerScale + root.sideScale) / 2) * a : (1 - (root.centerScale + root.sideScale) / 2) + (1 - root.sideScale) * (a - 1))
 
-                        // pull side cards in so the visible gap stays the same as they shrink
-                        readonly property real pull: root.cardWidth * (card.a <= 1 ? (1 - (root.centerScale + root.sideScale) / 2) * card.a : (1 - (root.centerScale + root.sideScale) / 2) + (1 - root.sideScale) * (card.a - 1))
+                        z: 100 - Math.round(a * 10)
+                        scale: root.centerScale - (root.centerScale - root.sideScale) * fall
+                        opacity: 1 - 0.45 * fall - 0.35 * Math.min(1, Math.max(0, a - 1))
+                        transform: Translate { x: card.dist > 0 ? -card.pull : card.pull }
 
-                        z: 100 - Math.round(card.a * 10)
-                        scale: root.centerScale - (root.centerScale - root.sideScale) * card.fall
-                        opacity: 1 - 0.45 * card.fall - 0.35 * Math.min(1, Math.max(0, card.a - 1))
-                        transform: Translate {
-                            x: card.dist > 0 ? -card.pull : card.pull
+                        Elevation {
+                            anchors.fill: frame
+                            radius: frame.radius
+                            level: card.a < 0.5 ? 3 : 1
                         }
 
                         ClippingRectangle {
                             id: frame
                             anchors.fill: parent
-                            radius: root.global_radius
-                            color: Qt.alpha(root.theme.on_background, 0.08)   // placeholder while the image decodes
+                            radius: Motion.shapeExtraLarge
+                            color: Colors.surface_container_high
 
                             Image {
                                 anchors.fill: parent
                                 visible: !card.isFetch
                                 source: card.isFetch ? "" : "file://" + card.path
-                                sourceSize.width: Math.round(root.cardWidth * 1.25)
-                                sourceSize.height: Math.round(root.cardHeight * 1.25)
+                                sourceSize: Qt.size(Math.round(root.cardWidth * 1.25), Math.round(root.cardHeight * 1.25))
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 opacity: status === Image.Ready ? 1 : 0
-                                Behavior on opacity {
-                                    NumberAnimation {
-                                        duration: 250
-                                    }
-                                }
+                                Behavior on opacity { Fade { speed: "slow" } }
                             }
-
-                            // fetch slot: remote thumbnail once a preview has loaded,
-                            // placeholder text otherwise
+                            // random slot: remote thumbnail once a preview has loaded
                             Image {
                                 anchors.fill: parent
                                 visible: card.isFetch && root.previewThumbUrl !== ""
                                 source: card.isFetch ? root.previewThumbUrl : ""
-                                sourceSize.width: Math.round(root.cardWidth * 1.25)
-                                sourceSize.height: Math.round(root.cardHeight * 1.25)
+                                sourceSize: Qt.size(Math.round(root.cardWidth * 1.25), Math.round(root.cardHeight * 1.25))
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 opacity: status === Image.Ready ? 1 : 0
-                                Behavior on opacity {
-                                    NumberAnimation {
-                                        duration: 250
-                                    }
-                                }
+                                Behavior on opacity { Fade { speed: "slow" } }
                             }
 
                             Column {
                                 anchors.centerIn: parent
                                 visible: card.isFetch && root.previewThumbUrl === ""
-                                spacing: 10
-
-                                Text {
+                                spacing: 16
+                                LoadingIndicator {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: "\u21bb"
-                                    color: Qt.alpha(root.theme.on_background, 0.7)
-                                    font.pixelSize: 32
+                                    contained: true
+                                    running: visible && root.previewFetching
                                 }
-                                Text {
+                                StyledText {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: root.previewFetching ? "Loading preview\u2026" : "Random wallpaper"
-                                    color: Qt.alpha(root.theme.on_background, 0.7)
-                                    font.pixelSize: 14
-                                    font.family: root.settings.fontdefault
+                                    role: "titleMedium"
+                                    text: root.previewFetching ? "Finding a wallpaper…" : "Random wallpaper"
+                                }
+                                StyledText {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    role: "bodyMedium"
+                                    color: Colors.on_surface_variant
+                                    text: root.previewFetching ? "From Konachan" : "Click to download · right-click for another"
+                                }
+                            }
+
+                            StateLayer {
+                                pressed: cardMa.pressed
+                                tint: Colors.on_surface
+                                radius: frame.radius
+                            }
+
+                            // downloading overlay
+                            Rectangle {
+                                anchors.fill: parent
+                                visible: card.isFetch && root.fetchInProgress
+                                color: Qt.alpha(Colors.surface_container_high, 0.85)
+                                Column {
+                                    anchors.centerIn: parent
+                                    spacing: 16
+                                    LoadingIndicator {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        contained: true
+                                        running: parent.parent.visible
+                                    }
+                                    StyledText {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        role: "titleSmall"
+                                        text: "Applying wallpaper…"
+                                    }
                                 }
                             }
                         }
 
-                        // marks the wallpaper that's active right now
+                        // active wallpaper label
                         Rectangle {
                             anchors.left: parent.left
                             anchors.top: parent.top
-                            anchors.margins: 14
-                            height: 26
-                            width: badgeText.implicitWidth + 22
-                            radius: 13
-                            color: root.theme.primary
+                            anchors.margins: 16
+                            height: 32
+                            width: activeRow.implicitWidth + 24
+                            radius: Motion.shapeSmall
+                            color: Colors.primary
                             opacity: card.isCurrent ? 1 : 0
-                            scale: card.isCurrent ? 1 : 0.6
+                            scale: card.isCurrent ? 1 : 0.7
                             transformOrigin: Item.TopLeft
-                            Behavior on opacity {
-                                NumberAnimation {
-                                    duration: 200
-                                }
-                            }
-                            Behavior on scale {
-                                NumberAnimation {
-                                    duration: 260
-                                    easing.type: Easing.OutBack
-                                }
-                            }
-                            Text {
-                                id: badgeText
+                            Behavior on opacity { Fade {} }
+                            Behavior on scale { Spring {} }
+                            Row {
+                                id: activeRow
                                 anchors.centerIn: parent
-                                text: "\u2713  Current"
-                                color: root.theme.on_primary
-                                font.pixelSize: 12
-                                font.bold: true
-                                font.family: root.settings.fontdefault
+                                spacing: 8
+                                Icon { anchors.verticalCenter: parent.verticalCenter; name: "check"; size: 18; color: Colors.on_primary }
+                                StyledText { anchors.verticalCenter: parent.verticalCenter; role: "labelLarge"; color: Colors.on_primary; text: "Current" }
                             }
                         }
 
-                        Item {
-                            id: key
-                            anchors.fill: parent
-                            Keys.enabled: root.isOpen
-                            focus: root.isOpen
-
-                            
+                        // remote post id
+                        Rectangle {
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 16
+                            visible: card.isFetch && root.previewThumbUrl !== ""
+                            height: 32
+                            width: onlineRow.implicitWidth + 24
+                            radius: Motion.shapeSmall
+                            color: Colors.surface_container_highest
+                            Row {
+                                id: onlineRow
+                                anchors.centerIn: parent
+                                spacing: 8
+                                Icon { anchors.verticalCenter: parent.verticalCenter; name: "public"; size: 18; color: Colors.primary }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    role: "labelLarge"
+                                    color: Colors.on_surface_variant
+                                    text: root.previewId !== "" ? "#" + root.previewId : "Random"
+                                }
+                            }
                         }
 
                         MouseArea {
+                            id: cardMa
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             onClicked: mouse => {
-                                if (card.isFetch && mouse.button === Qt.RightButton) {
-                                    root.fetchPreview();   // reroll without downloading
+                                if (!root.isOpen)
                                     return;
-                                }
-                                if (card.isFetch) {
-                                    if (card.index === root.currentIndex)
-                                        root.confirmDownload();
-                                    else
-                                        coverflow.currentIndex = card.index;
-                                } else if (card.index === root.currentIndex) {
-                                    root.applyWallpaper(card.path, card.index);
-                                } else {
+                                if (card.isFetch && mouse.button === Qt.RightButton)
+                                    root.fetchPreview();
+                                else if (card.index !== root.currentIndex)
                                     coverflow.currentIndex = card.index;
-                                }
+                                else if (card.isFetch)
+                                    root.confirmDownload();
+                                else
+                                    root.applyWallpaper(card.path, card.index);
                             }
                         }
                     }
                 }
 
-                Text {
+                StyledText {
                     anchors.centerIn: parent
                     visible: wallpaperModel.count === 0
+                    role: "titleMedium"
+                    color: "white"
                     text: "No wallpapers found in " + root.wallpaperDir.replace("$HOME", "~")
-                    color: Qt.alpha(root.theme.on_background, 0.7)
-                    font.pixelSize: 18
-                    font.family: root.settings.fontdefault
                 }
             }
 
-            // ------------------------------------------------------------ name + hints
+            // ---- controls ----
             Column {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: carousel.bottom
                 anchors.topMargin: 8 + (1 - stage.openT) * 20
-                spacing: 18
+                spacing: 16
                 opacity: stage.openT
 
-                Rectangle {
+                Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: wallpaperModel.count > 0
-                    height: 44
-                    width: nameRow.implicitWidth + 44
-                    radius: 22
-                    color: root.pillColor
+                    spacing: 16
 
+                    // source-color preference (matugen --prefer)
                     Row {
-                        id: nameRow
-                        anchors.centerIn: parent
-                        spacing: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        ConnectedButton {
+                            position: "first"
+                            implicitHeight: 40
+                            icon: "light_mode"
+                            text: "Lightness"
+                            selected: root.colorPreference === "lightness"
+                            onClicked: root.setColorPreference("lightness")
+                        }
+                        ConnectedButton {
+                            position: "last"
+                            implicitHeight: 40
+                            icon: "contrast"
+                            text: "Darkness"
+                            selected: root.colorPreference === "darkness"
+                            onClicked: root.setColorPreference("darkness")
+                        }
+                    }
 
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.currentIndex === 0 ? "Random" : root.selectedName
-                            width: Math.min(implicitWidth, 560)
-                            elide: Text.ElideRight
-                            color: root.theme.on_background
-                            font.pixelSize: 17
-                            font.bold: true
-                            font.family: root.settings.fontdefault
+                    // name + position
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 48
+                        width: nameRow.implicitWidth + 32
+                        radius: height / 2
+                        color: Colors.surface_container_high
+                        Behavior on width {
+                            enabled: !root.snapNav
+                            Spring {}
                         }
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 4
-                            height: 4
-                            radius: 2
-                            color: Qt.alpha(root.theme.on_background, 0.35)
+                        Row {
+                            id: nameRow
+                            anchors.centerIn: parent
+                            spacing: 12
+                            Icon { anchors.verticalCenter: parent.verticalCenter; name: "image"; size: 20; color: Colors.primary }
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.min(implicitWidth, 440)
+                                role: "titleSmall"
+                                elide: Text.ElideRight
+                                text: root.currentIndex === 0 ? "Random online" : root.selectedName
+                            }
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                height: 28
+                                width: countText.implicitWidth + 16
+                                radius: Motion.shapeSmall
+                                color: Colors.secondary_container
+                                StyledText {
+                                    id: countText
+                                    anchors.centerIn: parent
+                                    role: "labelMedium"
+                                    color: Colors.on_secondary_container
+                                    text: (root.currentIndex + 1) + " / " + wallpaperModel.count
+                                }
+                            }
                         }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: (root.currentIndex + 1) + " / " + wallpaperModel.count
-                            color: Qt.alpha(root.theme.on_background, 0.6)
-                            font.pixelSize: 14
-                            font.family: root.settings.fontdefault
+                    }
+
+                    // color mode
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        ConnectedButton {
+                            position: "first"
+                            implicitHeight: 40
+                            icon: "dark_mode"
+                            text: "Dark"
+                            selected: root.colorMode === "dark"
+                            onClicked: root.setColorMode("dark")
+                        }
+                        ConnectedButton {
+                            position: "last"
+                            implicitHeight: 40
+                            icon: "light_mode"
+                            text: "Light"
+                            selected: root.colorMode === "light"
+                            onClicked: root.setColorMode("light")
                         }
                     }
                 }
 
+                // keyboard hints as assist chips
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 26
-
-                    Repeater {
-                        model: [
-                            {
-                                "k": "X",
-                                "t": "Colors: " + (root.colorPreference === "darkness" ? "Darkness" : "Lightness")
-                            },
-                        ]
-
-                        delegate: Row {
-                            id: hint
-                            required property var modelData
-                            spacing: 8
-
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                height: 22
-                                width: Math.max(22, capText.implicitWidth + 16)
-                                radius: 6
-                                color: root.capColor
-                                Text {
-                                    id: capText
-                                    anchors.centerIn: parent
-                                    text: hint.modelData.k
-                                    color: root.theme.on_background
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    font.family: root.settings.fontdefault
-                                }
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: hint.modelData.t
-                                color: Qt.alpha(root.theme.on_background, 0.65)
-                                font.pixelSize: 14
-                                font.family: root.settings.fontmedium
-                            }
-                        }
-                    }
+                    spacing: 8
+                    Chip { icon: "keyboard_return"; text: "Apply · Enter"; onClicked: root.applySelected() }
+                    Chip { icon: "dark_mode"; text: "Mode · D"; onClicked: root.toggleColorMode() }
+                    Chip { icon: "palette"; text: "Prefer · X"; onClicked: root.toggleColorPreference() }
+                    Chip { visible: root.isSelectedFetch; icon: "shuffle"; text: "Another · ↓"; onClicked: root.fetchPreview() }
+                    Chip { icon: "close"; text: "Close · Esc"; onClicked: root.isOpen = false }
                 }
             }
         }

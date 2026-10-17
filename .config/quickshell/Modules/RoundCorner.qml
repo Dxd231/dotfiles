@@ -30,8 +30,10 @@ Item {
             left: root.isLeft ? parent.left : undefined
             right: root.isRight ? parent.right : undefined
         }
+        antialiasing: true
         layer.enabled: true
         layer.smooth: true
+        layer.samples: 4
         preferredRendererType: Shape.CurveRenderer
 
         ShapePath {
