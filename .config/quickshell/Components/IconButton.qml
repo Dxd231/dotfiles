@@ -15,6 +15,9 @@ Clickable {
     property real iconSize: _t.icon
     // M3: unselected toggles use the outlined glyph, everything else filled
     property bool iconFilled: !checkable || checked
+    // for callers that spin or pop the glyph (e.g. play/pause)
+    property real iconRotation: 0
+    property real iconScale: 1
 
     // [height, icon, narrowPad, defaultPad, widePad, squareRadius, pressedRadius]
     readonly property var _tokens: ({
@@ -71,6 +74,8 @@ Clickable {
         name: button.icon
         size: button.iconSize
         filled: button.iconFilled
+        rotation: button.iconRotation
+        scale: button.iconScale
         color: button.contentColor
         Behavior on color { ColorFade {} }
     }

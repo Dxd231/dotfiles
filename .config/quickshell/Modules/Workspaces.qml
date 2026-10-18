@@ -53,14 +53,57 @@ Rectangle {
     Behavior on leftEdge { Spring { speed: ws.movingRight ? "default" : "fast" } }
     Behavior on rightEdge { Spring { speed: ws.movingRight ? "fast" : "default" } }
 
-    Rectangle {
+    // the indicator is a turning cookie that takes a new shape (with overshoot) on every switch;
+    // the stretch sits outside the shape's own turning so the outline never shears
+    property int shapeCount: 0
+    property int shapeNow: 1
+    property int shapeFrom: 1
+    property real shapeMorph: 1
+    property bool shapeSpring: true
+    property real shapeSpin: 0
+    readonly property var shapes: [1, 4, 5, 2, 0]
+    onActiveIndexChanged: {
+        if (activeIndex < 0)
+            return;
+        shapeCount += 1;
+        shapeFrom = shapeNow;
+        shapeNow = shapes[shapeCount % shapes.length];
+        shapeSpring = false;
+        shapeMorph = 0;
+        shapeSpring = true;
+        shapeMorph = 1;
+    }
+    Behavior on shapeMorph {
+        enabled: ws.shapeSpring
+        SpringAnimation { spring: 3.4; damping: 0.17; epsilon: 0.001 }
+    }
+    FrameAnimation {
+        running: ws.visible && ws.activeIndex >= 0
+        onTriggered: ws.shapeSpin = (ws.shapeSpin + frameTime * 20) % 360
+    }
+
+    Item {
+        id: indicator
         x: ws.leftEdge
-        width: ws.rightEdge - ws.leftEdge
+        width: Math.max(4, ws.rightEdge - ws.leftEdge)
         height: 28
         anchors.verticalCenter: parent.verticalCenter
-        radius: height / 2
-        color: Colors.primary
         visible: ws.activeIndex >= 0
+
+        Item {
+            width: 28
+            height: 28
+            anchors.centerIn: parent
+            transform: Scale { origin.x: 14; origin.y: 14; xScale: indicator.width / 28 }
+            MorphShape {
+                anchors.fill: parent
+                shape: ws.shapeNow
+                fromShape: ws.shapeFrom
+                morph: ws.shapeMorph
+                spin: ws.shapeSpin + ws.shapeCount * 90
+                color: Colors.primary
+            }
+        }
     }
 
     MouseArea {
@@ -100,8 +143,8 @@ Rectangle {
                     height: 6
                     radius: 3
                     color: Colors.outline
-                    opacity: !slot.current && !slot.occupied ? 1 : 0
-                    Behavior on opacity { Fade {} }
+                    scale: !slot.current && !slot.occupied ? 1 : 0
+                    Behavior on scale { Spring { speed: "fast" } }
                 }
 
                 Text {
@@ -112,6 +155,9 @@ Rectangle {
                     font.weight: Font.Bold
                     color: slot.contentColor
                     opacity: slot.current || slot.occupied ? 1 : 0
+                    // the newly active number bounces in on an overshooting spring
+                    scale: slot.current ? 1.15 : slot.occupied ? 1 : 0.5
+                    Behavior on scale { Spring { speed: "fast" } }
                     Behavior on opacity { Fade {} }
                     Behavior on color { ColorFade {} }
                 }

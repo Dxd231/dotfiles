@@ -53,11 +53,15 @@ BarPopup {
         return Quickshell.iconPath(p["application.icon-name"] || p["application.process.binary"] || "", "audio-x-generic");
     }
 
-    readonly property var streams: Pipewire.nodes.values.filter(n => n.isStream && n.audio && !String(props(n)["media.class"]).includes("Input") && !isBlacklisted(n))
+    // playback streams, from what the registry already knows. Binding a node fills in its properties, so a
+    // list that reads them would change under the tracker mid-bind and unbind the node inside its own
+    // first info callback (a crash while a recorder's capture stream was around)
+    readonly property var outStreams: Pipewire.nodes.values.filter(n => n && n.type === PwNodeType.AudioOutStream)
+    readonly property var streams: outStreams.filter(n => !isBlacklisted(n))
 
     // bind audio params only for what is on screen
     PwObjectTracker { objects: [win.sink] }
-    PwObjectTracker { objects: win.isOpen ? win.streams : [] }
+    PwObjectTracker { objects: win.isOpen ? win.outStreams : [] }
 
     IpcHandler {
         target: "volumePopup"

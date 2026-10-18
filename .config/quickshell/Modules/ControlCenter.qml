@@ -41,47 +41,30 @@ Scope {
             powerMenu.open();
     }
 
-    function openWifiDrawer(): void {
+    // Quick-settings navigation: "" is the tiles page; "wifi" / "bluetooth" replace it with a detail page
+    property string page: ""
+    readonly property bool wifiDrawerOpen: page === "wifi"
+    readonly property bool btDrawerOpen: page === "bluetooth"
+
+    function openPage(p): void {
         if (!centerOpen) show();
-        btDrawerOpen = false;
-        wifiDrawerOpen = true;
+        page = p;
     }
-
-    function closeWifiDrawer(): void {
-        wifiDrawerOpen = false;
-    }
-
-    function toggleWifiDrawer(): void {
+    function togglePage(p): void {
         if (!centerOpen) {
             show();
-            btDrawerOpen = false;
-            wifiDrawerOpen = true;
+            page = p;
         } else {
-            btDrawerOpen = false;
-            wifiDrawerOpen = !wifiDrawerOpen;
+            page = page === p ? "" : p;
         }
     }
 
-    function openBtDrawer(): void {
-        if (!centerOpen) show();
-        wifiDrawerOpen = false;
-        btDrawerOpen = true;
-    }
-
-    function closeBtDrawer(): void {
-        btDrawerOpen = false;
-    }
-
-    function toggleBtDrawer(): void {
-        if (!centerOpen) {
-            show();
-            wifiDrawerOpen = false;
-            btDrawerOpen = true;
-        } else {
-            wifiDrawerOpen = false;
-            btDrawerOpen = !btDrawerOpen;
-        }
-    }
+    function openWifiDrawer(): void { openPage("wifi"); }
+    function closeWifiDrawer(): void { if (page === "wifi") page = ""; }
+    function toggleWifiDrawer(): void { togglePage("wifi"); }
+    function openBtDrawer(): void { openPage("bluetooth"); }
+    function closeBtDrawer(): void { if (page === "bluetooth") page = ""; }
+    function toggleBtDrawer(): void { togglePage("bluetooth"); }
 
     IpcHandler {
         target: "controlcenter"
@@ -289,12 +272,20 @@ Scope {
 
     // ---- Networking / Wi-Fi ----
     readonly property var wifiDevice: Networking.devices.values.find(d => d.type === DeviceType.Wifi)
-    readonly property bool wifiOn: !!wifiDevice && (wifiDevice.active !== false)
-    property bool wifiDrawerOpen: false
+    // the radio switch is the global Networking.wifiEnabled (a device has no "active" property)
+    readonly property bool wifiOn: Networking.wifiEnabled
     readonly property bool wifiScanning: !!wifiDevice && wifiDevice.scannerEnabled
 
     function scanWifi(): void {
         if (wifiDevice && wifiOn) {
+            wifiDevice.scannerEnabled = true;
+        }
+    }
+
+    // restart the scan: the scanner stays enabled while the page is open, so toggle it
+    function rescanWifi(): void {
+        if (wifiDevice && wifiOn) {
+            wifiDevice.scannerEnabled = false;
             wifiDevice.scannerEnabled = true;
         }
     }
@@ -318,13 +309,12 @@ Scope {
             .sort((a, b) => (controlCenter.isActiveNetwork(b) - controlCenter.isActiveNetwork(a)) || (b.signalStrength - a.signalStrength));
     }
 
+    // detail-page groups, strongest signal first
+    readonly property var savedNetworks: sortedNetworks.filter(n => !isActiveNetwork(n) && n.known)
+    readonly property var availableNetworks: sortedNetworks.filter(n => !isActiveNetwork(n) && !n.known)
+
     function toggleWifi(): void {
-        if (wifiDevice) {
-            wifiDevice.active = !wifiDevice.active;
-            if (wifiDevice.active && wifiDrawerOpen) {
-                scanWifi();
-            }
-        }
+        Networking.wifiEnabled = !Networking.wifiEnabled;
     }
 
     function connectNetwork(network, password): void {
@@ -332,13 +322,11 @@ Scope {
             network.connectWithPsk(password);
         else
             network.connect();
-        wifiDrawerOpen = false;
     }
 
     // ---- Bluetooth ----
     readonly property var btAdapter: Bluetooth.defaultAdapter
     readonly property bool bluetoothOn: !!btAdapter && btAdapter.enabled
-    property bool btDrawerOpen: false
     readonly property bool btDiscovering: !!btAdapter && btAdapter.discovering
 
     readonly property var btDevices: {
@@ -347,6 +335,10 @@ Scope {
             .filter(d => d.connected || d.paired || (d.name && d.name !== d.address.replace(/:/g, "-")))
             .sort((a, b) => (b.connected - a.connected) || (b.paired - a.paired) || (a.name || "").localeCompare(b.name || ""));
     }
+
+    readonly property var connectedBtDevices: btDevices.filter(d => d.connected)
+    readonly property var pairedBtDevices: btDevices.filter(d => !d.connected && d.paired)
+    readonly property var nearbyBtDevices: btDevices.filter(d => !d.connected && !d.paired)
 
     readonly property var activeBtDevice: {
         const conn = btDevices.filter(d => d.connected);
@@ -374,26 +366,27 @@ Scope {
         }
     }
 
-    onWifiDrawerOpenChanged: {
-        if (wifiDrawerOpen && wifiOn) {
-            scanWifi();
+    // scan only while the matching page is showing
+    onPageChanged: {
+        if (page === "wifi") {
+            if (wifiOn) scanWifi();
+        } else if (wifiDevice && wifiDevice.scannerEnabled) {
+            wifiDevice.scannerEnabled = false;
         }
-    }
-
-    onBtDrawerOpenChanged: {
-        if (btDrawerOpen && bluetoothOn) {
-            discoverBluetooth();
-        } else if (!btDrawerOpen && btAdapter && btAdapter.discovering) {
+        if (page === "bluetooth") {
+            if (bluetoothOn) discoverBluetooth();
+        } else if (btAdapter && btAdapter.discovering) {
             btAdapter.discovering = false;
         }
     }
+    onWifiOnChanged: if (page === "wifi" && wifiOn) scanWifi()
+    onBluetoothOnChanged: if (page === "bluetooth" && bluetoothOn) discoverBluetooth()
 
-    // Reset drawers and refresh processes when center closes / opens
+    // Back to the tiles page and refresh processes when the center closes / opens
     onCenterOpenChanged: {
         SystemStats.detailUsers += centerOpen ? 1 : -1;
         if (centerOpen) {
-            wifiDrawerOpen = false;
-            btDrawerOpen = false;
+            page = "";
             powerProfileGet.running = false;
             powerProfileGet.running = true;
             sunsetQueryProc.running = false;
@@ -401,8 +394,7 @@ Scope {
             loadGammaProc.running = false;
             loadGammaProc.running = true;
         } else {
-            wifiDrawerOpen = false;
-            btDrawerOpen = false;
+            page = "";
             if (btAdapter && btAdapter.discovering) {
                 btAdapter.discovering = false;
             }

@@ -3,83 +3,151 @@ import QtQuick
 import Quickshell
 import qs
 import qs.Components
+import qs.Services
 
-// Time (primary pill with rolling digits) + date.
-BarChip {
+// Time pill (rolling digits) + date. The time opens the focus timer and shows its countdown
+// while a session is running; the date opens the calendar.
+Rectangle {
     id: clock
 
-    property var popup: null
+    property var calendarPopup: null
+    property var focusPopup: null
 
-    checked: popup && popup.isOpen
-    implicitWidth: content.implicitWidth + 4 + 12
-    onClicked: if (popup) popup.toggle()
+    // anchors for the popups that open from each part
+    readonly property Item timeAnchor: timePill
+    readonly property Item dateAnchor: dateButton
+
+    implicitHeight: 32
+    height: 32
+    implicitWidth: content.implicitWidth + 4 + 4
+    radius: 16
+    color: Colors.surface_container_high
 
     SystemClock {
         id: sysClock
         precision: SystemClock.Minutes
     }
     readonly property string time: Qt.formatDateTime(sysClock.date, "HH:mm")
+    // the session countdown replaces the clock only while the timer is running; paused shows the clock again
+    readonly property string shownText: Pomodoro.running ? Pomodoro.label : time
+
+    // Every digit gets one fixed cell (the width of an "8", a typical digit; the colon has its own), so
+    // the pill keeps one width as the numbers change instead of nudging the whole bar group each tick.
+    // Narrow digits like "1" sit centred in their cell, and the wider "0" fits within its side bearings.
+    property real digitWidth: 0
+    property real colonWidth: 0
+    StyledText {
+        id: probe
+        visible: false
+        role: "titleSmall"
+        emphasized: true
+    }
+    TextMetrics {
+        id: metrics
+        font: probe.font
+    }
+    function measure() {
+        metrics.text = "8";
+        digitWidth = metrics.advanceWidth;
+        metrics.text = ":";
+        colonWidth = metrics.advanceWidth;
+    }
+    Component.onCompleted: Qt.callLater(measure)
+    Connections {
+        target: probe
+        function onFontChanged() { clock.measure(); }
+    }
 
     Row {
         id: content
         anchors.verticalCenter: parent.verticalCenter
         x: 4
-        spacing: 8
+        spacing: 4
 
-        Rectangle {
+        Clickable {
             id: timePill
             anchors.verticalCenter: parent.verticalCenter
             height: 24
-            width: digits.implicitWidth + 20
-            radius: clock.pressed ? 6 : clock.checked ? Motion.shapeSmall : 12
-            color: Colors.primary
-            Behavior on radius { Spring {} }
+            width: pillRow.implicitWidth + 20
+            restRadius: 12
+            pressedRadius: 6
+            checkedRadius: Motion.shapeSmall
+            checked: !!clock.focusPopup && clock.focusPopup.isOpen
+            color: Pomodoro.running && Pomodoro.onBreak ? Colors.tertiary : Colors.primary
+            contentColor: Pomodoro.running && Pomodoro.onBreak ? Colors.on_tertiary : Colors.on_primary
             Behavior on width { Spring {} }
+            scale: pressed ? 0.93 : hovered ? 1.05 : 1
+            Behavior on scale { Spring { speed: "fast" } }
+            onClicked: if (clock.focusPopup) clock.focusPopup.toggle()
 
             Row {
-                id: digits
+                id: pillRow
                 anchors.centerIn: parent
-                Repeater {
-                    model: clock.time.length
-                    delegate: Item {
-                        id: digit
-                        required property int index
-                        readonly property string target: clock.time.charAt(index)
-                        property string shown: target
-                        width: current.implicitWidth
-                        height: current.implicitHeight
-                        clip: true
+                spacing: 4
 
-                        // old digit rolls down and out while the new one rolls in from above
-                        onTargetChanged: {
-                            if (target === shown)
-                                return;
-                            incoming.text = target;
-                            roll.restart();
-                        }
+                Icon {
+                    visible: Pomodoro.running
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: Pomodoro.onBreak ? "coffee" : "timer"
+                    size: 16
+                    color: timePill.contentColor
+                }
 
-                        StyledText {
-                            id: current
-                            role: "titleSmall"
-                            emphasized: true
-                            color: Colors.on_primary
-                            text: digit.shown
-                        }
-                        StyledText {
-                            id: incoming
-                            role: "titleSmall"
-                            emphasized: true
-                            color: Colors.on_primary
-                            y: -height
-                        }
-                        ParallelAnimation {
-                            id: roll
-                            NumberAnimation { target: current; property: "y"; from: 0; to: digit.height; duration: Motion.expressiveFastSpatialDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.expressiveFastSpatial }
-                            NumberAnimation { target: incoming; property: "y"; from: -digit.height; to: 0; duration: Motion.expressiveFastSpatialDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.expressiveFastSpatial }
-                            onFinished: {
-                                digit.shown = incoming.text;
-                                current.y = 0;
-                                incoming.y = -digit.height;
+                Row {
+                    id: digits
+                    anchors.verticalCenter: parent.verticalCenter
+                    Repeater {
+                        model: clock.shownText.length
+                        delegate: Item {
+                            id: digit
+                            required property int index
+                            readonly property string target: clock.shownText.charAt(index)
+                            property string shown: target
+                            // natural width until the cell size has been measured
+                            width: (target === ":" ? clock.colonWidth : clock.digitWidth) || current.implicitWidth
+                            height: current.implicitHeight
+                            clip: true
+
+                            // old digit rolls down and out while the new one rolls in from above
+                            onTargetChanged: {
+                                if (target === shown) {
+                                    // back to what's on show mid-roll: cancel it, or it finishes on the stale digit
+                                    if (roll.running) {
+                                        roll.stop();
+                                        current.y = 0;
+                                        incoming.y = -digit.height;
+                                    }
+                                    return;
+                                }
+                                incoming.text = target;
+                                roll.restart();
+                            }
+
+                            StyledText {
+                                id: current
+                                x: (digit.width - width) / 2
+                                role: "titleSmall"
+                                emphasized: true
+                                color: timePill.contentColor
+                                text: digit.shown
+                            }
+                            StyledText {
+                                id: incoming
+                                x: (digit.width - width) / 2
+                                role: "titleSmall"
+                                emphasized: true
+                                color: timePill.contentColor
+                                y: -height
+                            }
+                            ParallelAnimation {
+                                id: roll
+                                NumberAnimation { target: current; property: "y"; from: 0; to: digit.height; duration: Motion.expressiveFastSpatialDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.expressiveFastSpatial }
+                                NumberAnimation { target: incoming; property: "y"; from: -digit.height; to: 0; duration: Motion.expressiveFastSpatialDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.expressiveFastSpatial }
+                                onFinished: {
+                                    digit.shown = incoming.text;
+                                    current.y = 0;
+                                    incoming.y = -digit.height;
+                                }
                             }
                         }
                     }
@@ -87,11 +155,28 @@ BarChip {
             }
         }
 
-        StyledText {
+        Clickable {
+            id: dateButton
             anchors.verticalCenter: parent.verticalCenter
-            role: "labelLarge"
-            color: clock.contentColor
-            text: Qt.formatDateTime(sysClock.date, "ddd, d MMM")
+            height: 24
+            width: dateText.implicitWidth + 20
+            restRadius: 12
+            pressedRadius: 6
+            checkedRadius: Motion.shapeSmall
+            checked: !!clock.calendarPopup && clock.calendarPopup.isOpen
+            color: checked ? Colors.secondary_container : "transparent"
+            contentColor: checked ? Colors.on_secondary_container : Colors.on_surface
+            scale: pressed ? 0.93 : hovered ? 1.05 : 1
+            Behavior on scale { Spring { speed: "fast" } }
+            onClicked: if (clock.calendarPopup) clock.calendarPopup.toggle()
+
+            StyledText {
+                id: dateText
+                anchors.centerIn: parent
+                role: "labelLarge"
+                color: dateButton.contentColor
+                text: Qt.formatDateTime(sysClock.date, "ddd, d MMM")
+            }
         }
     }
 }

@@ -7,14 +7,23 @@ import Quickshell.Wayland
 import qs
 import qs.Components
 
-// Power dialog: M3 basic dialog (scrim, surface-container-high, 28px corners, hero icon)
-// with large square icon buttons. Keys: ←/→ or h/l to move, Enter/Space to run, 1–6 direct.
+// Power dialog. A hero shape in the selected action's colour springs (and overshoots) into that
+// action's own Expressive shape as the selection moves; below it each idle button is its own
+// slowly turning silhouette, and the selected one expands into a labelled pill.
+// Keys: ←/→ or h/l to move, Enter/Space to run, 1–6 direct.
 Scope {
     id: root
 
     property var lockScreen: null
     property bool menuVisible: false
     property int selectedIndex: 0
+
+    // hero morph: the shape it came from, the one it is going to, and how far along (0..1)
+    property int heroFrom: 0
+    property int heroTo: 2
+    property real heroMorph: 1
+    property bool heroSpring: true
+    property real heroSpin: 0
 
     function open() { menuVisible = true; }
     function close() { menuVisible = false; }
@@ -30,13 +39,41 @@ Scope {
         close();
     }
 
-    onMenuVisibleChanged: if (menuVisible) selectedIndex = 0
+    onMenuVisibleChanged: {
+        if (!menuVisible)
+            return;
+        selectedIndex = 0;
+        // open on the first action's shape, no morph
+        heroSpring = false;
+        heroFrom = heroTo = actions[0].shape;
+        heroMorph = 1;
+        heroSpring = true;
+    }
+    // a new selection: snap the morph to 0, then let it spring to 1; the low damping overshoots to
+    // about 1.3 and wobbles back, so the shape visibly stretches past its target
+    onSelectedIndexChanged: {
+        heroFrom = heroTo;
+        heroTo = actions[selectedIndex].shape;
+        heroSpring = false;
+        heroMorph = 0;
+        heroSpring = true;
+        heroMorph = 1;
+    }
+    Behavior on heroMorph {
+        enabled: root.heroSpring
+        SpringAnimation { spring: 3.2; damping: 0.16; epsilon: 0.001 }
+    }
+    FrameAnimation {
+        running: root.menuVisible
+        onTriggered: root.heroSpin = (root.heroSpin + frameTime * 14) % 360
+    }
 
     IpcHandler {
         target: "powermenu"
         function open(): void { root.open(); }
         function close(): void { root.close(); }
         function toggle(): void { root.toggle(); }
+        function select(index: int): void { root.selectedIndex = Math.max(0, Math.min(root.actions.length - 1, index)); }
     }
 
     // lock first, then act once the lock surface is up
@@ -52,15 +89,23 @@ Scope {
         afterLock.restart();
     }
 
-    // role: "primary" | "tertiary" | "error"
+    // role: "primary" | "tertiary" | "error"; shape indices are MorphShape's
     readonly property var actions: [
-        { icon: "lock", label: "Lock", role: "primary", run: () => root.lock() },
-        { icon: "monitor", label: "Screen off", role: "primary", run: () => root.lockThen(["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\" })"]) },
-        { icon: "bedtime", label: "Suspend", role: "primary", run: () => root.lockThen(["systemctl", "suspend"]) },
-        { icon: "logout", label: "Log out", role: "tertiary", run: () => Quickshell.execDetached(["hyprshutdown"]) },
-        { icon: "restart_alt", label: "Restart", role: "tertiary", run: () => Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl reboot"]) },
-        { icon: "power_settings_new", label: "Shut down", role: "error", run: () => Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl poweroff"]) }
+        { icon: "lock", label: "Lock", desc: "Lock the screen", role: "primary", shape: 2, run: () => root.lock() },
+        { icon: "monitor", label: "Screen off", desc: "Lock, then turn the display off", role: "primary", shape: 6, run: () => root.lockThen(["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\" })"]) },
+        { icon: "bedtime", label: "Suspend", desc: "Lock, then sleep until you wake it", role: "primary", shape: 5, run: () => root.lockThen(["systemctl", "suspend"]) },
+        { icon: "logout", label: "Log out", desc: "End this session", role: "tertiary", shape: 4, run: () => Quickshell.execDetached(["hyprshutdown"]) },
+        { icon: "restart_alt", label: "Restart", desc: "Restart the computer", role: "tertiary", shape: 1, run: () => Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl reboot"]) },
+        { icon: "power_settings_new", label: "Shut down", desc: "Power off completely", role: "error", shape: 0, run: () => Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl poweroff"]) }
     ]
+
+    // colour roles: the hero and idle buttons use the container; the selected button the full colour
+    function container(role) { return role === "error" ? Colors.error_container : role === "tertiary" ? Colors.tertiary_container : Colors.secondary_container; }
+    function onContainer(role) { return role === "error" ? Colors.on_error_container : role === "tertiary" ? Colors.on_tertiary_container : Colors.on_secondary_container; }
+    function full(role) { return role === "error" ? Colors.error : role === "tertiary" ? Colors.tertiary : Colors.primary; }
+    function onFull(role) { return role === "error" ? Colors.on_error : role === "tertiary" ? Colors.on_tertiary : Colors.on_primary; }
+
+    readonly property var current: actions[selectedIndex]
 
     Variants {
         model: Quickshell.screens
@@ -122,8 +167,8 @@ Scope {
             Rectangle {
                 id: dialog
                 anchors.centerIn: parent
-                width: content.implicitWidth + 48
-                height: content.implicitHeight + 48
+                width: 640
+                height: content.implicitHeight + 64
                 radius: Motion.shapeExtraLarge
                 color: Colors.surface_container_high
                 opacity: root.menuVisible ? 1 : 0
@@ -137,65 +182,170 @@ Scope {
                 ColumnLayout {
                     id: content
                     anchors.centerIn: parent
-                    spacing: 16
+                    width: parent.width - 64
+                    spacing: 8
 
-                    Icon {
+                    // ---- hero ----
+                    Item {
                         Layout.alignment: Qt.AlignHCenter
-                        name: "settings_power"
-                        color: Colors.secondary
+                        implicitWidth: 240
+                        implicitHeight: 240
+                        scale: root.menuVisible ? 1 : 0.4
+                        Behavior on scale { Spring { speed: "default" } }
+
+                        MorphShape {
+                            id: hero
+                            anchors.fill: parent
+                            shape: root.heroTo
+                            fromShape: root.heroFrom
+                            morph: root.heroMorph
+                            spin: root.heroSpin
+                            color: root.container(root.current.role)
+                            Behavior on color { ColorFade {} }
+                        }
+                        Icon {
+                            anchors.centerIn: parent
+                            name: root.current.icon
+                            size: 88
+                            color: root.onContainer(root.current.role)
+                            // pops in with the morph's overshoot
+                            scale: 0.5 + 0.5 * root.heroMorph
+                            rotation: (1 - Math.min(1, root.heroMorph)) * -25
+                            Behavior on color { ColorFade {} }
+                        }
+                    }
+
+                    // ---- what it does ----
+                    StyledText {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 8
+                        role: "displaySmall"
+                        emphasized: true
+                        text: root.current.label
+                        opacity: Math.min(1, 0.15 + root.heroMorph * 1.2)
+                        scale: 0.85 + 0.15 * Math.min(1.1, root.heroMorph)
+                        transform: Translate { y: (1 - Math.min(1, root.heroMorph)) * 24 }
                     }
                     StyledText {
                         Layout.alignment: Qt.AlignHCenter
-                        role: "headlineSmall"
-                        text: "Power"
-                    }
-                    StyledText {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.bottomMargin: 8
-                        role: "bodyMedium"
+                        Layout.bottomMargin: 16
+                        role: "bodyLarge"
                         color: Colors.on_surface_variant
-                        text: "Choose an action, or press 1–6"
+                        text: root.current.desc
+                        opacity: Math.min(1, 0.15 + root.heroMorph * 1.2)
                     }
 
+                    // ---- button group: idle buttons are their own turning silhouettes; the selected one expands ----
                     Row {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: 12
 
                         Repeater {
                             model: root.actions
-                            delegate: Column {
-                                id: action
+                            delegate: Item {
+                                id: btn
                                 required property var modelData
                                 required property int index
                                 readonly property bool selected: index === root.selectedIndex
-                                spacing: 8
+                                property bool shown: false
 
-                                // selection (keyboard or hover) morphs the square to a circle and
-                                // switches from the container role to the full-strength role
-                                IconButton {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    readonly property string role: action.modelData.role
-                                    size: "l"
-                                    square: true
-                                    restRadius: action.selected ? height / 2 : Motion.shapeExtraLarge
-                                    icon: action.modelData.icon
-                                    color: role === "error" ? (action.selected ? Colors.error : Colors.error_container)
-                                         : role === "tertiary" ? (action.selected ? Colors.tertiary : Colors.tertiary_container)
-                                         : (action.selected ? Colors.primary : Colors.secondary_container)
-                                    contentColor: role === "error" ? (action.selected ? Colors.on_error : Colors.on_error_container)
-                                         : role === "tertiary" ? (action.selected ? Colors.on_tertiary : Colors.on_tertiary_container)
-                                         : (action.selected ? Colors.on_primary : Colors.on_secondary_container)
-                                    onClicked: root.run(action.index)
-                                    onHoveredChanged: if (hovered) root.selectedIndex = action.index
+                                width: selected ? row.implicitWidth + 44 : 64
+                                height: 64
+                                Behavior on width { Spring { speed: "default" } }
+
+                                // staggered entrance: rises, and turns in from a tilt
+                                opacity: shown ? 1 : 0
+                                Behavior on opacity { Fade { speed: "default" } }
+                                transform: [
+                                    Translate {
+                                        y: btn.shown ? 0 : 48
+                                        Behavior on y { Spring { speed: "default" } }
+                                    },
+                                    Rotation {
+                                        origin.x: 32
+                                        origin.y: 32
+                                        angle: btn.shown ? 0 : -20
+                                        Behavior on angle { Spring { speed: "default" } }
+                                    }
+                                ]
+                                Timer {
+                                    interval: 120 + btn.index * 45
+                                    running: root.menuVisible
+                                    onTriggered: btn.shown = true
                                 }
-                                StyledText {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    role: "labelLarge"
-                                    color: action.selected ? Colors.on_surface : Colors.on_surface_variant
-                                    text: action.modelData.label
+                                Connections {
+                                    target: root
+                                    function onMenuVisibleChanged() { if (!root.menuVisible) btn.shown = false; }
+                                }
+
+                                // idle: this action's own silhouette, slowly turning (grows on hover, squashes on press)
+                                MorphShape {
+                                    anchors.centerIn: parent
+                                    width: 64
+                                    height: 64
+                                    shape: btn.modelData.shape
+                                    fromShape: btn.modelData.shape
+                                    spin: (btn.index % 2 ? -1 : 1) * root.heroSpin * 2.5
+                                    color: root.container(btn.modelData.role)
+                                    opacity: btn.selected ? 0 : 1
+                                    scale: btn.selected ? 0.3 : (mouse.pressed ? 0.88 : mouse.containsMouse ? 1.14 : 1)
+                                    Behavior on opacity { Fade { speed: "default" } }
+                                    Behavior on scale { Spring { speed: "fast" } }
+                                }
+                                // selected: the full-colour pill
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: height / 2
+                                    color: root.full(btn.modelData.role)
+                                    opacity: btn.selected ? 1 : 0
+                                    scale: btn.selected ? 1 : 0.5
+                                    Behavior on opacity { Fade { speed: "default" } }
+                                    Behavior on scale { Spring { speed: "default" } }
+                                    Behavior on color { ColorFade {} }
+                                }
+
+                                Row {
+                                    id: row
+                                    anchors.centerIn: parent
+                                    spacing: 8
+                                    Icon {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        name: btn.modelData.icon
+                                        size: 28
+                                        color: btn.selected ? root.onFull(btn.modelData.role) : root.onContainer(btn.modelData.role)
+                                        Behavior on color { ColorFade {} }
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: opacity > 0
+                                        opacity: btn.selected ? 1 : 0
+                                        Behavior on opacity { Fade {} }
+                                        role: "titleMedium"
+                                        emphasized: true
+                                        color: root.onFull(btn.modelData.role)
+                                        text: btn.modelData.label
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: mouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.run(btn.index)
+                                    onContainsMouseChanged: if (containsMouse) root.selectedIndex = btn.index
                                 }
                             }
                         }
+                    }
+
+                    // ---- keys ----
+                    StyledText {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 16
+                        role: "labelMedium"
+                        color: Colors.on_surface_variant
+                        text: "←  →  choose    ·    Enter  confirm    ·    1–6  jump    ·    Esc  close"
                     }
                 }
             }

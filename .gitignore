@@ -14,9 +14,20 @@ build/
 
 # Logs
 *.log
+logs/
+
+# Caches
+__pycache__/
+*.pyc
+cache/
+.cache/
 
 # Local secrets/config overrides
 .env
 *.local.qml
 
-README.md
+# Agent notes
+AGENTS.MD
+AGENTS.md
+AGENT.MD
+AGENT.md

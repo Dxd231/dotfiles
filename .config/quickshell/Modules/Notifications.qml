@@ -9,6 +9,7 @@ import Quickshell.Services.Notifications
 import Quickshell.Wayland
 import qs
 import qs.Components
+import qs.Services
 
 // Notification server, popups, and the left-side center (quick settings + history).
 Scope {
@@ -19,6 +20,7 @@ Scope {
     // ---- state ----
     property bool centerOpen: false
     property bool dnd: false            // do not disturb: no popups / sound (critical still shows)
+    onDndChanged: Sound.muted = dnd
     property int unread: 0              // notifications received while the center was closed
     property int maxHistory: 100
     property var mutedApps: []
@@ -307,6 +309,34 @@ Scope {
         onTriggered: notify_root.nowMs = Date.now()
     }
 
+    // when each notification arrived (id -> ms), kept on disk so a reload can put the carried-over
+    // ones back in the history with their real times. Ids restart with the process, but only
+    // notifications from the previous generation look their stamp up, so stale entries are harmless.
+    property var stamps: ({})
+    function rememberStamp(id, stamp) {
+        const next = {};
+        for (let i = 0; i < history.count; i++) {
+            const h = history.get(i);
+            if (h.notifId !== undefined && notify_root.stamps[h.notifId])
+                next[h.notifId] = notify_root.stamps[h.notifId];
+        }
+        next[id] = stamp;
+        notify_root.stamps = next;
+        stampAdapter.stamps = next;
+        stampStore.writeAdapter();
+    }
+    FileView {
+        id: stampStore
+        path: (Quickshell.env("XDG_STATE_HOME") ? Quickshell.env("XDG_STATE_HOME") : (Quickshell.env("HOME") + "/.local/state")) + "/quickshell/notif-stamps.json"
+        printErrors: false
+        blockLoading: true
+        onLoaded: notify_root.stamps = stampAdapter.stamps || {}
+        JsonAdapter {
+            id: stampAdapter
+            property var stamps: ({})
+        }
+    }
+
     // ---------------------------------------------------------------- server
 
     NotificationServer {
@@ -317,8 +347,16 @@ Scope {
         bodyHyperlinksSupported: true
         imageSupported: true
         onNotification: n => {
+            // after a reload the server hands back the notifications it was still tracking: they go
+            // back into the history as they were (same time, same place), without a popup, a sound
+            // or an unread mark
+            const carried = n.lastGeneration;
+            const stamp = carried && notify_root.stamps[n.id] ? notify_root.stamps[n.id] : Date.now();
+            let at = 0;
+            while (at < history.count && history.get(at).stamp >= stamp)
+                at++;
             const notifUrl = notify_root.findUrlFromNotification(n);
-            history.insert(0, {
+            history.insert(at, {
                 notifId: n.id,
                 summary: n.summary,
                 body: n.body,
@@ -327,7 +365,7 @@ Scope {
                 appIcon: n.appIcon || "",
                 url: notifUrl || "",
                 urgency: n.urgency,
-                stamp: Date.now(),
+                stamp: stamp,
                 image: notify_root.iconFor(n)
             });
 
@@ -342,6 +380,10 @@ Scope {
                 history.remove(history.count - 1);
             }
 
+            notify_root.rememberStamp(n.id, stamp);
+            if (carried)
+                return;
+
             if (!notify_root.centerOpen)
                 notify_root.unread++;
 
@@ -351,7 +393,9 @@ Scope {
                 return;   // kept in history & tracked on D-Bus, but no popup and no sound
 
             notify_root.showPopup(n);
-            notify_root.playSound();
+            // the task and focus-timer alarms play their own sound
+            if (n.appName !== "Tasks" && n.appName !== "Focus timer")
+                notify_root.playSound();
         }
     }
 
@@ -421,10 +465,27 @@ Scope {
         visible: notify_root.centerOpen || column.x > -column.width
         mask: Region { item: column }
 
+        // entrance: the quick-settings tiles and then the history cards pop in one after another;
+        // the counter restarts every time the window has been hidden and is shown again
+        property int enterStage: 0
+        onVisibleChanged: if (!visible) enterStage = 0
+        Timer {
+            running: notify_root.centerOpen && centerPanel.enterStage < 18
+            interval: 50
+            repeat: true
+            onTriggered: centerPanel.enterStage += 1
+        }
+
         Item {
             anchors.fill: parent
             focus: notify_root.centerOpen
-            Keys.onEscapePressed: notify_root.centerOpen = false
+            // Escape steps back from a quick-settings detail page before it closes the center
+            Keys.onEscapePressed: {
+                if (notify_root.controlCenter && notify_root.controlCenter.page !== "")
+                    notify_root.controlCenter.page = "";
+                else
+                    notify_root.centerOpen = false;
+            }
         }
 
         Column {
@@ -444,6 +505,8 @@ Scope {
                 ControlCenterCard {
                     id: ccCard
                     controlCenter: notify_root.controlCenter
+                    stage: centerPanel.enterStage
+                    live: notify_root.centerOpen
                 }
             }
 
@@ -476,13 +539,22 @@ Scope {
                                 Row {
                                     spacing: 8
                                     StyledText { role: "titleLarge"; text: "Notifications" }
-                                    Badge {
+                                    // a count, not an alert: primary rather than error; the digits roll
+                                    Rectangle {
                                         anchors.verticalCenter: parent.verticalCenter
                                         visible: history.count > 0
-                                        // a count, not an alert: primary rather than error
+                                        height: 22
+                                        width: countDigits.implicitWidth + 16
+                                        radius: height / 2
                                         color: Colors.primary
-                                        textColor: Colors.on_primary
-                                        text: history.count
+                                        Behavior on width { Spring {} }
+                                        RollingDigits {
+                                            id: countDigits
+                                            anchors.centerIn: parent
+                                            pixelSize: 13
+                                            color: Colors.on_primary
+                                            text: String(history.count)
+                                        }
                                     }
                                 }
                                 StyledText {
@@ -519,18 +591,7 @@ Scope {
                                 clip: true
                                 model: history
                                 boundsBehavior: Flickable.StopAtBounds
-                                ScrollBar.vertical: ScrollBar {
-                                    id: scrollBar
-                                    policy: ScrollBar.AsNeeded
-                                    contentItem: Rectangle {
-                                        implicitWidth: 4
-                                        radius: 2
-                                        color: Colors.outline
-                                        opacity: scrollBar.size < 1 ? (scrollBar.active ? 1 : 0.4) : 0
-                                        Behavior on opacity { Fade {} }
-                                    }
-                                    background: Item { implicitWidth: 4 }
-                                }
+                                // no scrollbar: the cards are short-lived, and wheel / drag scrolling doesn't need one
 
                                 add: Transition {
                                     Fade { property: "opacity"; from: 0; to: 1; speed: "default" }
@@ -538,10 +599,12 @@ Scope {
                                 }
                                 remove: Transition {
                                     Fade { property: "opacity"; to: 0 }
+                                    NumberAnimation { property: "scale"; to: 0.8; duration: Motion.short4; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.emphasizedAccelerate }
                                     NumberAnimation { property: "x"; to: -historyList.width; duration: Motion.short4; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.emphasizedAccelerate }
                                 }
+                                // neighbours close the gap on the fast, bouncy spring
                                 displaced: Transition {
-                                    Spring { properties: "x,y"; speed: "default" }
+                                    Spring { properties: "x,y"; speed: "fast" }
                                 }
 
                                 delegate: NotifCard {
@@ -550,6 +613,7 @@ Scope {
                                     required property int index
 
                                     width: historyList.width
+                                    appearTarget: centerPanel.enterStage >= 6 + Math.min(hcard.index, 8) ? 1 : 0
                                     first: index === 0
                                     last: index === historyList.count - 1
                                     summary: model.summary
@@ -575,17 +639,23 @@ Scope {
                                 spacing: 12
                                 visible: history.count === 0
 
-                                Rectangle {
+                                // a big turning shape that pops in when the list empties; sunny while do-not-disturb is on
+                                ShapeBadge {
+                                    id: emptyBadge
                                     Layout.alignment: Qt.AlignHCenter
-                                    implicitWidth: 72
-                                    implicitHeight: 72
-                                    radius: Motion.shapeExtraLarge
-                                    color: Colors.secondary_container
+                                    Layout.preferredWidth: 104
+                                    Layout.preferredHeight: 104
+                                    shapeRest: 1
+                                    shapeActive: 4
+                                    active: notify_root.dnd
+                                    spinning: history.count === 0 && centerPanel.visible
+                                    color: notify_root.dnd ? Colors.tertiary_container : Colors.secondary_container
+                                    badgeScale: history.count === 0 ? 1 : 0.5
                                     Icon {
                                         anchors.centerIn: parent
-                                        size: 32
+                                        size: 40
                                         name: notify_root.dnd ? "notifications_paused" : "notifications"
-                                        color: Colors.on_secondary_container
+                                        color: notify_root.dnd ? Colors.on_tertiary_container : Colors.on_secondary_container
                                     }
                                 }
                                 StyledText { Layout.alignment: Qt.AlignHCenter; role: "titleMedium"; text: "All caught up" }

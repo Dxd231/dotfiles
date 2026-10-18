@@ -44,6 +44,8 @@ Rectangle {
                 checked: menuOpen
                 checkedRadius: Motion.shapeSmall
                 color: checked ? Colors.secondary_container : "transparent"
+                scale: pressed ? 0.88 : hovered ? 1.12 : 1
+                Behavior on scale { Spring { speed: "fast" } }
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: mouse => {
                     if (mouse.button === Qt.RightButton && modelData.hasMenu) {

@@ -51,15 +51,15 @@ BarChip {
         opacity: mpris.showVolume ? 0 : 1
         Behavior on opacity { Fade {} }
 
-        // equalizer badge
-        Rectangle {
+        // equalizer badge: a turning shape while playing, the sunny shape while the popup is open
+        ShapeBadge {
             anchors.verticalCenter: parent.verticalCenter
-            width: 24
-            height: 24
-            radius: mpris.pressed ? 6 : mpris.checked ? Motion.shapeSmall : 12
+            shapeRest: 1
+            shapeActive: 4
+            active: mpris.checked
+            spinning: mpris.playing
+            badgeScale: mpris.pressed ? 0.85 : mpris.playing ? 1 : 0.9
             color: mpris.playing ? Colors.primary : Colors.primary_container
-            Behavior on radius { Spring {} }
-            Behavior on color { ColorFade {} }
 
             Row {
                 anchors.centerIn: parent

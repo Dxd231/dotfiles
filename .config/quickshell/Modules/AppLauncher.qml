@@ -36,6 +36,13 @@ Item {
         return res;
     }
 
+    // row wave on open: `stage` counts up and each row rises in when it passes its index
+    property int stage: 0
+    // the row that was just launched (its badge swells before the panel folds away)
+    property int launchingIndex: -1
+    // something to tidy once the panel has folded shut
+    property bool dirty: false
+
     function resetLauncher() {
         root.query = "";
         root.selectedIndex = 0;
@@ -43,10 +50,30 @@ Item {
     }
 
     onIsOpenLauncherChanged: {
-        if (isOpenLauncher)
+        if (isOpenLauncher) {
+            dirty = true;
+            launchClose.stop();
             searchField.forceActiveFocus();
-        else
-            root.resetLauncher();
+            stageTimer.restart();
+        }
+    }
+
+    Timer {
+        id: stageTimer
+        interval: 35
+        repeat: true
+        onTriggered: {
+            if (root.stage < 10)
+                root.stage++;
+            else
+                stop();
+        }
+    }
+    // closing is a fold, so the list is only reset once it has shut
+    Timer {
+        id: launchClose
+        interval: 150
+        onTriggered: root.isOpenLauncher = false
     }
 
     FileView {
@@ -235,7 +262,16 @@ Item {
         return results.map(r => r.app);
     }
 
-    onQueryChanged: root.selectedIndex = 0
+    onQueryChanged: {
+        root.selectedIndex = 0;
+        searchBadge.badgeScale = 1.18;
+        kickBack.restart();
+    }
+    Timer {
+        id: kickBack
+        interval: 90
+        onTriggered: searchBadge.badgeScale = 1
+    }
     onFilteredAppsChanged: if (root.selectedIndex >= root.filteredApps.length)
         root.selectedIndex = Math.max(0, root.filteredApps.length - 1)
 
@@ -244,8 +280,9 @@ Item {
             return;
         root.recordLaunch(entry.id);
         entry.execute();
-        root.isOpenLauncher = false;
-        root.resetLauncher();
+        root.launchingIndex = root.filteredApps.indexOf(entry);
+        panel.squish = 1;
+        launchClose.restart();
     }
 
     IpcHandler {
@@ -273,7 +310,7 @@ Item {
         anchors { top: true; bottom: true; left: true; right: true }
         exclusiveZone: -1
         color: "transparent"
-        visible: root.isOpenLauncher || panel.opacity > 0
+        visible: root.isOpenLauncher || panel.openP > 0.01
 
         MouseArea {
             anchors.fill: parent
@@ -289,23 +326,48 @@ Item {
             transformOrigin: Item.Top
         }
 
-        // M3 search view (docked): surface-container-high, 28px corners
-        Rectangle {
+        // M3 search view (docked): surface-container-high. It unfolds from the search pill: the
+        // pill drops its full corners for the 28px ones while the results open beneath it.
+        ClippingRectangle {
             id: panel
+            readonly property real pillH: 88
+            readonly property real fullH: 560
+            property real openP: root.isOpenLauncher ? 1 : 0
+            // 0 -> 1 when an app is launched: a small squash before the fold
+            property real squish: 0
+            Behavior on openP { Spring { speed: root.isOpenLauncher ? "default" : "fast" } }
+            Behavior on squish { Spring { speed: "fast" } }
+            onOpenPChanged: {
+                if (root.dirty && !root.isOpenLauncher && openP < 0.02) {
+                    root.dirty = false;
+                    stageTimer.stop();
+                    root.stage = 0;
+                    root.launchingIndex = -1;
+                    squish = 0;
+                    root.resetLauncher();
+                    scroller.stop();
+                    resultsList.positionViewAtBeginning();
+                }
+            }
+
             width: 640
-            height: 560
+            height: Math.max(pillH, pillH + (fullH - pillH) * openP)
             anchors.horizontalCenter: parent.horizontalCenter
             y: 200
-            radius: Motion.shapeExtraLarge
+            radius: Math.min(height / 2, Motion.shapeExtraLarge + 20 * (1 - Math.max(0, Math.min(1, openP))))
             color: Colors.surface_container_high
             transformOrigin: Item.Top
-            opacity: root.isOpenLauncher ? 1 : 0
-            scale: root.isOpenLauncher ? 1 : 0.92
-            Behavior on opacity { Fade { speed: "default" } }
-            Behavior on scale { Spring { speed: "default" } }
+            opacity: Math.max(0, Math.min(1, openP * 3))
+            scale: (0.9 + 0.1 * Math.min(openP, 1.04)) * (1 - 0.05 * squish)
 
             // swallow clicks so they don't close the launcher
             MouseArea { anchors.fill: parent }
+
+            // the content keeps its full size, the panel just reveals it
+            Item {
+                id: content
+                width: panel.width
+                height: panel.fullH
 
             ColumnLayout {
                 anchors.fill: parent
@@ -321,11 +383,27 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
+                        anchors.leftMargin: 8
                         anchors.rightMargin: 4
-                        spacing: 16
+                        spacing: 12
 
-                        Icon { name: "search"; color: Colors.on_surface }
+                        // the search glyph sits on a shape that turns into a sunny once there's a query
+                        ShapeBadge {
+                            id: searchBadge
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            shapeRest: 1
+                            shapeActive: 4
+                            active: root.query.length > 0
+                            spinning: active && panel.openP > 0.5
+                            color: active ? Colors.primary : Colors.secondary_container
+                            Icon {
+                                anchors.centerIn: parent
+                                name: "search"
+                                color: searchBadge.active ? Colors.on_primary : Colors.on_secondary_container
+                                Behavior on color { ColorFade {} }
+                            }
+                        }
 
                         TextInput {
                             id: searchField
@@ -355,6 +433,28 @@ Item {
                             }
                         }
 
+                        // live result count
+                        Rectangle {
+                            id: countPill
+                            readonly property bool shown: root.query.length > 0
+                            Layout.preferredHeight: 32
+                            Layout.preferredWidth: shown ? Math.max(32, countDigits.implicitWidth + 20) : 0
+                            radius: height / 2
+                            color: Colors.secondary_container
+                            opacity: shown ? 1 : 0
+                            scale: shown ? 1 : 0.5
+                            Behavior on Layout.preferredWidth { Spring {} }
+                            Behavior on opacity { Fade {} }
+                            Behavior on scale { Spring { speed: "fast" } }
+                            RollingDigits {
+                                id: countDigits
+                                anchors.centerIn: parent
+                                pixelSize: 14
+                                text: String(root.filteredApps.length)
+                                color: Colors.on_secondary_container
+                            }
+                        }
+
                         IconButton {
                             icon: "close"
                             opacity: searchField.text.length > 0 ? 1 : 0
@@ -369,29 +469,87 @@ Item {
                 }
 
                 // ---- results ----
-                ListView {
-                    id: resultsList
+                Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+
+                ListView {
+                    id: resultsList
+                    anchors.fill: parent
                     clip: true
                     reuseItems: true
                     spacing: 2
                     model: root.filteredApps
+                    // kept in step by hand: a model reset makes the ListView fall back to row 0, which a plain
+                    // binding would not undo
                     currentIndex: root.selectedIndex
+                    onCountChanged: Qt.callLater(() => { if (resultsList.currentIndex !== root.selectedIndex) resultsList.currentIndex = root.selectedIndex; })
+                    Connections {
+                        target: root
+                        function onSelectedIndexChanged() { resultsList.currentIndex = root.selectedIndex; }
+                    }
                     highlightFollowsCurrentItem: false
-                    ScrollIntoView { view: resultsList }
+                    ScrollIntoView { id: scroller; view: resultsList }
                     boundsBehavior: Flickable.StopAtBounds
 
-                    // selected row: secondary container with the expressive 16px list shape,
-                    // springing between rows
-                    highlight: Rectangle {
+                    // wheel / flick scrolling leaves the selected row behind, so once the list settles the
+                    // selection moves to the row under the pointer (or the nearest visible one)
+                    HoverHandler { id: listHover }
+                    onContentYChanged: if (!scroller.running) keepInView.restart()
+                    Timer {
+                        id: keepInView
+                        interval: 90
+                        onTriggered: {
+                            const it = resultsList.currentItem;
+                            if (scroller.running || resultsList.count === 0)
+                                return;
+                            const top = resultsList.contentY, bottom = top + resultsList.height;
+                            // a pooled (scrolled-out) selected row has no item: judge by its index instead
+                            const above = it ? it.y < top : root.selectedIndex < resultsList.indexAt(resultsList.width / 2, top + 2);
+                            if (it && it.y + it.height > top + 4 && it.y < bottom - 4)
+                                return;
+                            const y = listHover.hovered ? listHover.point.position.y : (above ? 8 : resultsList.height - 8);
+                            const idx = resultsList.indexAt(resultsList.width / 2, top + Math.max(2, Math.min(resultsList.height - 2, y)));
+                            if (idx >= 0)
+                                root.selectedIndex = idx;
+                        }
+                    }
+
+                    // selected row: secondary container with the expressive 16px list shape. Its two
+                    // edges ride separate springs so the blob stretches toward the row it moves to
+                    // and snaps back behind it.
+                    Rectangle {
+                        id: blob
+                        // in the content item so it scrolls with the rows (children of a ListView
+                        // otherwise sit in the viewport)
+                        parent: resultsList.contentItem
+                        readonly property real topT: resultsList.currentItem ? resultsList.currentItem.y : topE
+                        readonly property real bottomT: resultsList.currentItem ? resultsList.currentItem.y + resultsList.currentItem.height : bottomE
+                        property real topE: 0
+                        property real bottomE: 64
+                        property real lastTop: 0
+                        property bool movingDown: true
+                        function sync() {
+                            if (!resultsList.currentItem)
+                                return;
+                            movingDown = topT > lastTop;
+                            lastTop = topT;
+                            topE = topT;
+                            bottomE = bottomT;
+                        }
+                        onTopTChanged: sync()
+                        onBottomTChanged: sync()
+                        Behavior on topE { Spring { speed: blob.movingDown ? "default" : "fast" } }
+                        Behavior on bottomE { Spring { speed: blob.movingDown ? "fast" : "default" } }
+                        z: -1
+                        x: 0
+                        y: topE
                         width: resultsList.width
-                        height: 64
+                        height: Math.max(8, bottomE - topE)
                         radius: Motion.shapeLarge
                         color: Colors.secondary_container
-                        y: resultsList.currentItem ? resultsList.currentItem.y : 0
                         visible: resultsList.count > 0
-                        Behavior on y { Spring {} }
+                        opacity: Math.max(0, Math.min(1, root.stage / 4))
                     }
 
                     delegate: Clickable {
@@ -399,8 +557,17 @@ Item {
                         required property var modelData
                         required property int index
                         readonly property bool current: index === root.selectedIndex
+                        readonly property bool launching: index === root.launchingIndex
                         readonly property string dockId: modelData.id.replace(/\.desktop$/, "").toLowerCase()
                         readonly property bool pinned: root.dock ? root.dock.isPinned(dockId) : false
+
+                        // rows rise in one after another when the panel opens
+                        property real appear: shownNow ? 1 : 0
+                        readonly property bool shownNow: index >= 9 || root.stage > index
+                        Behavior on appear { Spring { speed: "default" } }
+                        opacity: Math.max(0, Math.min(1, appear * 1.6))
+                        scale: 0.94 + 0.06 * appear
+                        transform: Translate { y: (1 - row.appear) * 18 }
 
                         width: resultsList.width
                         height: 64
@@ -425,13 +592,31 @@ Item {
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 16
+                            anchors.leftMargin: 10
                             anchors.rightMargin: 8
-                            spacing: 16
+                            spacing: 14
 
-                            IconImage {
-                                implicitSize: 40
-                                source: Quickshell.iconPath(row.modelData.icon, true)
+                            // the selected app's icon sits on a turning shape that pops in; launching it
+                            // morphs the shape and swells the icon
+                            Item {
+                                Layout.preferredWidth: 52
+                                Layout.preferredHeight: 52
+                                ShapeBadge {
+                                    anchors.fill: parent
+                                    shapeRest: 1
+                                    shapeActive: 4
+                                    active: row.launching
+                                    spinning: row.current && row.visible
+                                    badgeScale: row.launching ? 1.3 : (row.current ? 1 : 0)
+                                    color: Colors.primary_container
+                                }
+                                IconImage {
+                                    anchors.centerIn: parent
+                                    implicitSize: 40
+                                    source: Quickshell.iconPath(row.modelData.icon, true)
+                                    scale: row.launching ? 1.28 : (row.current ? 1.08 : 1)
+                                    Behavior on scale { Spring { speed: "fast" } }
+                                }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -463,27 +648,36 @@ Item {
                             }
                         }
                     }
+                }
 
-                    // empty state
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        visible: resultsList.count === 0
-                        spacing: 12
-                        Rectangle {
-                            Layout.alignment: Qt.AlignHCenter
-                            implicitWidth: 72
-                            implicitHeight: 72
-                            radius: Motion.shapeExtraLarge
-                            color: Colors.secondary_container
-                            Icon { anchors.centerIn: parent; size: 32; name: "search_off"; color: Colors.on_secondary_container }
-                        }
-                        StyledText {
-                            Layout.alignment: Qt.AlignHCenter
-                            role: "titleMedium"
-                            text: "No matching apps"
-                        }
+                // empty state: a big turning shape that pops in
+                ColumnLayout {
+                    id: emptyState
+                    readonly property bool shown: resultsList.count === 0
+                    anchors.centerIn: parent
+                    visible: opacity > 0.02
+                    opacity: shown ? 1 : 0
+                    scale: shown ? 1 : 0.6
+                    spacing: 16
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring {} }
+                    ShapeBadge {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 104
+                        Layout.preferredHeight: 104
+                        shapeRest: 0
+                        spinning: emptyState.shown && emptyState.visible
+                        color: Colors.secondary_container
+                        Icon { anchors.centerIn: parent; size: 40; name: "search_off"; color: Colors.on_secondary_container }
+                    }
+                    StyledText {
+                        Layout.alignment: Qt.AlignHCenter
+                        role: "titleMedium"
+                        text: "No matching apps"
                     }
                 }
+                }
+            }
             }
         }
     }

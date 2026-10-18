@@ -25,7 +25,21 @@ Item {
     property bool synced: true
     property bool loading: false
     property string currentTrackKey: ""
+    // what the running fetch was started for; its answer is dropped if the track has moved on
+    property string fetchTitle: ""
+    property string fetchArtist: ""
     property int activeIndex: -1
+    // true for a moment after new lyrics arrive, so their lines animate in
+    property bool entering: false
+    onLinesChanged: {
+        entering = lines && lines.length > 0;
+        enterTimer.restart();
+    }
+    Timer {
+        id: enterTimer
+        interval: 900
+        onTriggered: root.entering = false
+    }
     property bool userScrolling: false
     property real timingOffset: 0.0
 
@@ -40,10 +54,13 @@ Item {
         id: fetchProc
         stdout: StdioCollector {
             onStreamFinished: {
-                root.loading = false;
                 let found = false;
                 try {
                     const data = JSON.parse(text);
+                    // a killed or superseded fetch can still deliver its output after a newer one started
+                    if (data && (data.title !== root.fetchTitle || data.artist !== root.fetchArtist))
+                        return;
+                    root.loading = false;
                     if (data && data.success && data.lines && data.lines.length > 0) {
                         const filtered = data.lines.filter(l => l && l.text && !root.isCreditLine(l.text, l.time));
                         root.lines = root.addInterludeDots(filtered);
@@ -55,6 +72,11 @@ Item {
                         root.source = "";
                     }
                 } catch (e) {
+                    // empty output: the process was stopped for a newer fetch (which keeps the pane as it is)
+                    // or it crashed
+                    if (fetchProc.running)
+                        return;
+                    root.loading = false;
                     root.lines = [];
                     root.source = "";
                 }
@@ -144,6 +166,8 @@ Item {
 
         root.loading = true;
         root.lines = [];
+        root.fetchTitle = title;
+        root.fetchArtist = artist;
 
         const scriptPath = Qt.resolvedUrl("../scripts/fetch_lyrics.py").toString().replace(/^file:\/\//, "");
         fetchProc.command = ["python3", scriptPath, title, artist, album, dur];
@@ -240,8 +264,10 @@ Item {
 
     Connections {
         target: root.player
-        function onTrackTitleChanged() { root.checkTrackChanged(); }
-        function onTrackArtistChanged() { root.checkTrackChanged(); }
+        // title, artist and album arrive one after another: wait for them to settle so a track change
+        // starts one fetch with the final metadata, not one with a half-updated artist
+        function onTrackTitleChanged() { trackSettle.restart(); }
+        function onTrackArtistChanged() { trackSettle.restart(); }
         function onPositionChanged() {
             if (root.hasPlayer && root.player) {
                 const newPos = root.player.position || 0;
@@ -275,6 +301,12 @@ Item {
             }
             root.updateActiveIndex();
         }
+    }
+
+    Timer {
+        id: trackSettle
+        interval: 250
+        onTriggered: root.checkTrackChanged()
     }
 
     Timer {
@@ -416,6 +448,27 @@ Item {
             highlightRangeMode: ListView.NoHighlightRange
             boundsBehavior: Flickable.DragOverBounds
 
+            // geometry of the current line, published by its delegate; the marker springs to it
+            property real markY: 0
+            property real markH: 40
+            property bool markSet: false
+
+            // one tonal blob that glides (and stretches, with overshoot) from line to line
+            Rectangle {
+                parent: lyricListView.contentItem
+                z: -1
+                x: 0
+                width: lyricListView.width
+                y: lyricListView.markY + 2
+                height: Math.max(0, lyricListView.markH - 4)
+                radius: Math.min(height / 2, 28)
+                color: Qt.alpha(Colors.secondary_container, 0.88)
+                opacity: root.activeIndex >= 0 && lyricListView.markSet ? 1 : 0
+                Behavior on opacity { Fade { speed: "default" } }
+                Behavior on y { enabled: lyricListView.markSet; Spring {} }
+                Behavior on height { enabled: lyricListView.markSet; Spring {} }
+            }
+
             // spacers let the first/last line reach the vertical centre
             header: Item { width: lyricListView.width; height: Math.max(0, Math.round(lyricListView.height / 2 - 24)) }
             footer: Item { width: lyricListView.width; height: Math.max(0, Math.round(lyricListView.height / 2 - 24)) }
@@ -436,28 +489,91 @@ Item {
                 readonly property bool isDots: !modelData || !modelData.text || modelData.text === "• • •"
 
                 width: lyricListView.width
-                height: Math.max(40, lyricText.implicitHeight + 14)
+                height: isDots ? 56 : Math.max(40, lyricText.implicitHeight + 14)
+
+                function publish() {
+                    if (!isCurrent)
+                        return;
+                    lyricListView.markY = y;
+                    lyricListView.markH = height;
+                    lyricListView.markSet = true;
+                }
+                onIsCurrentChanged: publish()
+                onYChanged: publish()
+                onHeightChanged: publish()
+
+                // lines rise into place one after another when a song's lyrics first appear
+                property real appear: 1
+                transform: Translate { y: (1 - lineDelegate.appear) * 26 }
+                SequentialAnimation {
+                    id: enterAnim
+                    PauseAnimation { duration: Math.min(Math.abs(lineDelegate.index - Math.max(0, root.activeIndex)), 7) * 55 }
+                    Spring { target: lineDelegate; property: "appear"; to: 1; speed: "default" }
+                }
+                Component.onCompleted: {
+                    publish();
+                    if (root.entering) {
+                        appear = 0;
+                        enterAnim.start();
+                    }
+                }
 
                 // the current line is set in headlineMedium; others scale down from it
                 StyledText {
                     id: lyricText
+                    visible: !lineDelegate.isDots
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
                     anchors.verticalCenter: parent.verticalCenter
                     transformOrigin: Item.Left
+                    // landing on a line bounces: the fast spring overshoots
                     scale: lineDelegate.isCurrent ? 1 : lineMouse.containsMouse ? 0.82 : 0.75
-                    Behavior on scale { Spring { speed: "default" } }
-                    role: lineDelegate.isDots ? "headlineSmall" : "headlineMedium"
+                    Behavior on scale { Spring { speed: lineDelegate.isCurrent ? "fast" : "default" } }
+                    role: "headlineMedium"
                     emphasized: lineDelegate.isCurrent
                     jp: true
                     wrapMode: Text.WordWrap
-                    text: lineDelegate.isDots ? "• • •" : lineDelegate.modelData.text
-                    color: lineDelegate.isCurrent ? Colors.primary : Colors.on_surface
-                    opacity: lineDelegate.isCurrent ? 1 : lineMouse.containsMouse ? 0.85 : lineDelegate.isPast ? 0.38 : 0.6
+                    text: lineDelegate.isDots ? "" : lineDelegate.modelData.text
+                    color: lineDelegate.isCurrent ? Colors.on_secondary_container : Colors.on_surface
+                    opacity: (lineDelegate.isCurrent ? 1 : lineMouse.containsMouse ? 0.85 : lineDelegate.isPast ? 0.38 : 0.6) * Math.max(0, Math.min(1, lineDelegate.appear * 1.6))
                     Behavior on opacity { Fade { speed: "default" } }
                     Behavior on color { ColorFade { speed: "default" } }
+                }
+
+                // an instrumental gap: three dots that bounce in turn while it is the current line
+                Row {
+                    visible: lineDelegate.isDots
+                    anchors.left: parent.left
+                    anchors.leftMargin: 22
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 10
+                    Repeater {
+                        model: 3
+                        delegate: Rectangle {
+                            id: dot
+                            required property int index
+                            width: 12
+                            height: 12
+                            radius: 6
+                            color: lineDelegate.isCurrent ? Colors.on_secondary_container : Colors.on_surface
+                            opacity: lineDelegate.isCurrent ? 1 : 0.4
+                            scale: lineDelegate.isCurrent ? 1 : 0.7
+                            Behavior on opacity { Fade { speed: "default" } }
+                            Behavior on color { ColorFade { speed: "default" } }
+                            transform: Translate { id: hop }
+                            SequentialAnimation {
+                                running: lineDelegate.isCurrent && root.isPlaying
+                                loops: Animation.Infinite
+                                onRunningChanged: if (!running) hop.y = 0
+                                PauseAnimation { duration: dot.index * 160 }
+                                NumberAnimation { target: hop; property: "y"; to: -9; duration: 180; easing.type: Easing.OutQuad }
+                                NumberAnimation { target: hop; property: "y"; to: 0; duration: 220; easing.type: Easing.OutBounce }
+                                PauseAnimation { duration: (2 - dot.index) * 160 + 200 }
+                            }
+                        }
+                    }
                 }
 
                 MouseArea {

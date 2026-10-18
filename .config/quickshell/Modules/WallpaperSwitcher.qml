@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -20,10 +21,50 @@ Item {
     property int cardHeight: 281
 
     // ---- look & feel knobs ----
-    property real scrimOpacity: 0.6      // dimming behind the carousel (0 = none)
+    property real scrimOpacity: 0.5      // dimming behind the carousel (0 = none)
     property real centerScale: 1.05      // size of the selected card
     property real sideScale: 0.8         // size of every other card
     property real navRepeatMs: 90        // min time between steps while a key / the wheel is held
+
+    // ---- shape and motion state shared by the header, the counter and the backdrop ----
+    readonly property var shapeCycle: [1, 5, 4, 2, 0]
+    property int selShape: 1
+    property int selFrom: 1
+    property real selMorph: 1
+    property bool selSpring: true
+    property real spin: 0
+    // the blurred backdrop cross-fades between two layers
+    property string ambA: ""
+    property string ambB: ""
+    property bool ambFront: true         // true: layer A is the visible one
+    readonly property string backdropSource: isSelectedFetch ? previewThumbUrl : (selectedPath !== "" ? "file://" + selectedPath : "")
+
+    // a new selection: next shape, snap the morph to 0 and let it spring (and overshoot) to 1
+    onCurrentIndexChanged: {
+        selFrom = selShape;
+        selShape = shapeCycle[(shapeCycle.indexOf(selShape) + 1) % shapeCycle.length];
+        selSpring = false;
+        selMorph = 0;
+        selSpring = true;
+        selMorph = 1;
+    }
+    Behavior on selMorph {
+        enabled: root.selSpring
+        SpringAnimation { spring: 3.4; damping: 0.17; epsilon: 0.001 }
+    }
+    onBackdropSourceChanged: {
+        if (backdropSource === "")
+            return;
+        if (ambFront)
+            ambB = backdropSource;
+        else
+            ambA = backdropSource;
+        ambFront = !ambFront;
+    }
+    FrameAnimation {
+        running: root.isOpen
+        onTriggered: root.spin = (root.spin + frameTime * 12) % 360
+    }
 
     property bool isOpen: false
     property string currentWallpaper: ""
@@ -522,6 +563,39 @@ Item {
                 }
             }
 
+            // ambient backdrop: the selected wallpaper, very blurred, cross-fading as you browse. The blur
+            // runs on a small image that is then scaled up to the screen, which keeps it cheap.
+            Item {
+                anchors.fill: parent
+                opacity: stage.openT
+                clip: true
+
+                Repeater {
+                    model: 2
+                    delegate: Image {
+                        id: amb
+                        required property int index
+                        readonly property bool isA: index === 0
+                        anchors.centerIn: parent
+                        width: 480
+                        height: 270
+                        scale: 4.3
+                        source: isA ? root.ambA : root.ambB
+                        sourceSize: Qt.size(480, 270)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        opacity: (isA === root.ambFront) ? 1 : 0
+                        Behavior on opacity { Fade { speed: "slow" } }
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            blurEnabled: true
+                            blur: 1.0
+                            blurMax: 48
+                            saturation: 0.25
+                        }
+                    }
+                }
+            }
             Rectangle {
                 anchors.fill: parent
                 color: Qt.alpha(Colors.scrim, root.scrimOpacity)
@@ -543,19 +617,26 @@ Item {
                 spacing: 16
                 opacity: stage.openT
 
-                Rectangle {
-                    implicitWidth: 48
-                    implicitHeight: 48
-                    radius: Motion.shapeLarge
-                    color: Colors.primary_container
-                    Icon { anchors.centerIn: parent; name: "wallpaper"; color: Colors.on_primary_container }
+                // morphs into a new shape on every selection
+                Item {
+                    implicitWidth: 64
+                    implicitHeight: 64
+                    MorphShape {
+                        anchors.fill: parent
+                        shape: root.selShape
+                        fromShape: root.selFrom
+                        morph: root.selMorph
+                        spin: root.spin
+                        color: Colors.tertiary_container
+                    }
+                    Icon { anchors.centerIn: parent; name: "wallpaper"; size: 28; color: Colors.on_tertiary_container }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 0
                     // fillWidth on the children lets the column take up the row's spare width,
                     // which keeps the title beside the icon and the close button at the edge
-                    StyledText { Layout.fillWidth: true; role: "headlineSmall"; color: "white"; elide: Text.ElideRight; text: "Wallpaper & style" }
+                    StyledText { Layout.fillWidth: true; role: "headlineMedium"; emphasized: true; color: "white"; elide: Text.ElideRight; text: "Wallpaper & style" }
                     StyledText { Layout.fillWidth: true; role: "bodyMedium"; color: Qt.alpha("white", 0.8); elide: Text.ElideRight; text: "Colors follow your wallpaper" }
                 }
                 IconButton {
@@ -661,32 +742,80 @@ Item {
                         readonly property real dist: (x + width / 2 - coverflow.contentX - coverflow.width / 2) / (width + coverflow.spacing)
                         readonly property real a: Math.abs(dist)
                         readonly property real fall: Math.min(1, a)
+                        readonly property real dirSign: dist > 0 ? 1 : -1
+                        readonly property bool isCenterCard: a < 0.5
+                        // the centre card is a leaf (two big opposite corners, two small ones) that relaxes to
+                        // an ordinary rounded card as it slides away
+                        readonly property real bigR: 28 + 44 * (1 - fall)
+                        readonly property real smallR: 28 - 10 * (1 - fall)
+                        // landing pop: springs (and overshoots) when this card becomes the centre
+                        property real pop: 1
+                        property bool popSpring: true
+                        onIsCenterCardChanged: {
+                            if (!isCenterCard || !root.isOpen)
+                                return;
+                            popSpring = false;
+                            pop = 0;
+                            popSpring = true;
+                            pop = 1;
+                        }
+                        Behavior on pop {
+                            enabled: card.popSpring
+                            SpringAnimation { spring: 3.6; damping: 0.2; epsilon: 0.001 }
+                        }
+                        // entrance: cards arrive staggered by their distance from the centre
+                        readonly property real enter: Math.max(0, Math.min(1.2, stage.openT * 1.35 - a * 0.2))
                         readonly property bool isCurrent: root.samePath(path, root.currentWallpaper)
                         // pull side cards in so the visible gap stays constant as they shrink
                         readonly property real pull: root.cardWidth * (a <= 1 ? (1 - (root.centerScale + root.sideScale) / 2) * a : (1 - (root.centerScale + root.sideScale) / 2) + (1 - root.sideScale) * (a - 1))
 
                         z: 100 - Math.round(a * 10)
-                        scale: root.centerScale - (root.centerScale - root.sideScale) * fall
+                        scale: (root.centerScale - (root.centerScale - root.sideScale) * fall) * (1 - (1 - pop) * 0.1) * (0.55 + 0.45 * enter)
+                        // side cards fan away from the centre; the landing wobbles and the entrance turns in
+                        rotation: dirSign * 7 * fall + (1 - pop) * 4 * dirSign + (1 - enter) * dirSign * 16
                         opacity: 1 - 0.45 * fall - 0.35 * Math.min(1, Math.max(0, a - 1))
                         transform: Translate { x: card.dist > 0 ? -card.pull : card.pull }
 
                         Elevation {
-                            anchors.fill: frame
-                            radius: frame.radius
+                            anchors.fill: frameWrap
+                            anchors.margins: 3
+                            radius: (card.bigR + card.smallR) / 2
                             level: card.a < 0.5 ? 3 : 1
                         }
+
+                        // The frame is drawn into a smoothed offscreen layer with a transparent 3px border: Qt doesn't
+                        // anti-alias the straight edges of a rotated item, so they came out jagged; the border lets the
+                        // texture filtering soften them. It is rendered at 2x with mipmaps so that shrinking it back down
+                        // is filtered properly instead of aliasing. The badges are inside it too, or their rotated edges
+                        // would be the jagged ones.
+                        Item {
+                            id: frameWrap
+                            anchors.fill: parent
+                            anchors.margins: -3
+                            layer.enabled: true
+                            layer.smooth: true
+                            layer.mipmap: true
+                            layer.textureSize: Qt.size(Math.ceil(width * 2), Math.ceil(height * 2))
 
                         ClippingRectangle {
                             id: frame
                             anchors.fill: parent
+                            anchors.margins: 3
                             radius: Motion.shapeExtraLarge
+                            topLeftRadius: card.bigR
+                            bottomRightRadius: card.bigR
+                            topRightRadius: card.smallR
+                            bottomLeftRadius: card.smallR
                             color: Colors.surface_container_high
 
                             Image {
-                                anchors.fill: parent
+                                // oversized and shifted against the slide, so the picture drifts inside its frame
+                                width: parent.width + 120
+                                height: parent.height
+                                x: -60 - card.dist * 44
                                 visible: !card.isFetch
                                 source: card.isFetch ? "" : "file://" + card.path
-                                sourceSize: Qt.size(Math.round(root.cardWidth * 1.25), Math.round(root.cardHeight * 1.25))
+                                sourceSize: Qt.size(Math.round((root.cardWidth + 120) * 1.25), Math.round(root.cardHeight * 1.25))
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 opacity: status === Image.Ready ? 1 : 0
@@ -694,10 +823,12 @@ Item {
                             }
                             // random slot: remote thumbnail once a preview has loaded
                             Image {
-                                anchors.fill: parent
+                                width: parent.width + 120
+                                height: parent.height
+                                x: -60 - card.dist * 44
                                 visible: card.isFetch && root.previewThumbUrl !== ""
                                 source: card.isFetch ? root.previewThumbUrl : ""
-                                sourceSize: Qt.size(Math.round(root.cardWidth * 1.25), Math.round(root.cardHeight * 1.25))
+                                sourceSize: Qt.size(Math.round((root.cardWidth + 120) * 1.25), Math.round(root.cardHeight * 1.25))
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 opacity: status === Image.Ready ? 1 : 0
@@ -729,7 +860,7 @@ Item {
                             StateLayer {
                                 pressed: cardMa.pressed
                                 tint: Colors.on_surface
-                                radius: frame.radius
+                                radius: card.smallR
                             }
 
                             // downloading overlay
@@ -754,34 +885,55 @@ Item {
                             }
                         }
 
-                        // active wallpaper label
-                        Rectangle {
+                        // active wallpaper: a spinning shape with a check, popping in with a turn
+                        Item {
                             anchors.left: parent.left
                             anchors.top: parent.top
-                            anchors.margins: 16
-                            height: 32
-                            width: activeRow.implicitWidth + 24
-                            radius: Motion.shapeSmall
-                            color: Colors.primary
+                            anchors.margins: 17
+                            width: 22 + curPill.width
+                            height: 44
                             opacity: card.isCurrent ? 1 : 0
-                            scale: card.isCurrent ? 1 : 0.7
+                            scale: card.isCurrent ? 1 : 0.35
+                            rotation: card.isCurrent ? 0 : -30
                             transformOrigin: Item.TopLeft
                             Behavior on opacity { Fade {} }
-                            Behavior on scale { Spring {} }
-                            Row {
-                                id: activeRow
-                                anchors.centerIn: parent
-                                spacing: 8
-                                Icon { anchors.verticalCenter: parent.verticalCenter; name: "check"; size: 18; color: Colors.on_primary }
-                                StyledText { anchors.verticalCenter: parent.verticalCenter; role: "labelLarge"; color: Colors.on_primary; text: "Current" }
+                            Behavior on scale { SpringAnimation { spring: 3.4; damping: 0.2; epsilon: 0.001 } }
+                            Behavior on rotation { SpringAnimation { spring: 3.4; damping: 0.2; epsilon: 0.01 } }
+
+                            Rectangle {
+                                id: curPill
+                                x: 22
+                                y: 8
+                                height: 28
+                                width: curLabel.implicitWidth + 40
+                                radius: height / 2
+                                color: Colors.primary
+                                StyledText {
+                                    id: curLabel
+                                    x: 28
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    role: "labelLarge"
+                                    emphasized: true
+                                    color: Colors.on_primary
+                                    text: "Current"
+                                }
                             }
+                            MorphShape {
+                                width: 44
+                                height: 44
+                                shape: 1
+                                fromShape: 1
+                                spin: root.spin * 3
+                                color: Colors.primary
+                            }
+                            Icon { x: 11; y: 11; name: "check"; size: 22; color: Colors.on_primary }
                         }
 
                         // remote post id
                         Rectangle {
                             anchors.right: parent.right
                             anchors.top: parent.top
-                            anchors.margins: 16
+                            anchors.margins: 19
                             visible: card.isFetch && root.previewThumbUrl !== ""
                             height: 32
                             width: onlineRow.implicitWidth + 24
@@ -799,6 +951,8 @@ Item {
                                     text: root.previewId !== "" ? "#" + root.previewId : "Random"
                                 }
                             }
+                        }
+
                         }
 
                         MouseArea {
@@ -866,11 +1020,11 @@ Item {
                         }
                     }
 
-                    // name + position
+                    // name + position: a counter badge that morphs with the selection
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
-                        height: 48
-                        width: nameRow.implicitWidth + 32
+                        height: 64
+                        width: nameRow.implicitWidth + 28
                         radius: height / 2
                         color: Colors.surface_container_high
                         Behavior on width {
@@ -880,27 +1034,45 @@ Item {
                         Row {
                             id: nameRow
                             anchors.centerIn: parent
-                            spacing: 12
-                            Icon { anchors.verticalCenter: parent.verticalCenter; name: "image"; size: 20; color: Colors.primary }
-                            StyledText {
+                            spacing: 14
+
+                            Item {
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: Math.min(implicitWidth, 440)
-                                role: "titleSmall"
-                                elide: Text.ElideRight
-                                text: root.currentIndex === 0 ? "Random online" : root.selectedName
-                            }
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                height: 28
-                                width: countText.implicitWidth + 16
-                                radius: Motion.shapeSmall
-                                color: Colors.secondary_container
-                                StyledText {
-                                    id: countText
+                                width: 52
+                                height: 52
+                                MorphShape {
+                                    anchors.fill: parent
+                                    shape: root.selShape
+                                    fromShape: root.selFrom
+                                    morph: root.selMorph
+                                    spin: -root.spin
+                                    color: Colors.secondary_container
+                                }
+                                RollingDigits {
                                     anchors.centerIn: parent
-                                    role: "labelMedium"
+                                    text: String(root.currentIndex + 1)
+                                    pixelSize: 20
                                     color: Colors.on_secondary_container
-                                    text: (root.currentIndex + 1) + " / " + wallpaperModel.count
+                                }
+                            }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 0
+                                StyledText {
+                                    width: Math.min(implicitWidth, 420)
+                                    role: "titleMedium"
+                                    emphasized: true
+                                    elide: Text.ElideRight
+                                    text: root.currentIndex === 0 ? "Random online" : root.selectedName
+                                    // springs in with the morph
+                                    transformOrigin: Item.Left
+                                    scale: 0.9 + 0.1 * Math.min(1.15, root.selMorph)
+                                    opacity: Math.min(1, 0.3 + root.selMorph)
+                                }
+                                StyledText {
+                                    role: "labelMedium"
+                                    color: Colors.on_surface_variant
+                                    text: "of " + wallpaperModel.count
                                 }
                             }
                         }

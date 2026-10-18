@@ -24,6 +24,17 @@ BarChip {
 
     PwObjectTracker { objects: [mod.sink] }
 
+    // the badge swells on every volume or mute change, then springs back
+    property real bump: 1
+    onVolumeChanged: kick.restart()
+    onMutedChanged: kick.restart()
+    SequentialAnimation {
+        id: kick
+        NumberAnimation { target: mod; property: "bump"; to: 1.3; duration: 1 }
+        PauseAnimation { duration: 90 }
+        NumberAnimation { target: mod; property: "bump"; to: 1; duration: 1 }
+    }
+
     function changeVolume(delta) {
         if (!audio)
             return;
@@ -73,14 +84,14 @@ BarChip {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 8
 
-        Rectangle {
+        ShapeBadge {
             anchors.verticalCenter: parent.verticalCenter
-            width: 24
-            height: 24
-            radius: mod.pressed ? 6 : mod.checked ? Motion.shapeSmall : 12
+            shapeRest: 1
+            shapeActive: 4
+            active: mod.checked || mod.muted
+            spinning: mod.checked
             color: mod.muted ? Colors.error_container : Colors.primary_container
-            Behavior on radius { Spring {} }
-            Behavior on color { ColorFade {} }
+            badgeScale: (mod.pressed ? 0.85 : 1) * mod.bump
             Icon {
                 anchors.centerIn: parent
                 size: 18

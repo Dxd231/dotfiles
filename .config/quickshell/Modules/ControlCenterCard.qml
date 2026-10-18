@@ -1,21 +1,25 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import Quickshell.Networking
 import qs
 import qs.Components
 
-// Quick settings: header, 2-column M3 Expressive tiles, night-light slider, and
-// Wi-Fi / Bluetooth drawers as segmented lists.
+// Quick settings: header, 2-column M3 Expressive tiles and a night-light slider. The Internet
+// and Bluetooth tiles replace this whole card with a detail page (and back), Android style.
 Rectangle {
     id: ccCard
 
     required property var controlCenter
     readonly property var cc: controlCenter
+    // entrance stage (steps while the center is open) and whether it is open at all
+    property int stage: 0
+    property bool live: false
+
+    readonly property bool onDetail: !!cc && cc.page !== ""
+    readonly property int detailHeight: 480
 
     width: 400
-    height: mainCol.implicitHeight + 32
+    height: onDetail ? detailHeight : mainCol.implicitHeight + 32
     radius: Motion.shapeExtraLarge
     color: Colors.surface_container
     clip: true
@@ -28,10 +32,25 @@ Rectangle {
         width: parent.width - 32
         spacing: 12
 
+        // slides out and fades while a detail page takes the card over
+        opacity: ccCard.onDetail ? 0 : 1
+        visible: opacity > 0
+        enabled: !ccCard.onDetail
+        Behavior on opacity { Fade {} }
+        transform: Translate {
+            x: ccCard.onDetail ? -24 : 0
+            Behavior on x { Spring { speed: "default" } }
+        }
+
         // ---- header ----
         RowLayout {
+            id: headerRow
             Layout.fillWidth: true
             spacing: 8
+            property real appear: ccCard.stage >= 1 ? 1 : 0
+            Behavior on appear { Spring { speed: "default" } }
+            opacity: Math.max(0, Math.min(1, appear * 1.6))
+            transform: Translate { y: (1 - headerRow.appear) * 16 }
 
             Chip {
                 icon: "schedule"
@@ -55,38 +74,42 @@ Rectangle {
             rowSpacing: 8
 
             QuickTile {
+                id: internetTile
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                appear: ccCard.stage >= 2 ? 1 : 0
+                live: ccCard.live
+                shapeOn: 4
                 title: "Internet"
                 subtitle: ccCard.cc ? ccCard.cc.activeSsid : ""
                 icon: ccCard.cc && ccCard.cc.wifiOn ? "wifi" : "wifi_off"
                 on: !!ccCard.cc && ccCard.cc.wifiOn && ccCard.cc.activeNetwork !== null
                 split: true
-                drawerOpen: !!ccCard.cc && ccCard.cc.wifiDrawerOpen
                 onToggled: ccCard.cc.toggleWifi()
-                onOpened: {
-                    ccCard.cc.btDrawerOpen = false;
-                    ccCard.cc.wifiDrawerOpen = !ccCard.cc.wifiDrawerOpen;
-                }
+                onOpened: ccCard.cc.page = "wifi"
             }
             QuickTile {
+                id: bluetoothTile
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                appear: ccCard.stage >= 3 ? 1 : 0
+                live: ccCard.live
+                shapeOn: 5
                 title: "Bluetooth"
                 subtitle: !ccCard.cc ? "" : ccCard.cc.activeBtDevice ? (ccCard.cc.activeBtDevice.name || "Connected") : ccCard.cc.bluetoothOn ? "On" : "Off"
                 icon: ccCard.cc && ccCard.cc.bluetoothOn ? (ccCard.cc.activeBtDevice ? "bluetooth_connected" : "bluetooth") : "bluetooth_disabled"
                 on: !!ccCard.cc && ccCard.cc.bluetoothOn
                 split: true
-                drawerOpen: !!ccCard.cc && ccCard.cc.btDrawerOpen
                 onToggled: ccCard.cc.toggleBluetooth()
-                onOpened: {
-                    ccCard.cc.wifiDrawerOpen = false;
-                    ccCard.cc.btDrawerOpen = !ccCard.cc.btDrawerOpen;
-                }
+                onOpened: ccCard.cc.page = "bluetooth"
             }
             QuickTile {
+                id: nightTile
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                appear: ccCard.stage >= 4 ? 1 : 0
+                live: ccCard.live
+                shapeOn: 2
                 title: "Night light"
                 subtitle: ccCard.cc && ccCard.cc.sunsetActive ? ccCard.cc.sunsetGamma + "%" : "Off"
                 icon: "nightlight"
@@ -94,8 +117,12 @@ Rectangle {
                 onToggled: ccCard.cc.toggleSunset()
             }
             QuickTile {
+                id: dndTile
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                appear: ccCard.stage >= 5 ? 1 : 0
+                live: ccCard.live
+                shapeOn: 0
                 title: "Do not disturb"
                 subtitle: ccCard.cc && ccCard.cc.dnd ? "On" : "Off"
                 icon: "do_not_disturb_on"
@@ -103,8 +130,12 @@ Rectangle {
                 onToggled: ccCard.cc.toggleDnd()
             }
             QuickTile {
+                id: powerTile
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                appear: ccCard.stage >= 6 ? 1 : 0
+                live: ccCard.live
+                shapeOn: 1
                 title: "Power mode"
                 subtitle: ccCard.cc ? ccCard.cc.currentProfileText : ""
                 icon: !ccCard.cc ? "eco" : ccCard.cc.currentProfile === "performance" ? "bolt" : ccCard.cc.currentProfile === "power-saver" ? "energy_savings_leaf" : "balance"
@@ -112,8 +143,12 @@ Rectangle {
                 onToggled: ccCard.cc.cyclePowerProfile()
             }
             QuickTile {
+                id: awakeTile
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                appear: ccCard.stage >= 7 ? 1 : 0
+                live: ccCard.live
+                shapeOn: 4
                 title: "Keep awake"
                 subtitle: !ccCard.cc || !ccCard.cc.keepAwake ? "Off" : ccCard.cc.inhibitModule && ccCard.cc.inhibitModule.timed ? ccCard.cc.inhibitModule.remainingText : "On"
                 icon: "coffee"
@@ -124,9 +159,14 @@ Rectangle {
 
         // ---- night light strength ----
         ColumnLayout {
+            id: nightCol
             Layout.fillWidth: true
             Layout.topMargin: 4
             spacing: 4
+            property real appear: ccCard.stage >= 8 ? 1 : 0
+            Behavior on appear { Spring { speed: "default" } }
+            opacity: Math.max(0, Math.min(1, appear * 1.6))
+            transform: Translate { y: (1 - nightCol.appear) * 16 }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -158,224 +198,83 @@ Rectangle {
                 onPressedChanged: if (!pressed && ccCard.cc) ccCard.cc.flushGamma()
             }
         }
+    }
 
-        // ---- Wi-Fi drawer ----
-        DrawerSection {
-            open: !!ccCard.cc && ccCard.cc.wifiDrawerOpen
-            title: "Wi-Fi"
-            busy: !!ccCard.cc && ccCard.cc.wifiScanning
-            onClose: ccCard.cc.wifiDrawerOpen = false
+    // ---- shared-container transition: the tile that opened a page swells to fill the card (and
+    // shrinks back into the tile on the way out), with the page fading in over it ----
+    property real fromX: 0
+    property real fromY: 0
+    property real fromW: 0
+    property real fromH: 0
+    property real fromR: 0
+    property color fromC: Colors.surface_container_highest
+    property bool revealOpen: false
+    property bool revealSpring: false
 
-            EmptyRow {
-                visible: !!ccCard.cc && !ccCard.cc.wifiOn
-                icon: "wifi_off"
-                title: "Wi-Fi is off"
-                actionText: "Turn on"
-                onAction: ccCard.cc.toggleWifi()
+    function tileFor(p) {
+        return p === "wifi" ? internetTile : p === "bluetooth" ? bluetoothTile : null;
+    }
+    function syncReveal() {
+        const p = cc ? cc.page : "";
+        if (p !== "") {
+            const t = tileFor(p);
+            if (!revealOpen && t) {
+                const pt = t.mapToItem(ccCard, 0, 0);
+                fromX = pt.x; fromY = pt.y; fromW = t.width; fromH = t.height; fromR = t.radius; fromC = t.color;
+                revealHide.stop();
+                revealSpring = false;
+                reveal.x = fromX; reveal.y = fromY; reveal.width = fromW; reveal.height = fromH;
+                reveal.radius = fromR; reveal.color = fromC;
+                reveal.opacity = 1;
+                revealSpring = true;
             }
-            EmptyRow {
-                visible: !!ccCard.cc && ccCard.cc.wifiOn && ccCard.cc.sortedNetworks.length === 0
-                icon: "wifi_find"
-                title: "Searching for networks…"
-            }
-
-            ScrollableList {
-                visible: !!ccCard.cc && ccCard.cc.wifiOn && ccCard.cc.sortedNetworks.length > 0
-                model: ccCard.cc ? ccCard.cc.sortedNetworks : []
-                delegate: SegmentedItem {
-                    id: net
-                    required property var modelData
-                    required property int index
-                    readonly property bool connected: !!ccCard.cc && ccCard.cc.isActiveNetwork(modelData)
-                    readonly property int signal: Math.round((modelData.signalStrength ?? 0) * 100)
-                    readonly property bool secured: modelData.security !== WifiSecurityType.Open
-                    readonly property bool needsPassword: secured && !modelData.known
-                    property bool askPassword: false
-
-                    width: parent ? parent.width : 0
-                    first: index === 0
-                    last: index === (ccCard.cc ? ccCard.cc.sortedNetworks.length - 1 : 0)
-                    color: connected ? Colors.secondary_container : Colors.surface_container_highest
-                    implicitHeight: netCol.implicitHeight + 16
-                    Behavior on implicitHeight { Spring { speed: "default" } }
-
-                    ColumnLayout {
-                        id: netCol
-                        x: 16
-                        y: 8
-                        width: parent.width - 32
-                        spacing: 8
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 16
-                            Item {
-                                implicitWidth: 24
-                                implicitHeight: 24
-                                Icon {
-                                    anchors.centerIn: parent
-                                    name: net.signal >= 75 ? "signal_wifi_4_bar" : net.signal >= 50 ? "network_wifi_3_bar" : net.signal >= 25 ? "network_wifi_2_bar" : "network_wifi_1_bar"
-                                    color: net.connected ? Colors.on_secondary_container : Colors.on_surface_variant
-                                }
-                                Icon {
-                                    visible: net.secured
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: -3
-                                    name: "lock"
-                                    size: 12
-                                    color: net.connected ? Colors.on_secondary_container : Colors.on_surface_variant
-                                }
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                StyledText {
-                                    Layout.fillWidth: true
-                                    role: "bodyLarge"
-                                    color: net.connected ? Colors.on_secondary_container : Colors.on_surface
-                                    elide: Text.ElideRight
-                                    text: net.modelData.name || "Hidden network"
-                                }
-                                StyledText {
-                                    Layout.fillWidth: true
-                                    role: "bodyMedium"
-                                    color: net.connected ? Colors.on_secondary_container : Colors.on_surface_variant
-                                    elide: Text.ElideRight
-                                    text: net.connected ? "Connected" : (net.secured ? (net.modelData.known ? "Saved" : "Secured") : "Open")
-                                }
-                            }
-                            Button {
-                                size: "xs"
-                                style: net.connected || net.askPassword ? "text" : "tonal"
-                                text: net.connected ? "Disconnect" : net.askPassword ? "Cancel" : "Connect"
-                                onClicked: {
-                                    if (net.connected)
-                                        net.modelData.disconnect();
-                                    else if (net.askPassword)
-                                        net.askPassword = false;
-                                    else if (net.needsPassword)
-                                        net.askPassword = true;
-                                    else
-                                        ccCard.cc.connectNetwork(net.modelData, "");
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            visible: net.askPassword
-                            Layout.fillWidth: true
-                            spacing: 8
-                            TextField {
-                                id: pass
-                                Layout.fillWidth: true
-                                label: "Password"
-                                password: true
-                                onVisibleChanged: if (visible) forceActiveFocus()
-                                onAccepted: text => {
-                                    ccCard.cc.connectNetwork(net.modelData, text);
-                                    net.askPassword = false;
-                                }
-                            }
-                            IconButton {
-                                icon: "arrow_forward"
-                                style: "filled"
-                                size: "m"
-                                widthMode: "narrow"
-                                onClicked: {
-                                    ccCard.cc.connectNetwork(net.modelData, pass.text);
-                                    net.askPassword = false;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            reveal.x = 0; reveal.y = 0; reveal.width = ccCard.width; reveal.height = detailHeight;
+            reveal.radius = Motion.shapeExtraLarge; reveal.color = Colors.surface_container;
+            revealOpen = true;
+        } else if (revealOpen) {
+            revealOpen = false;
+            reveal.x = fromX; reveal.y = fromY; reveal.width = fromW; reveal.height = fromH;
+            reveal.radius = fromR; reveal.color = fromC;
+            revealHide.restart();
         }
+    }
+    Connections {
+        target: ccCard.cc
+        function onPageChanged() { ccCard.syncReveal(); }
+    }
+    Timer {
+        id: revealHide
+        interval: 420
+        onTriggered: reveal.opacity = 0
+    }
+    Rectangle {
+        id: reveal
+        opacity: 0
+        visible: opacity > 0
+        Behavior on x { enabled: ccCard.revealSpring; Spring { speed: "default" } }
+        Behavior on y { enabled: ccCard.revealSpring; Spring { speed: "default" } }
+        Behavior on width { enabled: ccCard.revealSpring; Spring { speed: "default" } }
+        Behavior on height { enabled: ccCard.revealSpring; Spring { speed: "default" } }
+        Behavior on radius { enabled: ccCard.revealSpring; Spring { speed: "default" } }
+        Behavior on color { enabled: ccCard.revealSpring; ColorFade {} }
+        Behavior on opacity { Fade { speed: "fast" } }
+    }
 
-        // ---- Bluetooth drawer ----
-        DrawerSection {
-            open: !!ccCard.cc && ccCard.cc.btDrawerOpen
-            title: "Bluetooth"
-            busy: !!ccCard.cc && ccCard.cc.btDiscovering
-            onClose: ccCard.cc.btDrawerOpen = false
-
-            EmptyRow {
-                visible: !!ccCard.cc && !ccCard.cc.bluetoothOn
-                icon: "bluetooth_disabled"
-                title: "Bluetooth is off"
-                actionText: "Turn on"
-                onAction: ccCard.cc.toggleBluetooth()
-            }
-            EmptyRow {
-                visible: !!ccCard.cc && ccCard.cc.bluetoothOn && ccCard.cc.btDevices.length === 0
-                icon: "bluetooth_searching"
-                title: "Looking for devices…"
-            }
-
-            ScrollableList {
-                visible: !!ccCard.cc && ccCard.cc.bluetoothOn && ccCard.cc.btDevices.length > 0
-                model: ccCard.cc ? ccCard.cc.btDevices : []
-                delegate: SegmentedItem {
-                    id: dev
-                    required property var modelData
-                    required property int index
-                    readonly property bool connected: modelData.connected
-
-                    width: parent ? parent.width : 0
-                    first: index === 0
-                    last: index === (ccCard.cc ? ccCard.cc.btDevices.length - 1 : 0)
-                    color: connected ? Colors.secondary_container : Colors.surface_container_highest
-                    implicitHeight: 64
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
-                        spacing: 16
-                        Icon {
-                            name: dev.connected ? "bluetooth_connected" : "bluetooth"
-                            color: dev.connected ? Colors.on_secondary_container : Colors.on_surface_variant
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            StyledText {
-                                Layout.fillWidth: true
-                                role: "bodyLarge"
-                                color: dev.connected ? Colors.on_secondary_container : Colors.on_surface
-                                elide: Text.ElideRight
-                                text: dev.modelData.name || dev.modelData.address || "Device"
-                            }
-                            StyledText {
-                                Layout.fillWidth: true
-                                role: "bodyMedium"
-                                color: dev.connected ? Colors.on_secondary_container : Colors.on_surface_variant
-                                elide: Text.ElideRight
-                                text: dev.connected
-                                    ? "Connected" + (dev.modelData.batteryAvailable ? " · " + Math.round((dev.modelData.battery ?? 0) * 100) + "% battery" : "")
-                                    : dev.modelData.paired ? "Saved" : "Available to pair"
-                            }
-                        }
-                        Button {
-                            size: "xs"
-                            style: dev.connected ? "text" : "tonal"
-                            text: dev.connected ? "Disconnect" : dev.modelData.paired ? "Connect" : "Pair"
-                            onClicked: {
-                                const d = dev.modelData;
-                                if (d.connected)
-                                    d.disconnect();
-                                else if (d.paired)
-                                    d.connect();
-                                else {
-                                    d.trusted = true;
-                                    d.pair();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    // ---- detail pages (each fades / slides in over the card while its page is open) ----
+    Loader {
+        anchors.fill: parent
+        active: !!ccCard.cc
+        sourceComponent: NetworkPage {
+            cc: ccCard.cc
+            shown: ccCard.cc.page === "wifi"
+        }
+    }
+    Loader {
+        anchors.fill: parent
+        active: !!ccCard.cc
+        sourceComponent: BluetoothPage {
+            cc: ccCard.cc
+            shown: ccCard.cc.page === "bluetooth"
         }
     }
 }

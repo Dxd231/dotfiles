@@ -34,6 +34,17 @@ Singleton {
     // [{ mount, used, size, avail, percent }]
     property var disks: []
 
+    // the last minute of one-second samples, for the status panel's graph
+    readonly property int historyLength: 60
+    property var cpuHistory: []
+    property var memHistory: []
+    function _pushHistory() {
+        const c = cpuHistory.concat([cpuPercent]);
+        const m = memHistory.concat([memPercent]);
+        cpuHistory = c.length > historyLength ? c.slice(c.length - historyLength) : c;
+        memHistory = m.length > historyLength ? m.slice(m.length - historyLength) : m;
+    }
+
     function gb(kb) {
         return (kb / 1048576).toFixed(1);
     }
@@ -81,6 +92,7 @@ Singleton {
         triggeredOnStart: true
         property int tick: 0
         onTriggered: {
+            stats._pushHistory();
             procStat.reload();
             if (tick++ % 2 === 0 || stats.detailed)
                 meminfo.reload();

@@ -7,6 +7,7 @@ import Quickshell.Wayland
 import Quickshell.Widgets
 import qs
 import qs.Components
+import qs.Services
 
 // Clipboard history (cliphist) as an M3 search view: list + preview, copy / delete.
 // Also shows the "Copied" snackbar whenever something new lands on the clipboard.
@@ -17,7 +18,61 @@ Item {
 
     property bool isOpenClipB: false
     property string query: ""
-    onIsOpenClipBChanged: if (isOpenClipB) searchField.forceActiveFocus()
+    // row wave on open: `stage` counts up and each row rises in when it passes its index
+    property int stage: 0
+    property bool dirty: false
+    // copy / delete / clear-all in flight (rows play a short motion before the real command runs)
+    property bool copying: false
+    property string removingId: ""
+    property bool wiping: false
+    // selection to restore once a delete has refreshed the list
+    property int keepIndex: -1
+    onIsOpenClipBChanged: {
+        if (isOpenClipB) {
+            dirty = true;
+            copyClose.stop();
+            searchField.forceActiveFocus();
+            stageTimer.restart();
+        }
+    }
+    Timer {
+        id: stageTimer
+        interval: 35
+        repeat: true
+        onTriggered: {
+            if (root.stage < 10)
+                root.stage++;
+            else
+                stop();
+        }
+    }
+    Timer {
+        id: copyClose
+        interval: 150
+        onTriggered: root.isOpenClipB = false
+    }
+    Timer {
+        id: deleteGo
+        interval: 220
+        onTriggered: {
+            if (!root.selectedEntry)
+                return;
+            const entry = root.selectedEntry;
+            deleteProc.stdinEnabled = true;
+            deleteProc.running = false;
+            deleteProc.running = true;
+            deleteWriteTimer.callback = () => {
+                deleteProc.write(entry.raw + "\n");
+                deleteProc.stdinEnabled = false;
+            };
+            deleteWriteTimer.restart();
+        }
+    }
+    Timer {
+        id: wipeGo
+        interval: 380
+        onTriggered: wipeProc.running = true
+    }
     property var entries: []          
     property var knownClipboardIds: ({})
     property bool hasClipboardBaseline: false
@@ -30,6 +85,8 @@ Item {
     property string previewMode: "none" 
     property string previewText: ""
     property string previewImagePath: ""
+    onPreviewTextChanged: if (previewText !== "") previewHolder.kick()
+    onPreviewImagePathChanged: if (previewImagePath !== "") previewHolder.kick()
 
     FileView {
         id: timestampsFile
@@ -139,10 +196,14 @@ Item {
         };
     }
 
-    function refreshList() {
-        root.selectedIndex = 0;
-        root._prevSelectedIndex = 0;
-        root._lastRecordedIndex = 0;
+    function refreshList(keep) {
+        if (keep) {
+            root.keepIndex = root.selectedIndex;
+        } else {
+            root.selectedIndex = 0;
+            root._prevSelectedIndex = 0;
+            root._lastRecordedIndex = 0;
+        }
         listProc.running = false;
         listProc.running = true;
     }
@@ -208,8 +269,11 @@ Item {
         copyProc.running = true;
         copyWriteTimer.callback = () => {
             copyProc.write(entry.raw + "\n");
-            copyProc.stdinEnabled = false; 
-            root.isOpenClipB = false;
+            copyProc.stdinEnabled = false;
+            // the row pulses and the panel squashes before it folds away
+            root.copying = true;
+            panel.squish = 1;
+            copyClose.restart();
         };
         copyWriteTimer.restart();
     }
@@ -223,14 +287,14 @@ Item {
             delete cur[entry.id];
             timestampsAdapter.timestamps = cur;
         }
-        deleteProc.stdinEnabled = true;
-        deleteProc.running = false;
-        deleteProc.running = true;
-        deleteWriteTimer.callback = () => {
-            deleteProc.write(entry.raw + "\n");
-            deleteProc.stdinEnabled = false;
-        };
-        deleteWriteTimer.restart();
+        // the row collapses first, then the entry is really deleted
+        root.removingId = entry.id;
+        deleteGo.restart();
+    }
+
+    function wipeAll() {
+        root.wiping = true;
+        wipeGo.restart();
     }
 
 
@@ -270,6 +334,11 @@ Item {
             onStreamFinished: {
                 const lines = text.split("\n").filter(l => l.length > 0);
                 root.entries = lines.map(root.parseLine).filter(e => e !== null);
+                root.removingId = "";
+                if (root.keepIndex >= 0) {
+                    root.selectedIndex = Math.max(0, Math.min(root.keepIndex, root.entries.length - 1));
+                    root.keepIndex = -1;
+                }
             }
         }
     }
@@ -285,7 +354,8 @@ Item {
                 const ids = parsed.map(entry => entry.id);
 
                 if (root.hasClipboardBaseline && ids.length > 0 && !root.knownClipboardIds[ids[0]]) {
-                    if (root.copyToast)
+                    // a screenshot's own card says so already
+                    if (root.copyToast && Date.now() - Capture.lastCopy > 2500)
                         root.copyToast.showToast("Copied to clipboard");
                     if (root.isOpenClipB)
                         root.refreshList();
@@ -352,9 +422,7 @@ Item {
         id: deleteProc
         command: ["cliphist", "delete"]
         onExited: {
-            root.refreshList();
-            root.selectedEntry = null;
-            root.previewMode = "none";
+            root.refreshList(true);
         }
     }
 
@@ -363,6 +431,7 @@ Item {
         command: ["cliphist", "wipe"]
         onExited: {
             timestampsAdapter.timestamps = {};
+            root.wiping = false;
             root.refreshList();
             root.selectedEntry = null;
             root.previewMode = "none";
@@ -399,7 +468,7 @@ Item {
         anchors { top: true; bottom: true; left: true; right: true }
         exclusiveZone: -1
         color: "transparent"
-        visible: root.isOpenClipB || panel.opacity > 0
+        visible: root.isOpenClipB || panel.openP > 0.01
 
         MouseArea {
             anchors.fill: parent
@@ -415,21 +484,50 @@ Item {
             transformOrigin: Item.Top
         }
 
-        Rectangle {
+        // Unfolds from the search pill like the app launcher: full corners settle to 28px while
+        // the history opens beneath it.
+        ClippingRectangle {
             id: panel
+            // tall enough for exactly `listRows` history rows (56px + 2px gaps) so none is cut off:
+            // 16 margin + 56 search + 12 gap + 8 list padding + rows + 16 margin
+            readonly property int listRows: 7
+            readonly property real pillH: 88
+            readonly property real fullH: 16 + 56 + 12 + 8 + listRows * 56 + (listRows - 1) * 2 + 16
+            property real openP: root.isOpenClipB ? 1 : 0
+            // 0 -> 1 on copy: a small squash before the fold
+            property real squish: 0
+            Behavior on openP { Spring { speed: root.isOpenClipB ? "default" : "fast" } }
+            Behavior on squish { Spring { speed: "fast" } }
+            onOpenPChanged: {
+                if (root.dirty && !root.isOpenClipB && openP < 0.02) {
+                    root.dirty = false;
+                    stageTimer.stop();
+                    root.stage = 0;
+                    root.copying = false;
+                    root.wiping = false;
+                    squish = 0;
+                    root.selectedIndex = 0;
+                    scroller.stop();
+                    entryList.positionViewAtBeginning();
+                }
+            }
+
             width: 720
-            height: 480
+            height: Math.max(pillH, pillH + (fullH - pillH) * openP)
             anchors.horizontalCenter: parent.horizontalCenter
             y: 240
-            radius: Motion.shapeExtraLarge
+            radius: Math.min(height / 2, Motion.shapeExtraLarge + 20 * (1 - Math.max(0, Math.min(1, openP))))
             color: Colors.surface_container_high
             transformOrigin: Item.Top
-            opacity: root.isOpenClipB ? 1 : 0
-            scale: root.isOpenClipB ? 1 : 0.92
-            Behavior on opacity { Fade { speed: "default" } }
-            Behavior on scale { Spring { speed: "default" } }
+            opacity: Math.max(0, Math.min(1, openP * 3))
+            scale: (0.9 + 0.1 * Math.min(openP, 1.04)) * (1 - 0.05 * squish)
 
             MouseArea { anchors.fill: parent }
+
+            Item {
+                id: content
+                width: panel.width
+                height: panel.fullH
 
             ColumnLayout {
                 anchors.fill: parent
@@ -445,11 +543,26 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
+                        anchors.leftMargin: 8
                         anchors.rightMargin: 8
-                        spacing: 16
+                        spacing: 12
 
-                        Icon { name: searchField.text.length > 0 ? "search" : "content_paste"; color: Colors.on_surface }
+                        ShapeBadge {
+                            id: searchBadge
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            shapeRest: 5
+                            shapeActive: 4
+                            active: searchField.text.length > 0
+                            spinning: active && panel.openP > 0.5
+                            color: active ? Colors.primary : Colors.secondary_container
+                            Icon {
+                                anchors.centerIn: parent
+                                name: searchBadge.active ? "search" : "content_paste"
+                                color: searchBadge.active ? Colors.on_primary : Colors.on_secondary_container
+                                Behavior on color { ColorFade {} }
+                            }
+                        }
 
                         TextInput {
                             id: searchField
@@ -491,7 +604,7 @@ Item {
                             style: "text"
                             icon: "delete_sweep"
                             text: "Clear all"
-                            onClicked: wipeProc.running = true
+                            onClicked: root.wipeAll()
                         }
                     }
                 }
@@ -517,17 +630,75 @@ Item {
                             reuseItems: true
                             boundsBehavior: Flickable.StopAtBounds
                             model: root.filteredEntries
+                            // kept in step by hand: a model reset makes the ListView fall back to row 0, which a plain
+                            // binding would not undo
                             currentIndex: root.selectedIndex
+                            onCountChanged: Qt.callLater(() => { if (entryList.currentIndex !== root.selectedIndex) entryList.currentIndex = root.selectedIndex; })
+                            Connections {
+                                target: root
+                                function onSelectedIndexChanged() { entryList.currentIndex = root.selectedIndex; }
+                            }
                             highlightFollowsCurrentItem: false
-                            ScrollIntoView { view: entryList }
-                            highlight: Rectangle {
+                            ScrollIntoView { id: scroller; view: entryList }
+
+                            // wheel / flick scrolling leaves the selected row behind, so once the list settles
+                            // the selection moves to the row under the pointer (or the nearest visible one)
+                            HoverHandler { id: listHover }
+                            onContentYChanged: if (!scroller.running) keepInView.restart()
+                            Timer {
+                                id: keepInView
+                                interval: 90
+                                onTriggered: {
+                                    const it = entryList.currentItem;
+                                    if (scroller.running || entryList.count === 0)
+                                        return;
+                                    const top = entryList.contentY, bottom = top + entryList.height;
+                                    // a pooled (scrolled-out) selected row has no item: judge by its index instead
+                                    const above = it ? it.y < top : root.selectedIndex < entryList.indexAt(entryList.width / 2, top + 2);
+                                    if (it && it.y + it.height > top + 4 && it.y < bottom - 4)
+                                        return;
+                                    const y = listHover.hovered ? listHover.point.position.y : (above ? 8 : entryList.height - 8);
+                                    const idx = entryList.indexAt(entryList.width / 2, top + Math.max(2, Math.min(entryList.height - 2, y)));
+                                    if (idx >= 0)
+                                        root.selectedIndex = idx;
+                                }
+                            }
+
+                            // selected row: the two edges ride separate springs so the blob stretches
+                            // toward the row it moves to and snaps back behind it
+                            Rectangle {
+                                id: blob
+                                // in the content item so it scrolls with the rows (children of a ListView
+                                // otherwise sit in the viewport)
+                                parent: entryList.contentItem
+                                readonly property real topT: entryList.currentItem ? entryList.currentItem.y : topE
+                                readonly property real bottomT: entryList.currentItem ? entryList.currentItem.y + entryList.currentItem.height : bottomE
+                                property real topE: 0
+                                property real bottomE: 56
+                                property real lastTop: 0
+                                property bool movingDown: true
+                                function sync() {
+                                    if (!entryList.currentItem)
+                                        return;
+                                    movingDown = topT > lastTop;
+                                    lastTop = topT;
+                                    topE = topT;
+                                    bottomE = bottomT;
+                                }
+                                onTopTChanged: sync()
+                                onBottomTChanged: sync()
+                                Behavior on topE { Spring { speed: blob.movingDown ? "default" : "fast" } }
+                                Behavior on bottomE { Spring { speed: blob.movingDown ? "fast" : "default" } }
+
+                                z: -1
+                                x: 0
+                                y: topE
                                 width: entryList.width
-                                height: 56
+                                height: Math.max(8, bottomE - topE)
                                 radius: Motion.shapeMedium
                                 color: Colors.secondary_container
-                                y: entryList.currentItem ? entryList.currentItem.y : 0
                                 visible: entryList.count > 0
-                                Behavior on y { Spring {} }
+                                opacity: Math.max(0, Math.min(1, root.stage / 4))
                             }
 
                             delegate: Clickable {
@@ -535,9 +706,43 @@ Item {
                                 required property var modelData
                                 required property int index
                                 readonly property bool selected: index === root.selectedIndex
+                                // collapsing: this row was deleted, or Clear all is sweeping through
+                                property bool collapsed: false
+                                readonly property bool removing: collapsed || modelData.id === root.removingId
+
+                                // rows rise in one after another when the panel opens
+                                readonly property bool shownNow: index >= 8 || root.stage > index
+                                property real appear: shownNow ? 1 : 0
+                                Behavior on appear { Spring { speed: "default" } }
+                                // pulse on copy
+                                property real pulse: root.copying && selected ? 1 : 0
+                                Behavior on pulse { Spring { speed: "fast" } }
+                                // 1 -> 0 as the row collapses
+                                property real alive: removing ? 0 : 1
+                                Behavior on alive { Spring { speed: "default" } }
+                                ListView.onReused: collapsed = false
+                                Connections {
+                                    target: root
+                                    function onWipingChanged() {
+                                        if (!root.wiping) {
+                                            entryRow.collapsed = false;
+                                            wipeStep.stop();
+                                        } else {
+                                            wipeStep.interval = Math.min(entryRow.index, 8) * 30;
+                                            wipeStep.restart();
+                                        }
+                                    }
+                                }
+                                Timer {
+                                    id: wipeStep
+                                    onTriggered: entryRow.collapsed = true
+                                }
 
                                 width: entryList.width
-                                height: 56
+                                height: Math.max(0, 56 * entryRow.alive)
+                                opacity: Math.max(0, Math.min(1, appear * 1.6)) * Math.max(0, Math.min(1, alive * 2 - 0.4))
+                                scale: (0.94 + 0.06 * appear) * (1 + 0.05 * pulse) * (0.85 + 0.15 * Math.max(0, alive))
+                                transform: Translate { y: (1 - entryRow.appear) * 16 }
                                 restRadius: Motion.shapeMedium
                                 pressedRadius: Motion.shapeSmall
                                 contentColor: selected ? Colors.on_secondary_container : Colors.on_surface
@@ -557,14 +762,30 @@ Item {
                                 }
 
                                 RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 12
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    height: 56
+                                    anchors.leftMargin: 10
                                     anchors.rightMargin: 12
                                     spacing: 12
-                                    Icon {
-                                        name: entryRow.modelData.isImage ? "image" : "notes"
-                                        size: 20
-                                        color: entryRow.selected ? Colors.on_secondary_container : Colors.on_surface_variant
+                                    // text is a cookie, an image is a four-sided cookie; the selected one
+                                    // becomes a sunny and turns
+                                    ShapeBadge {
+                                        Layout.preferredWidth: 38
+                                        Layout.preferredHeight: 38
+                                        shapeRest: entryRow.modelData.isImage ? 5 : 1
+                                        shapeActive: 4
+                                        active: entryRow.selected
+                                        spinning: entryRow.selected && entryRow.visible
+                                        color: entryRow.selected ? Colors.primary : Colors.surface_container_highest
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: entryRow.modelData.isImage ? "image" : "notes"
+                                            size: 20
+                                            color: entryRow.selected ? Colors.on_primary : Colors.on_surface_variant
+                                            Behavior on color { ColorFade {} }
+                                        }
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true
@@ -585,11 +806,36 @@ Item {
                                     }
                                 }
                             }
+                        }
 
+                        // empty list: a turning shape that pops in
+                        ColumnLayout {
+                            id: emptyList
+                            readonly property bool shown: entryList.count === 0
+                            anchors.centerIn: parent
+                            visible: opacity > 0.02
+                            opacity: shown ? 1 : 0
+                            scale: shown ? 1 : 0.6
+                            spacing: 12
+                            Behavior on opacity { Fade {} }
+                            Behavior on scale { Spring {} }
+                            ShapeBadge {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.preferredWidth: 88
+                                Layout.preferredHeight: 88
+                                shapeRest: root.query ? 0 : 1
+                                spinning: emptyList.shown && emptyList.visible
+                                color: Colors.secondary_container
+                                Icon {
+                                    anchors.centerIn: parent
+                                    size: 36
+                                    name: root.query ? "search_off" : "content_paste"
+                                    color: Colors.on_secondary_container
+                                }
+                            }
                             StyledText {
-                                anchors.centerIn: parent
-                                visible: entryList.count === 0
-                                role: "bodyLarge"
+                                Layout.alignment: Qt.AlignHCenter
+                                role: "titleMedium"
                                 color: Colors.on_surface_variant
                                 text: root.query ? "No matches" : "Clipboard is empty"
                             }
@@ -604,13 +850,52 @@ Item {
                         color: Colors.surface_container
                         clip: true
 
-                        StyledText {
+                        // nothing selected yet
+                        ColumnLayout {
+                            id: noPreview
+                            readonly property bool shown: root.previewMode === "none"
                             anchors.centerIn: parent
-                            visible: root.previewMode === "none"
-                            role: "bodyLarge"
-                            color: Colors.on_surface_variant
-                            text: "Select an item to preview"
+                            visible: opacity > 0.02
+                            opacity: shown ? 1 : 0
+                            scale: shown ? 1 : 0.7
+                            spacing: 12
+                            Behavior on opacity { Fade {} }
+                            Behavior on scale { Spring {} }
+                            ShapeBadge {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.preferredWidth: 88
+                                Layout.preferredHeight: 88
+                                shapeRest: 2
+                                spinning: noPreview.shown && noPreview.visible
+                                color: Colors.secondary_container
+                                Icon { anchors.centerIn: parent; size: 36; name: "content_paste"; color: Colors.on_secondary_container }
+                            }
+                            StyledText {
+                                Layout.alignment: Qt.AlignHCenter
+                                role: "bodyLarge"
+                                color: Colors.on_surface_variant
+                                text: "Select an item to preview"
+                            }
                         }
+
+                        // the preview slides in from the side the selection moved from and springs to rest
+                        Item {
+                            id: previewHolder
+                            anchors.fill: parent
+                            // 0 -> 1 on a spring: slide, fade and the image's corner reveal
+                            property real reveal: 1
+                            property bool snap: false
+                            property int dir: 1
+                            Behavior on reveal { enabled: !previewHolder.snap; Spring { speed: "default" } }
+                            function kick() {
+                                dir = root.selectedIndex < root._prevSelectedIndex ? -1 : 1;
+                                snap = true;
+                                reveal = 0;
+                                snap = false;
+                                reveal = 1;
+                            }
+                            opacity: Math.max(0, Math.min(1, reveal * 2.2))
+                            transform: Translate { y: (1 - previewHolder.reveal) * 30 * previewHolder.dir }
 
                         Flickable {
                             id: previewFlick
@@ -658,7 +943,9 @@ Item {
                                 readonly property real fitW: Math.min(imageArea.width, imageArea.height * probe.ratio, Math.max(1, probe.implicitWidth))
                                 width: fitW
                                 height: fitW / probe.ratio
-                                radius: Motion.shapeMedium
+                                // the image arrives as a big rounded blob and settles into its shape
+                                radius: Math.max(Motion.shapeMedium, Motion.shapeExtraExtraLarge - (Motion.shapeExtraExtraLarge - Motion.shapeMedium) * previewHolder.reveal)
+                                scale: 0.88 + 0.12 * previewHolder.reveal
                                 color: "transparent"
                                 Image {
                                     anchors.fill: parent
@@ -668,29 +955,66 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         Row {
-                            visible: root.previewMode !== "none"
+                            id: actions
+                            readonly property bool shown: root.previewMode !== "none"
+                            property bool copyShown: false
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
                             anchors.margins: 16
                             spacing: 8
-                            Button {
-                                style: "tonal"
-                                icon: "delete"
-                                text: "Delete"
-                                color: Colors.error_container
-                                contentColor: Colors.on_error_container
-                                onClicked: root.deleteSelected()
+                            onShownChanged: {
+                                if (shown)
+                                    copyPop.restart();
+                                else {
+                                    copyPop.stop();
+                                    copyShown = false;
+                                }
                             }
-                            Button {
-                                icon: "content_copy"
-                                text: "Copy"
-                                onClicked: root.copySelected()
+                            Timer {
+                                id: copyPop
+                                interval: 70
+                                onTriggered: actions.copyShown = true
+                            }
+                            Item {
+                                width: deleteBtn.width
+                                height: deleteBtn.height
+                                opacity: actions.shown ? 1 : 0
+                                scale: actions.shown ? 1 : 0.5
+                                enabled: actions.shown
+                                Behavior on opacity { Fade {} }
+                                Behavior on scale { Spring {} }
+                                Button {
+                                    id: deleteBtn
+                                    style: "tonal"
+                                    icon: "delete"
+                                    text: "Delete"
+                                    color: Colors.error_container
+                                    contentColor: Colors.on_error_container
+                                    onClicked: root.deleteSelected()
+                                }
+                            }
+                            Item {
+                                width: copyBtn.width
+                                height: copyBtn.height
+                                opacity: actions.copyShown ? 1 : 0
+                                scale: actions.copyShown ? 1 : 0.5
+                                enabled: actions.copyShown
+                                Behavior on opacity { Fade {} }
+                                Behavior on scale { Spring {} }
+                                Button {
+                                    id: copyBtn
+                                    icon: "content_copy"
+                                    text: "Copy"
+                                    onClicked: root.copySelected()
+                                }
                             }
                         }
                     }
                 }
+            }
             }
         }
     }

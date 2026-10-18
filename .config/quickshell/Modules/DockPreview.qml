@@ -25,6 +25,39 @@ PanelWindow {
     property real lastClosedAt: 0
     property string lastClosedKey: ""
 
+    // ---- entrance: the header and then each row pop in, one after another ----
+    property int stage: 0
+    property real spin: 0
+    onVisibleChanged: if (!visible) stage = 0
+    onIsOpenChanged: {
+        if (isOpen) {
+            stage = 0;
+            stageTimer.restart();
+        }
+    }
+    Timer {
+        id: stageTimer
+        interval: 45
+        repeat: true
+        onTriggered: {
+            win.stage += 1;
+            if (win.stage >= win.windows.length + 2)
+                stop();
+        }
+    }
+    FrameAnimation {
+        running: win.isOpen
+        onTriggered: win.spin = (win.spin + frameTime * 12) % 360
+    }
+
+    // each workspace gets its own shape; special workspaces are the soft burst
+    readonly property var wsShapes: [5, 2, 4, 1, 0]
+    function wsShape(w) {
+        if (!w || !w.workspace) return 0
+        const id = Number(w.workspace.id)
+        return isNaN(id) || id <= 0 ? 0 : wsShapes[(id - 1) % wsShapes.length]
+    }
+
     function getWsId(w) {
         if (!w || !w.workspace) return 9999
         const id = Number(w.workspace.id)
@@ -132,55 +165,97 @@ PanelWindow {
         opacity: menu.opacity
         scale: menu.scale
         transformOrigin: Item.Bottom
+        transform: Translate { y: (1 - menu.openP) * 24 }
     }
 
-    // M3 Expressive menu: surface-container-low, 16px corners, 4px group padding
+    // M3 Expressive menu: surface-container-low, 28px corners, 8px group padding; it springs up out of
+    // the dock icon, then its rows follow
     Rectangle {
         id: menu
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 4
-        width: Math.max(280, Math.min(400, col.implicitWidth + 8))
-        height: col.implicitHeight + 8
-        radius: Motion.shapeLarge
+        width: Math.max(300, Math.min(420, col.implicitWidth + 16))
+        height: col.implicitHeight + 16
+        radius: Motion.shapeExtraLarge
         color: Colors.surface_container_low
         transformOrigin: Item.Bottom
+        property real openP: win.isOpen ? 1 : 0
+        Behavior on openP { Spring { speed: "default" } }
         opacity: win.isOpen ? 1 : 0
-        scale: win.isOpen ? 1 : 0.9
+        scale: 0.6 + 0.4 * openP
+        transform: Translate { y: (1 - menu.openP) * 24 }
         Behavior on opacity { Fade { speed: "default" } }
-        Behavior on scale { Spring { speed: "default" } }
 
         Column {
             id: col
-            x: 4
-            y: 4
-            width: parent.width - 8
+            x: 8
+            y: 8
+            width: parent.width - 16
             spacing: 2
 
-            // header
+            // header: the app in a turning shape, its name, and a rolling window count
             RowLayout {
+                id: headerRow
                 width: parent.width
-                height: 48
+                height: 60
                 spacing: 12
-                Image {
-                    Layout.leftMargin: 12
-                    Layout.preferredWidth: 24
-                    Layout.preferredHeight: 24
-                    sourceSize: Qt.size(48, 48)
-                    fillMode: Image.PreserveAspectFit
-                    source: win.targetAppIcon
+                property real appear: win.stage >= 1 ? 1 : 0
+                Behavior on appear { Spring {} }
+                opacity: Math.max(0, Math.min(1, appear * 1.6))
+                transform: Translate { y: (1 - headerRow.appear) * 14 }
+
+                Item {
+                    Layout.leftMargin: 6
+                    Layout.preferredWidth: 44
+                    Layout.preferredHeight: 44
+                    scale: 0.5 + 0.5 * headerRow.appear
+                    MorphShape {
+                        anchors.fill: parent
+                        shape: 1
+                        fromShape: 1
+                        spin: win.spin
+                        color: Colors.primary_container
+                    }
+                    Image {
+                        anchors.centerIn: parent
+                        width: 26
+                        height: 26
+                        sourceSize: Qt.size(52, 52)
+                        fillMode: Image.PreserveAspectFit
+                        source: win.targetAppIcon
+                    }
                 }
                 StyledText {
                     Layout.fillWidth: true
-                    role: "titleSmall"
+                    role: "titleMedium"
+                    emphasized: true
                     elide: Text.ElideRight
                     text: win.targetAppName
                 }
-                StyledText {
-                    Layout.rightMargin: 12
-                    role: "labelMedium"
-                    color: Colors.on_surface_variant
-                    text: win.windows.length + " windows"
+                Rectangle {
+                    Layout.rightMargin: 6
+                    implicitHeight: 30
+                    implicitWidth: countRow.implicitWidth + 24
+                    radius: height / 2
+                    color: Colors.secondary_container
+                    Row {
+                        id: countRow
+                        anchors.centerIn: parent
+                        spacing: 5
+                        RollingDigits {
+                            anchors.verticalCenter: parent.verticalCenter
+                            pixelSize: 15
+                            color: Colors.on_secondary_container
+                            text: String(win.windows.length)
+                        }
+                        StyledText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            role: "labelMedium"
+                            color: Colors.on_secondary_container
+                            text: win.windows.length === 1 ? "window" : "windows"
+                        }
+                    }
                 }
             }
 
@@ -201,6 +276,11 @@ PanelWindow {
 
                     width: col.width
                     height: 48
+                    property real appear: win.stage >= index + 2 ? 1 : 0
+                    Behavior on appear { Spring {} }
+                    opacity: Math.max(0, Math.min(1, appear * 1.6))
+                    scale: 0.92 + 0.08 * appear
+                    transform: Translate { y: (1 - item.appear) * 14 }
                     // segmented-menu item shape; the focused window matches the dock's focused-app highlight (secondary container)
                     restRadius: active ? Motion.shapeMedium : Motion.shapeExtraSmall
                     bottomLeftRadius: lastItem && !active ? Motion.shapeMedium : radius
@@ -216,17 +296,23 @@ PanelWindow {
                         anchors.rightMargin: 4
                         spacing: 12
 
-                        // workspace number
-                        Rectangle {
+                        // workspace number, in the workspace's own shape
+                        Item {
                             visible: item.wsLabel !== ""
-                            implicitWidth: Math.max(24, wsText.implicitWidth + 12)
-                            implicitHeight: 24
-                            radius: Motion.shapeSmall
-                            color: item.active ? Colors.secondary : Colors.secondary_container
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            MorphShape {
+                                anchors.fill: parent
+                                shape: win.wsShape(item.modelData)
+                                fromShape: win.wsShape(item.modelData)
+                                spin: item.index % 2 ? -win.spin : win.spin
+                                color: item.active ? Colors.secondary : Colors.secondary_container
+                                Behavior on color { ColorFade {} }
+                            }
                             StyledText {
-                                id: wsText
                                 anchors.centerIn: parent
                                 role: "labelMedium"
+                                emphasized: true
                                 color: item.active ? Colors.on_secondary : Colors.on_secondary_container
                                 text: item.wsLabel
                             }

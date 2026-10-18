@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+export PATH="/usr/bin:/bin:$PATH"
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -96,9 +98,8 @@ fi
 
 # B. Hyprland compositor
 if command -v hyprctl >/dev/null 2>&1 && pgrep -x Hyprland >/dev/null 2>&1; then
-    hyprctl setcursor "$THEME_NAME" 24 >/dev/null 2>&1 \
-        && echo "✓ Set hyprctl cursor: $THEME_NAME" \
-        || echo "Warning: hyprctl setcursor failed" >&2
+    hypr_out=$(hyprctl setcursor "$THEME_NAME" 24 2>&1) && echo "✓ Set hyprctl cursor: $THEME_NAME ($hypr_out)" \
+        || echo "Warning: hyprctl setcursor failed with: $hypr_out (exit $?)" >&2
 fi
 
 # C. XCursor fallback (Ensures legacy X11 & Wayland apps show the cursor under Hyprland)

@@ -20,43 +20,49 @@ post_hook = '~/.config/matugen/templates/gtk-themes-reload.sh'
 input_path = './templates/yazi.toml'
 output_path = '~/.config/yazi/theme.toml'
 
-[templates.qt5ct]
-input_path = '/home/niconico/.config/matugen/templates/kde/qtct-colors.conf'
-output_path = '~/.config/qt5ct/colors/matugen.conf'
-
-[templates.qt6ct]
-input_path = '/home/niconico/.config/matugen/templates/kde/qtct-colors.conf'
-output_path = '~/.config/qt6ct/colors/matugen.conf'
-
-[templates.kde]
-input_path = '/home/niconico/.config/matugen/templates/kdeglobals'
-output_path = '/home/niconico/.config/kdeglobals'
-
 [templates.color-scheme]
 input_path = '~/.config/matugen/templates/Matugen.colors'
 output_path = '~/.local/share/color-schemes/Matugen.colors'
 
 [templates.vesktop]
 input_path = '/home/niconico/.config/matugen/templates/midnight-discord.css'
-output_path = '~/.config/vesktop/themes/midnight-discord.css'
+output_path = '~/.config/Vencord/themes/midnight-discord.css'
+
+[templates.system24]
+input_path = './templates/system24.css'
+output_path = '~/.config/vesktop/themes/system24.css'
 
 [templates.cava]
 input_path = '~/.config/matugen/templates/cava-colors.ini'
 output_path = '~/.config/cava/themes/matcolor.ini'
 post_hook = 'pkill -USR1 cava'
 
+[templates.btop]
+input_path = './templates/btop.theme'
+output_path = '~/.config/btop/themes/matugen.theme'
+post_hook = 'pkill -USR2 btop || true'
+
 [templates.hyprlua]
 input_path = '~/.config/matugen/templates/hyprland-colors.lua'
 output_path = '~/.config/hypr/colors.lua'
+
+[templates.hyprtoolkit]
+input_path = "./templates/hyprland-colors.conf"
+output_path = "~/.config/hypr/toolkit_colors.conf"
 
 [templates.spotify]
 input_path = './templates/spicetify.ini'
 output_path = '~/.config/spicetify/Themes/Sleek/color.ini'
 post_hook = 'pgrep -x spicetify > /dev/null || spicetify apply -n'
 
-[templates.quickshellbar]
-input_path = './templates/quickshell_bar.qml'
-output_path = '~/.config/quickshell/Colors.qml'
+[templates.quickshell]
+input_path = '~/.config/matugen/templates/quickshell.json'
+output_path = '~/.local/state/quickshell/colors.json'
+
+
+[templates.zathura]
+input_path = './templates/zathura-colors'
+output_path = '~/.config/zathura/zathurarc'
 
 [templates.kvantum_kvconfig]
 input_path = './templates/kvantum/kvantum-colors.kvconfig'
@@ -65,6 +71,18 @@ output_path = '~/.config/Kvantum/matugen/matugen.kvconfig'
 [templates.kvantum_svg]
 input_path = './templates/kvantum/kvantum-colors.svg'
 output_path = '~/.config/Kvantum/matugen/matugen.svg'
+
+[templates.qt5ct]
+input_path = './templates/qtct-colors.conf'
+output_path = '~/.config/qt5ct/colors/matugen.conf'
+
+[templates.obs]
+input_path = './templates/matugen.obt'
+output_path = '~/.config/obs-studio/themes/matugen.obt'
+
+[templates.qt6ct]
+input_path = './templates/qtct-colors.conf'
+output_path = '~/.config/qt6ct/colors/matugen.conf'
 
 [templates.firefox-website-colors]
 input_path = "./templates/firefox-colors.css"
@@ -77,6 +95,10 @@ output_path = '~/.local/share/PrismLauncher/themes/Matugen/theme.json'
 [templates.fuzzel]
 input_path = './templates/fuzzel.ini'
 output_path = '~/.config/fuzzel/colors.ini'
+
+[templates.obsidian_snippet]
+input_path = "./templates/obsidian.css"
+output_path = "/home/niconico/Documents/Obsidian Vault/.obsidian/snippets/matugen-colors.css"
 
 [templates.kitty]
 input_path = './templates/kitty-colors.conf'
@@ -100,3 +122,8 @@ output_path = '~/.cache/matugen/vscode-colors.json'
 input_path = "~/.config/matugen/templates/cursors.json"
 output_path = "~/.config/colors.json"
 post_hook = "~/.config/matugen/post-hook-scripts/cursor_matugen.sh"
+
+[templates.neovim]
+input_path = "~/.config/matugen/templates/nvim-colors.json"
+output_path = "~/.cache/matugen/nvim-colors.json"
+post_hook = "pkill -SIGUSR1 nvim"

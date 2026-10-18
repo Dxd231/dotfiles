@@ -33,11 +33,45 @@ Scope {
         root.buffer = ""; root.failed = false; root.unlocking = false;
     }
 
-    Timer { id: unlockTimer; interval: 440; onTriggered: root.finishUnlock() }
+    Timer { id: unlockTimer; interval: 700; onTriggered: root.finishUnlock() }
 
     property string buffer: ""      // what has been typed so far (shared across monitors)
     property bool failed: false
     property bool busy: false
+    property int keyTick: 0         // bumped on every key press so the view can ripple
+    property bool capsOn: false
+    property double lastWake: 0
+
+    // wake the display on input, but not with a hyprctl call per key press
+    function wake() {
+        const now = Date.now();
+        if (now - root.lastWake < 3000)
+            return;
+        root.lastWake = now;
+        Quickshell.execDetached(["hyprctl", "dispatch", 'hl.dsp.dpms({ action = "on" })']);
+    }
+
+    // Caps Lock: read the keyboard LED (any keyboard's LED being lit counts)
+    Process {
+        id: capsProc
+        command: ["sh", "-c", "cat /sys/class/leds/*capslock/brightness 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: root.capsOn = text.split(/\s+/).some(v => v === "1")
+        }
+    }
+    function pollCaps() {
+        if (!capsProc.running)
+            capsProc.running = true;
+    }
+    Timer {
+        interval: 400
+        repeat: true
+        running: root.locked
+        triggeredOnStart: true
+        onTriggered: root.pollCaps()
+    }
+    // the LED updates just after the key event
+    Timer { id: capsSoon; interval: 60; onTriggered: root.pollCaps() }
 
     // ---- screenshot background ----
     // The screen has to be captured BEFORE the session lock is active; once locked, the
@@ -146,7 +180,6 @@ Scope {
 
             // drives the entrance: background blurs in, content springs up
             property real blurLevel: 0
-            readonly property bool shown: root.locked && !root.unlocking
             Component.onCompleted: blurLevel = 1
 
             Behavior on blurLevel { Fade { speed: "slow" } }
@@ -201,7 +234,12 @@ Scope {
                     event.accepted = true;
                     if (root.busy || root.unlocking)
                         return;
-                    Quickshell.execDetached(["hyprctl", "dispatch", 'hl.dsp.dpms({ action = "on" })']);
+                    root.wake();
+                    if (event.key === Qt.Key_CapsLock) {
+                        capsSoon.restart();
+                        return;
+                    }
+                    root.keyTick++;
                     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                         root.submit();
                     } else if (event.key === Qt.Key_Backspace) {
@@ -214,320 +252,20 @@ Scope {
                     }
                 }
 
-                Column {
-                    id: content
-                    anchors.centerIn: parent
-                    spacing: 16
-                    opacity: surface.shown && surface.blurLevel > 0 ? 1 : 0
-                    scale: surface.shown && surface.blurLevel > 0 ? 1 : 0.9
-                    Behavior on opacity { Fade { speed: "default" } }
-                    Behavior on scale { Spring { speed: "slow" } }
-
-                    // ---- clock + password ----
-                    Item {
-                        width: 760
-                        height: mainCard.height
-                        Elevation { anchors.fill: mainCard; radius: mainCard.radius; level: 3 }
-                        Rectangle {
-                            id: mainCard
-                            width: parent.width
-                            height: mainCol.implicitHeight + 64
-                            radius: Motion.shapeExtraExtraLarge
-                            color: Colors.surface_container_high
-
-                            Column {
-                                id: mainCol
-                                anchors.centerIn: parent
-                                width: parent.width - 64
-                                spacing: 8
-
-                                Rectangle {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    height: 40
-                                    width: dateRow.implicitWidth + 32
-                                    radius: height / 2
-                                    color: Colors.secondary_container
-                                    Row {
-                                        id: dateRow
-                                        anchors.centerIn: parent
-                                        spacing: 8
-                                        Icon { anchors.verticalCenter: parent.verticalCenter; name: "lock"; size: 20; color: Colors.on_secondary_container }
-                                        StyledText {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            role: "titleMedium"
-                                            color: Colors.on_secondary_container
-                                            text: Qt.formatDateTime(clock.date, "dddd, d MMMM")
-                                        }
-                                    }
-                                }
-
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: Qt.formatDateTime(clock.date, "HH:mm")
-                                    color: Colors.on_surface
-                                    font.family: Typography.family
-                                    font.pixelSize: 168
-                                    font.weight: Font.Bold
-                                    font.letterSpacing: -2
-                                }
-
-                                // password field: pill at rest, 20px squircle while typing
-                                Rectangle {
-                                    id: pwBox
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    width: 480
-                                    height: 64
-                                    radius: root.buffer.length > 0 || root.busy ? Motion.shapeLargeIncreased : height / 2
-                                    color: root.failed ? Colors.error_container : Colors.surface_container_highest
-                                    Behavior on radius { Spring {} }
-                                    Behavior on color { ColorFade {} }
-
-                                    transform: Translate { id: shake }
-                                    SequentialAnimation {
-                                        id: shakeAnim
-                                        NumberAnimation { target: shake; property: "x"; to: -14; duration: 45; easing.type: Easing.OutQuad }
-                                        NumberAnimation { target: shake; property: "x"; to: 14; duration: 55; easing.type: Easing.InOutQuad }
-                                        NumberAnimation { target: shake; property: "x"; to: -10; duration: 55; easing.type: Easing.InOutQuad }
-                                        NumberAnimation { target: shake; property: "x"; to: 10; duration: 55; easing.type: Easing.InOutQuad }
-                                        NumberAnimation { target: shake; property: "x"; to: 0; duration: 60; easing.type: Easing.OutQuad }
-                                    }
-                                    Connections {
-                                        target: root
-                                        function onFailedChanged() {
-                                            if (root.failed)
-                                                shakeAnim.restart();
-                                        }
-                                    }
-
-                                    // typed characters: alternating squircles and circles that spring in
-                                    Row {
-                                        anchors.centerIn: parent
-                                        visible: !root.busy
-                                        Repeater {
-                                            model: 22
-                                            delegate: Item {
-                                                id: slot
-                                                required property int index
-                                                readonly property bool active: index < root.buffer.length
-                                                property bool inRow: active
-                                                onActiveChanged: {
-                                                    if (active) {
-                                                        collapse.stop();
-                                                        inRow = true;
-                                                    } else {
-                                                        collapse.restart();
-                                                    }
-                                                }
-                                                Timer {
-                                                    id: collapse
-                                                    interval: 160
-                                                    onTriggered: slot.inRow = false
-                                                }
-                                                width: inRow ? 22 : 0
-                                                height: 28
-                                                Behavior on width { Spring {} }
-
-                                                Rectangle {
-                                                    anchors.centerIn: parent
-                                                    width: 16
-                                                    height: 16
-                                                    radius: slot.index % 2 === 0 ? 5 : 8
-                                                    color: root.failed ? Colors.on_error_container : Colors.primary
-                                                    opacity: slot.active ? 1 : 0
-                                                    scale: slot.active ? 1 : 0.4
-                                                    Behavior on scale { Spring {} }
-                                                    Behavior on opacity { Fade {} }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    LoadingIndicator {
-                                        anchors.centerIn: parent
-                                        visible: root.busy
-                                        running: visible
-                                    }
-
-                                    Row {
-                                        anchors.centerIn: parent
-                                        spacing: 12
-                                        visible: root.buffer.length === 0 && !root.busy
-                                        Icon {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            name: root.failed ? "error" : "password"
-                                            color: root.failed ? Colors.on_error_container : Colors.on_surface_variant
-                                        }
-                                        StyledText {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            role: "titleMedium"
-                                            color: root.failed ? Colors.on_error_container : Colors.on_surface_variant
-                                            text: root.failed ? "Incorrect password" : "Enter password"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ---- now playing ----
-                    Item {
-                        id: mediaCard
-                        readonly property bool playing: !!root.player && root.player.playbackState === MprisPlaybackState.Playing
-                        readonly property real len: root.player ? (root.player.length || 0) : 0
-                        readonly property real pos: root.player ? (root.player.position || 0) : 0
-                        function fmt(sec) {
-                            const t = Math.max(0, Math.floor(sec));
-                            return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
-                        }
-
-                        visible: !!root.player && (root.player.trackTitle || "").length > 0
-                        width: 760
-                        height: 128
-
-                        Elevation { anchors.fill: mediaSurface; radius: mediaSurface.radius; level: 3 }
-                        Rectangle {
-                            id: mediaSurface
-                            anchors.fill: parent
-                            radius: Motion.shapeExtraLarge
-                            color: Colors.surface_container_high
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 16
-
-                                ClippingRectangle {
-                                    Layout.preferredWidth: 96
-                                    Layout.preferredHeight: 96
-                                    radius: Motion.shapeLarge
-                                    color: Colors.primary_container
-                                    Icon {
-                                        anchors.centerIn: parent
-                                        visible: art.status !== Image.Ready
-                                        name: "music_note"
-                                        size: 40
-                                        color: Colors.on_primary_container
-                                    }
-                                    Image {
-                                        id: art
-                                        anchors.fill: parent
-                                        source: root.player ? (root.player.trackArtUrl || "") : ""
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-                                    Marquee {
-                                        Layout.fillWidth: true
-                                        centered: false
-                                        role: "titleMedium"
-                                        jp: true
-                                        text: root.player ? (root.player.trackTitle || "") : ""
-                                    }
-                                    Marquee {
-                                        Layout.fillWidth: true
-                                        centered: false
-                                        role: "bodyMedium"
-                                        jp: true
-                                        color: Colors.on_surface_variant
-                                        visible: text.length > 0
-                                        text: root.player ? (root.player.trackArtist || "") : ""
-                                    }
-                                    LinearProgress {
-                                        Layout.fillWidth: true
-                                        Layout.topMargin: 8
-                                        visible: mediaCard.len > 0
-                                        value: mediaCard.pos / Math.max(1, mediaCard.len)
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            anchors.margins: -8
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: mouse => root.player.position = mediaCard.len * Math.max(0, Math.min(1, (mouse.x - 8) / parent.width))
-                                        }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        visible: mediaCard.len > 0
-                                        StyledText { role: "labelSmall"; color: Colors.on_surface_variant; text: mediaCard.fmt(mediaCard.pos) }
-                                        Item { Layout.fillWidth: true }
-                                        StyledText { role: "labelSmall"; color: Colors.on_surface_variant; text: mediaCard.fmt(mediaCard.len) }
-                                    }
-                                }
-
-                                Row {
-                                    spacing: 8
-                                    IconButton {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        icon: "skip_previous"
-                                        style: "tonal"
-                                        onClicked: root.player.previous()
-                                    }
-                                    IconButton {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        size: "m"
-                                        style: "filled"
-                                        icon: mediaCard.playing ? "pause" : "play_arrow"
-                                        // round while paused, square while playing
-                                        restRadius: mediaCard.playing ? Motion.shapeLarge : height / 2
-                                        onClicked: root.player.togglePlaying()
-                                    }
-                                    IconButton {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        icon: "skip_next"
-                                        style: "tonal"
-                                        onClicked: root.player.next()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ---- power actions: floating toolbar ----
-                Item {
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 40
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: toolbar.width
-                    height: toolbar.height
-                    opacity: content.opacity
-
-                    Elevation { anchors.fill: toolbar; radius: toolbar.radius; level: 3 }
-                    Rectangle {
-                        id: toolbar
-                        width: actions.implicitWidth + 16
-                        height: 64
-                        radius: height / 2
-                        color: Colors.surface_container
-
-                        Row {
-                            id: actions
-                            anchors.centerIn: parent
-                            spacing: 4
-                            IconButton {
-                                icon: "bedtime"
-                                style: "tonal"
-                                color: Colors.tertiary_container
-                                contentColor: Colors.on_tertiary_container
-                                onClicked: Quickshell.execDetached(["systemctl", "suspend"])
-                            }
-                            IconButton {
-                                icon: "restart_alt"
-                                style: "tonal"
-                                onClicked: Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl reboot"])
-                            }
-                            IconButton {
-                                icon: "power_settings_new"
-                                style: "tonal"
-                                color: Colors.error_container
-                                contentColor: Colors.on_error_container
-                                onClicked: Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl poweroff"])
-                            }
-                        }
-                    }
+                LockView {
+                    anchors.fill: parent
+                    date: clock.date
+                    buffer: root.buffer
+                    failed: root.failed
+                    busy: root.busy
+                    unlocking: root.unlocking
+                    shown: root.locked
+                    capsOn: root.capsOn
+                    keyTick: root.keyTick
+                    player: root.player
+                    onSuspendRequested: Quickshell.execDetached(["systemctl", "suspend"])
+                    onRestartRequested: Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl reboot"])
+                    onPoweroffRequested: Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl poweroff"])
                 }
             }
         }

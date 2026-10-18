@@ -949,6 +949,95 @@ Scope {
                         objectProp: "key"
                         comparisonMode: ObjectComparison.Identity
                     }
+                    // ---- gliding focus blob: one shape under the focused app, stretching as it travels ----
+                    property string focusKey: ""
+                    property real focusX: 0
+                    property int hoverIndex: -1
+                    property bool blobReady: false
+                    property bool movingRight: true
+                    property real leftE: 0
+                    property real rightE: 56
+                    property int blobCount: 0
+                    property int blobShape: 5
+                    property int blobFrom: 5
+                    property real blobMorph: 1
+                    property bool blobSpring: true
+                    property real blobSpin: 0
+                    readonly property var blobShapes: [5, 1, 4, 2, 0]
+
+                    function glideTo(x) {
+                        if (!blobReady) {
+                            leftE = x;
+                            rightE = x + 56;
+                            blobReady = true;
+                            return;
+                        }
+                        movingRight = x > leftE;
+                        leftE = x;
+                        rightE = x + 56;
+                    }
+                    onFocusXChanged: if (focusKey !== "") glideTo(focusX)
+                    onFocusKeyChanged: {
+                        if (focusKey === "") {
+                            blobReady = false;
+                            return;
+                        }
+                        blobCount += 1;
+                        blobFrom = blobShape;
+                        blobShape = blobShapes[blobCount % blobShapes.length];
+                        blobSpring = false;
+                        blobMorph = 0;
+                        blobSpring = true;
+                        blobMorph = 1;
+                        glideTo(focusX);
+                    }
+                    Behavior on leftE {
+                        enabled: list.blobReady
+                        Spring { speed: list.movingRight ? "default" : "fast" }
+                    }
+                    Behavior on rightE {
+                        enabled: list.blobReady
+                        Spring { speed: list.movingRight ? "fast" : "default" }
+                    }
+                    Behavior on blobMorph {
+                        enabled: list.blobSpring
+                        SpringAnimation { spring: 3.4; damping: 0.17; epsilon: 0.001 }
+                    }
+                    FrameAnimation {
+                        running: dockRoot.shouldReveal && list.focusKey !== ""
+                        onTriggered: list.blobSpin = (list.blobSpin + frameTime * 8) % 360
+                    }
+
+                    Item {
+                        id: blob
+                        parent: list.contentItem
+                        z: -1
+                        x: list.leftE
+                        width: Math.max(8, list.rightE - list.leftE)
+                        height: 56
+                        y: (list.height - height) / 2
+                        scale: list.focusKey !== "" ? 1 : 0
+                        opacity: list.focusKey !== "" ? 1 : 0
+                        Behavior on scale { Spring { speed: "default" } }
+                        Behavior on opacity { Fade {} }
+
+                        // the stretch sits outside the shape's own turning so the outline never shears
+                        Item {
+                            width: 56
+                            height: 56
+                            anchors.centerIn: parent
+                            transform: Scale { origin.x: 28; origin.y: 28; xScale: blob.width / 56 }
+                            MorphShape {
+                                anchors.fill: parent
+                                shape: list.blobShape
+                                fromShape: list.blobFrom
+                                morph: list.blobMorph
+                                spin: list.blobSpin + list.blobCount * 90
+                                color: Colors.secondary_container
+                            }
+                        }
+                    }
+
                     move: Transition { Spring { properties: "x"; speed: "default" } }
                     displaced: Transition { Spring { properties: "x"; speed: "default" } }
                     add: Transition {
@@ -1017,6 +1106,19 @@ Scope {
                             return !!active && wins.every(w => w.workspace && w.workspace.id !== active.id);
                         }
 
+                        // the focused cell tells the list where the blob should be
+                        function publish() {
+                            if (activated) {
+                                list.focusX = x;
+                                list.focusKey = String(modelData.key);
+                            } else if (list.focusKey === String(modelData.key)) {
+                                list.focusKey = "";
+                            }
+                        }
+                        onActivatedChanged: publish()
+                        onXChanged: if (activated) publish()
+                        Component.onCompleted: if (activated) publish()
+
                         // groups are separated by space, not a rule
                         width: isSep ? 12 : visible ? 56 : 0
                         height: list.height
@@ -1035,6 +1137,12 @@ Scope {
                             color: Colors.primary
                             contentColor: Colors.on_primary
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onHoveredChanged: {
+                                if (hovered)
+                                    list.hoverIndex = cell.index;
+                                else if (list.hoverIndex === cell.index)
+                                    list.hoverIndex = -1;
+                            }
                             onClicked: mouse => {
                                 if (mouse.button === Qt.RightButton) {
                                     dockRoot.lastAppPinActionTime = Date.now();
@@ -1053,9 +1161,9 @@ Scope {
                             anchors.centerIn: parent
                             width: 56
                             height: 56
-                            restRadius: cell.activated ? Motion.shapeLarge : height / 2
+                            restRadius: height / 2
                             pressedRadius: Motion.shapeMedium
-                            color: cell.activated ? Colors.secondary_container : "transparent"
+                            color: "transparent"
                             contentColor: cell.activated ? Colors.on_secondary_container : Colors.on_surface
                             opacity: cell.ghost && !hovered ? 0.6 : 1
                             Behavior on opacity { Fade {} }
@@ -1080,9 +1188,17 @@ Scope {
                                 }
                             }
 
-                            // hover: the icon grows and lifts on an overshooting spring; press squishes it toward its base
-                            property real iconScale: pressed ? 0.88 : hovered ? 1.12 : 1
-                            property real lift: hovered && !pressed ? -4 : 0
+                            // hover: a wave through the neighbours; the hovered icon grows and lifts most, and press
+                            // squishes it flat before the overshooting spring throws it back
+                            onHoveredChanged: {
+                                if (hovered)
+                                    list.hoverIndex = cell.index;
+                                else if (list.hoverIndex === cell.index)
+                                    list.hoverIndex = -1;
+                            }
+                            readonly property int hoverDist: list.hoverIndex < 0 ? 99 : Math.abs(cell.index - list.hoverIndex)
+                            property real iconScale: pressed ? 0.8 : hoverDist === 0 ? 1.25 : hoverDist === 1 ? 1.1 : hoverDist === 2 ? 1.03 : 1
+                            property real lift: pressed ? 0 : hoverDist === 0 ? -8 : hoverDist === 1 ? -3 : 0
                             Behavior on iconScale { Spring { speed: "fast" } }
                             Behavior on lift { Spring { speed: "fast" } }
 
@@ -1140,7 +1256,7 @@ Scope {
                             Rectangle {
                                 readonly property bool shown: appButton.hovered && !(dockPreview.isOpen && dockPreview.targetAppKey === cell.appKey)
                                 anchors.bottom: parent.top
-                                anchors.bottomMargin: 12
+                                anchors.bottomMargin: 22
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 width: Math.min(tipText.implicitWidth + 16, 360)
                                 height: Math.max(24, tipText.implicitHeight + 8)

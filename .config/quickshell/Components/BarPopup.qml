@@ -34,7 +34,12 @@ PanelWindow {
         const sw = screen ? screen.width : 1920;
         margins.left = Math.max(0, Math.min(sw - implicitWidth, Math.round(p.x - implicitWidth / 2)));
     }
-    onIsOpenChanged: if (isOpen) reposition()
+    onIsOpenChanged: {
+        if (isOpen) {
+            reposition();
+            panel.forceActiveFocus();
+        }
+    }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: isOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
@@ -46,7 +51,17 @@ PanelWindow {
     margins.top: 0
     implicitWidth: panelWidth + _shadowPad * 2
     implicitHeight: panel.height + _shadowPad * 2 + 4
-    mask: Region { item: panel }
+    // input area follows the panel's size but not its entrance scale, so the bottom edge is
+    // clickable from the first frame
+    mask: Region { item: hitArea }
+
+    Item {
+        id: hitArea
+        x: panel.x
+        y: panel.y
+        width: panel.width
+        height: panel.height
+    }
 
     HyprlandFocusGrab {
         windows: [popup]
@@ -77,6 +92,8 @@ PanelWindow {
         transformOrigin: Item.Top
         opacity: 0
         scale: 0.9
+        focus: popup.isOpen
+        Keys.onEscapePressed: popup.hide()
 
         states: State {
             name: "open"
@@ -95,12 +112,6 @@ PanelWindow {
                 NumberAnimation { property: "opacity"; duration: Motion.short3; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.standardAccelerate }
             }
         ]
-
-        Item {
-            anchors.fill: parent
-            focus: popup.isOpen
-            Keys.onEscapePressed: popup.hide()
-        }
 
         ColumnLayout {
             id: body

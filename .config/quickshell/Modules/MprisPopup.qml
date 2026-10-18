@@ -30,8 +30,92 @@ PanelWindow {
         return Math.floor(seconds / 60) + ":" + (s < 10 ? "0" : "") + s;
     }
 
+    // ---- entrance: the pieces pop in one after another (reset once the window is hidden) ----
+    property int stage: 0
+    onVisibleChanged: if (!visible) stage = 0
+    Timer {
+        id: stageTimer
+        interval: 75
+        repeat: true
+        onTriggered: {
+            win.stage += 1;
+            if (win.stage >= 6)
+                stop();
+        }
+    }
+
+    // ---- track change: disc outline and halo morph with overshoot, the text slides over ----
+    readonly property string titleNow: hasPlayer && player.trackTitle ? player.trackTitle : "No media"
+    readonly property string artistNow: hasPlayer ? (player.trackArtist || "") : ""
+    readonly property string trackKey: titleNow + "\n" + artistNow
+    property string shownTitle: titleNow
+    property string shownArtist: artistNow
+    property int slideDir: 1                 // 1 sends the old text left, -1 right
+    property int nextDir: 1                  // set by "previous" so the next change slides the other way
+    readonly property var discLobes: [12, 9, 7, 10, 8]
+    readonly property var haloShapes: [1, 4, 0, 5, 2]
+    property int trackCount: 0
+    property int lobes: 12
+    property int fromLobes: 12
+    property int haloShape: 1
+    property int haloFrom: 1
+    property real shapeMorph: 1
+    property bool shapeSpring: true
+    property real haloSpin: 0
+    // a quarter turn per change, accumulated so the outline never jumps back
+    readonly property real shapeTurn: trackCount * 90 + shapeMorph * 90
+
+    Behavior on shapeMorph {
+        enabled: win.shapeSpring
+        SpringAnimation { spring: 3.4; damping: 0.17; epsilon: 0.001 }
+    }
+
+    onTrackKeyChanged: {
+        if (!isOpen) {
+            shownTitle = titleNow;
+            shownArtist = artistNow;
+            return;
+        }
+        slideDir = nextDir;
+        nextDir = 1;
+        textSwap.restart();
+        trackCount += 1;
+        fromLobes = lobes;
+        lobes = discLobes[trackCount % discLobes.length];
+        haloFrom = haloShape;
+        haloShape = haloShapes[trackCount % haloShapes.length];
+        shapeSpring = false;
+        shapeMorph = 0;
+        shapeSpring = true;
+        shapeMorph = 1;
+        discContainer.squishSpring = false;
+        discContainer.squish = 0.78;
+        discContainer.squishSpring = true;
+        discContainer.squish = 1;
+    }
+
+    FrameAnimation {
+        running: win.playing && win.isOpen
+        onTriggered: win.haloSpin = (win.haloSpin - frameTime * 9) % 360
+    }
+
+    onPlayingChanged: {
+        if (!isOpen)
+            return;
+        play.spinSpring = false;
+        play.iconRotation = -90;
+        play.iconScale = 0.4;
+        play.spinSpring = true;
+        play.iconRotation = 0;
+        play.iconScale = 1;
+    }
+
     onIsOpenChanged: {
         if (isOpen) {
+            shownTitle = titleNow;
+            shownArtist = artistNow;
+            stage = 0;
+            stageTimer.restart();
             showLyrics = lyricViewer.hasLyrics && !lyricViewer.loading;
         } else {
             // commit any in-flight scrub so the seek isn't lost and playback resumes
@@ -190,7 +274,61 @@ PanelWindow {
                 checkable: true
                 checked: win.showLyrics
                 enabled: lyricViewer.hasLyrics && !lyricViewer.loading
+                opacity: win.stage >= 2 ? 1 : 0
+                iconScale: win.stage >= 2 ? 1 : 0.4
+                Behavior on opacity { Fade { speed: "default" } }
+                Behavior on iconScale { Spring {} }
                 onClicked: win.showLyrics = !win.showLyrics
+            }
+
+            // which player this is
+            Rectangle {
+                x: 12
+                y: 12
+                z: 10
+                height: 40
+                width: Math.min(176, chipRow.implicitWidth + 28)
+                radius: height / 2
+                color: Colors.surface_container_highest
+                visible: win.hasPlayer
+                opacity: win.stage >= 2 ? 1 : 0
+                scale: win.stage >= 2 ? 1 : 0.7
+                transformOrigin: Item.Left
+                Behavior on opacity { Fade { speed: "default" } }
+                Behavior on scale { Spring {} }
+                Row {
+                    id: chipRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    Icon { anchors.verticalCenter: parent.verticalCenter; name: "music_note"; size: 18; color: Colors.primary }
+                    StyledText {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(implicitWidth, 176 - 28 - 24)
+                        elide: Text.ElideRight
+                        role: "labelLarge"
+                        emphasized: true
+                        color: Colors.on_surface
+                        text: win.hasPlayer ? win.player.identity : ""
+                    }
+                }
+            }
+
+            // turning halo behind the disc; takes the next shape on every track change
+            MorphShape {
+                id: halo
+                width: 296
+                height: 296
+                anchors.horizontalCenter: discContainer.horizontalCenter
+                anchors.verticalCenter: discContainer.verticalCenter
+                shape: win.haloShape
+                fromShape: win.haloFrom
+                morph: win.shapeMorph
+                spin: win.haloSpin + win.trackCount * 90
+                color: Qt.alpha(Colors.primary_container, 0.55)
+                opacity: win.stage >= 1 ? 1 : 0
+                scale: (win.stage >= 1 ? (win.playing ? (discMouseArea.isScrubbing ? 1.04 : 1) : 0.92) : 0.5)
+                Behavior on opacity { Fade { speed: "slow" } }
+                Behavior on scale { Spring { speed: "default" } }
             }
 
             Item {
@@ -199,8 +337,21 @@ PanelWindow {
                 height: 248
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: 28
-                scale: discMouseArea.isDragging ? 0.96 : 1
-                Behavior on scale { Spring {} }
+                // entrance pop, track-change squish and drag press are separate so they don't smooth each other
+                property real pop: win.stage >= 1 ? 1 : 0.6
+                property real squish: 1
+                property bool squishSpring: true
+                property real press: discMouseArea.isDragging ? 0.96 : 1
+                scale: pop * squish * press
+                rotation: (1 - pop) * -150
+                opacity: win.stage >= 1 ? 1 : 0
+                Behavior on pop { Spring { speed: "default" } }
+                Behavior on press { Spring {} }
+                Behavior on opacity { Fade { speed: "default" } }
+                Behavior on squish {
+                    enabled: discContainer.squishSpring
+                    Spring {}
+                }
 
                 // M3 Expressive cookie shape, used as the artwork mask
                 Item {
@@ -217,10 +368,9 @@ PanelWindow {
                         transform: Rotation {
                             origin.x: waveShape.width / 2
                             origin.y: waveShape.height / 2
-                            angle: discMouseArea.stretch
+                            angle: discMouseArea.stretch + win.shapeTurn
                         }
 
-                        property int lobes: 12
                         property real amp: discMouseArea.isScrubbing ? (discMouseArea.isAtBoundary ? 3 : 8) : (win.playing ? 6 : 2)
                         Behavior on amp { Spring {} }
 
@@ -235,7 +385,8 @@ PanelWindow {
                                     const pts = [];
                                     for (let i = 0; i <= 240; i++) {
                                         const t = i / 240 * Math.PI * 2;
-                                        const r = base + waveShape.amp * Math.cos(waveShape.lobes * t);
+                                        const m = win.shapeMorph;
+                                        const r = base + waveShape.amp * ((1 - m) * Math.cos(win.fromLobes * t) + m * Math.cos(win.lobes * t));
                                         pts.push(Qt.point(cx + r * Math.cos(t), cy + r * Math.sin(t)));
                                     }
                                     return pts;
@@ -269,8 +420,9 @@ PanelWindow {
 
                         Rectangle {
                             anchors.fill: parent
+                            z: 5
                             color: Colors.primary_container
-                            visible: art.status !== Image.Ready
+                            visible: discImage.target === ""
                             Icon {
                                 anchors.centerIn: parent
                                 name: "music_note"
@@ -278,13 +430,59 @@ PanelWindow {
                                 color: Colors.on_primary_container
                             }
                         }
+
+                        // two covers: the new one fades in over the old one once it has loaded
+                        readonly property string target: win.hasPlayer && win.player.trackArtUrl ? win.player.trackArtUrl : ""
+                        property bool topIsA: true
+                        property var pending: null
+                        function swapIn(next) {
+                            const prev = next === coverA ? coverB : coverA;
+                            pending = null;
+                            prev.z = 1;
+                            next.z = 2;
+                            next.opacity = 0;
+                            coverFade.target = next;
+                            coverFade.restart();
+                            topIsA = next === coverA;
+                        }
+                        onTargetChanged: {
+                            if (target === "") {
+                                pending = null;
+                                return;
+                            }
+                            const next = topIsA ? coverB : coverA;
+                            pending = next;
+                            next.source = target;
+                            if (next.status === Image.Ready)
+                                swapIn(next);
+                        }
+                        Component.onCompleted: if (target !== "") coverA.source = target
+                        NumberAnimation {
+                            id: coverFade
+                            property: "opacity"
+                            to: 1
+                            duration: Motion.expressiveDefaultEffectsDuration
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: Motion.expressiveDefaultEffects
+                        }
+
                         Image {
-                            id: art
+                            id: coverA
                             anchors.fill: parent
+                            z: 2
                             sourceSize: Qt.size(512, 512)
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
-                            source: win.hasPlayer && win.player.trackArtUrl ? win.player.trackArtUrl : ""
+                            onStatusChanged: if (status === Image.Ready && discImage.pending === coverA) discImage.swapIn(coverA)
+                        }
+                        Image {
+                            id: coverB
+                            anchors.fill: parent
+                            z: 1
+                            sourceSize: Qt.size(512, 512)
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            onStatusChanged: if (status === Image.Ready && discImage.pending === coverB) discImage.swapIn(coverB)
                         }
                     }
                 }
@@ -663,7 +861,7 @@ PanelWindow {
                 }
             }
 
-            // ---- track info ----
+            // ---- track info: slides out and in on a track change ----
             Column {
                 id: info
                 anchors.top: discContainer.bottom
@@ -672,22 +870,48 @@ PanelWindow {
                 width: 296
                 spacing: 2
 
+                property real shift: 0
+                property real textOp: 1
+                property real enter: win.stage >= 2 ? 1 : 0
+                Behavior on enter { Fade { speed: "default" } }
+                opacity: enter * textOp
+                transform: Translate { x: info.shift; y: (1 - info.enter) * 16 }
+
+                SequentialAnimation {
+                    id: textSwap
+                    ParallelAnimation {
+                        NumberAnimation { target: info; property: "shift"; to: -42 * win.slideDir; duration: Motion.short3; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.emphasizedAccelerate }
+                        NumberAnimation { target: info; property: "textOp"; to: 0; duration: Motion.short3 }
+                    }
+                    ScriptAction {
+                        script: {
+                            win.shownTitle = win.titleNow;
+                            win.shownArtist = win.artistNow;
+                            info.shift = 42 * win.slideDir;
+                        }
+                    }
+                    ParallelAnimation {
+                        Spring { target: info; property: "shift"; to: 0; speed: "default" }
+                        Fade { target: info; property: "textOp"; to: 1; speed: "default" }
+                    }
+                }
+
                 Marquee {
                     width: parent.width
                     role: "titleLarge"
                     emphasized: true
                     jp: true
                     running: win.isOpen
-                    text: win.hasPlayer && win.player.trackTitle ? win.player.trackTitle : "No media"
+                    text: win.shownTitle
                 }
                 Marquee {
                     width: parent.width
-                    visible: win.hasPlayer && !!win.player.trackArtist
+                    visible: win.shownArtist !== ""
                     role: "bodyLarge"
                     jp: true
                     running: win.isOpen
                     color: Colors.on_surface_variant
-                    text: win.hasPlayer ? (win.player.trackArtist || "") : ""
+                    text: win.shownArtist
                 }
             }
 
@@ -699,6 +923,8 @@ PanelWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 296
                 height: 24
+                opacity: win.stage >= 3 ? 1 : 0
+                Behavior on opacity { Fade { speed: "default" } }
 
                 readonly property real length: win.hasPlayer ? win.player.length : 0
                 readonly property real targetProgress: {
@@ -834,22 +1060,24 @@ PanelWindow {
                 anchors.top: seekBar.bottom
                 anchors.left: seekBar.left
                 anchors.right: seekBar.right
-                height: 16
-                StyledText {
-                    role: "labelMedium"
+                height: 18
+                opacity: win.stage >= 3 ? 1 : 0
+                Behavior on opacity { Fade { speed: "default" } }
+                RollingDigits {
+                    pixelSize: 13
                     color: Colors.on_surface_variant
                     text: win.formatTime(seekBar.progress * seekBar.length)
                 }
-                StyledText {
+                RollingDigits {
                     anchors.right: parent.right
-                    role: "labelMedium"
+                    pixelSize: 13
                     color: Colors.on_surface_variant
                     text: win.formatTime(seekBar.length)
                 }
             }
 
             // ---- transport: M3 Expressive standard button group ----
-            // the pressed button widens ~15% and its neighbours give way
+            // the pressed button widens ~15% and its neighbours give way; shuffle and loop flank it
             Row {
                 id: transport
                 anchors.top: times.bottom
@@ -862,9 +1090,25 @@ PanelWindow {
                         return base;
                     if (pressedIndex === i)
                         return base * 1.15;
-                    return base - (pressedIndex === 1 ? 108 : 56) * 0.15 / 2;
+                    return base - (pressedIndex === 1 ? 96 : 56) * 0.15 / 2;
                 }
 
+                IconButton {
+                    id: shuffle
+                    anchors.verticalCenter: parent.verticalCenter
+                    size: "s"
+                    style: "outlined"
+                    icon: "shuffle"
+                    checkable: true
+                    visible: win.hasPlayer && win.player.shuffleSupported
+                    checked: win.hasPlayer && win.player.shuffle
+                    enabled: win.hasPlayer && win.player.canControl
+                    opacity: win.stage >= 4 ? 1 : 0
+                    iconScale: win.stage >= 4 ? 1 : 0.3
+                    Behavior on opacity { Fade { speed: "default" } }
+                    Behavior on iconScale { Spring {} }
+                    onClicked: win.player.shuffle = !win.player.shuffle
+                }
                 IconButton {
                     id: prev
                     size: "m"
@@ -872,8 +1116,15 @@ PanelWindow {
                     icon: "skip_previous"
                     width: transport.widthFor(0, 56)
                     Behavior on width { Spring {} }
+                    opacity: win.stage >= 4 ? 1 : 0
+                    scale: win.stage >= 4 ? 1 : 0.5
+                    Behavior on opacity { Fade { speed: "default" } }
+                    Behavior on scale { Spring {} }
                     enabled: win.hasPlayer && win.player.canGoPrevious
-                    onClicked: win.player.previous()
+                    onClicked: {
+                        win.nextDir = -1;
+                        win.player.previous();
+                    }
                 }
                 IconButton {
                     id: play
@@ -881,8 +1132,15 @@ PanelWindow {
                     style: "filled"
                     icon: win.playing ? "pause" : "play_arrow"
                     iconSize: 28
-                    width: transport.widthFor(1, 108)
+                    width: transport.widthFor(1, 96)
                     Behavior on width { Spring {} }
+                    property bool spinSpring: true
+                    Behavior on iconRotation { enabled: play.spinSpring; Spring {} }
+                    Behavior on iconScale { enabled: play.spinSpring; Spring {} }
+                    opacity: win.stage >= 5 ? 1 : 0
+                    scale: win.stage >= 5 ? 1 : 0.5
+                    Behavior on opacity { Fade { speed: "default" } }
+                    Behavior on scale { Spring {} }
                     // round while paused, square while playing
                     restRadius: win.playing ? Motion.shapeLarge : height / 2
                     enabled: win.hasPlayer && win.player.canTogglePlaying
@@ -895,8 +1153,29 @@ PanelWindow {
                     icon: "skip_next"
                     width: transport.widthFor(2, 56)
                     Behavior on width { Spring {} }
+                    opacity: win.stage >= 6 ? 1 : 0
+                    scale: win.stage >= 6 ? 1 : 0.5
+                    Behavior on opacity { Fade { speed: "default" } }
+                    Behavior on scale { Spring {} }
                     enabled: win.hasPlayer && win.player.canGoNext
                     onClicked: win.player.next()
+                }
+                IconButton {
+                    id: loop
+                    anchors.verticalCenter: parent.verticalCenter
+                    size: "s"
+                    style: "outlined"
+                    icon: win.hasPlayer && win.player.loopState === MprisLoopState.Track ? "repeat_one" : "repeat"
+                    checkable: true
+                    visible: win.hasPlayer && win.player.loopSupported
+                    checked: win.hasPlayer && win.player.loopState !== MprisLoopState.None
+                    enabled: win.hasPlayer && win.player.canControl
+                    opacity: win.stage >= 6 ? 1 : 0
+                    iconScale: win.stage >= 6 ? 1 : 0.3
+                    Behavior on opacity { Fade { speed: "default" } }
+                    Behavior on iconScale { Spring {} }
+                    onClicked: win.player.loopState = win.player.loopState === MprisLoopState.None ? MprisLoopState.Playlist
+                        : win.player.loopState === MprisLoopState.Playlist ? MprisLoopState.Track : MprisLoopState.None
                 }
             }
         }

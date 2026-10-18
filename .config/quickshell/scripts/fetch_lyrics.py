@@ -9,13 +9,15 @@ import urllib.request
 import urllib.parse
 import base64
 import concurrent.futures
+import difflib
+import time
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
 CACHE_DIR = os.path.expanduser("~/.cache/quickshell_lyrics")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def get_cache_path(title, artist):
-    key = f"v8_{title.strip().lower()}___{artist.strip().lower()}".encode("utf-8")
+    key = f"v11_{title.strip().lower()}___{artist.strip().lower()}".encode("utf-8")
     return os.path.join(CACHE_DIR, f"{hashlib.sha256(key).hexdigest()}.json")
 
 def save_cache(path, data):
@@ -44,7 +46,13 @@ def match_artist(target, candidate):
         c_toks = artist_tokens(candidate)
     return bool(t_toks & c_toks)
 
+# Second-pass mode for romanised titles ("watasi tati mo koisita gensoukyou"): the title can't be
+# compared with the source's kanji one, so only the artist and a tight duration identify the song.
+LOOSE = {"on": False}
+
 def match_duration(target_sec, cand_sec, tolerance=8.0):
+    if LOOSE["on"]:
+        tolerance = 2.5
     if target_sec and cand_sec:
         return abs(target_sec - cand_sec) <= tolerance
     return True
@@ -56,6 +64,65 @@ def is_instrumental(title, album=""):
     )
     return bool(re.search(pattern, f"{title} {album}", re.IGNORECASE))
 
+# Sources that raised or timed out during this run (a failed source can hide a better answer).
+FAILED = set()
+
+def title_core(s):
+    """A title reduced to what identifies the song: no bracketed glosses ("(移动、移动)"), no
+    "～チノVer.～" / " - Remastered" tails, no spaces or punctuation."""
+    s = normalize(s)
+    s = re.sub(r"\s*[\(\[（【〔].*?[\)\]）】〕]", "", s)
+    s = re.sub(r"\s*[～~〜].*?[～~〜]\s*$", "", s)
+    s = re.sub(r"\s+[-–—]\s+.*$", "", s)
+    return re.sub(r"[\W_]+", "", s)
+
+def match_title(target, cand):
+    """Is `cand` the same song as `target`? Search endpoints return the artist's other songs when the
+    keyword is a little off, so every hit has to be checked, not just its artist and duration."""
+    if not target or not cand:
+        return True
+    if is_instrumental(cand) and not is_instrumental(target):
+        return False
+    a, b = title_core(target), title_core(cand)
+    if not a or not b or a == b:
+        return True
+    short, long_ = sorted((a, b), key=len)
+    if len(short) >= 3 and short in long_:
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.72
+
+def title_ok(target, cand):
+    return LOOSE["on"] or match_title(target, cand)
+
+def search_artist(artist):
+    """Artist for search keywords: Spotify sometimes truncates "チノ(水瀬いのり)" to "チノ(水瀬いのり"."""
+    return " ".join(re.sub(r"[()（）\[\]【】]", " ", artist or "").split())
+
+# "<names> - <title>" cards some sources put on the first line.
+HEADER_RE = re.compile(r"^(.{1,60}?)\s+[-–—]\s+(.{1,60})$")
+
+def check_header(lines, title):
+    """Drop a leading "<names> - <title>" card when it names this song; None when it names another
+    one (the whole result belongs to a different song)."""
+    for l in lines[:3]:
+        if l["time"] >= 5:
+            break
+        m = HEADER_RE.match(l["text"])
+        if not m:
+            continue
+        if not (LOOSE["on"] or match_title(title, m.group(2))):
+            return None
+        return [x for x in lines if x is not l]
+    return lines
+
+def line_set(lines):
+    return {re.sub(r"[\W_]+", "", normalize(l["text"])) for l in lines if l["text"].strip("• ")} - {""}
+
+def agreement(a, b):
+    """How much of the smaller lyric also appears in the other (1.0 when either is empty)."""
+    sa, sb = line_set(a), line_set(b)
+    return len(sa & sb) / min(len(sa), len(sb)) if sa and sb else 1.0
+
 def clean_lrc_line(text):
     if not text:
         return ""
@@ -64,6 +131,56 @@ def clean_lrc_line(text):
     # Remove complete 〖...〗 transcriber annotations
     text = re.sub(r"\s*〖.*?〗", "", text)
     return text.strip()
+
+# Set by main(): True when the playing track looks Japanese (kana in title / artist / album).
+TRACK_CONTEXT = {"japanese": False}
+
+HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+KANA_RE = re.compile(r"[\u3040-\u30ff]")
+# Notices streaming sites put on speech-recognition "lyrics" (e.g. Kugou's "本字幕由TME AI技术生成").
+# Those transcripts are invented for instrumentals and unreliable elsewhere, so the whole result is dropped.
+AI_LYRICS_RE = re.compile(
+    r"字幕由.{0,12}(?:AI|人工智能)|(?:AI|人工智能)\s*(?:技术|技術)?\s*生成|由.{0,12}AI.{0,6}生成|"
+    r"(?:ai|auto)[\s\-]*generated|generated\s+by\s+(?:ai|tme)",
+    re.I,
+)
+
+def looks_chinese(texts):
+    """True when most lines are Han-only (no kana): Chinese lyrics rather than Japanese ones."""
+    texts = [t for t in texts if t.strip()]
+    if not texts:
+        return False
+    han_only = sum(1 for t in texts if HAN_RE.search(t) and not KANA_RE.search(t))
+    with_kana = sum(1 for t in texts if KANA_RE.search(t))
+    return han_only >= 0.5 * len(texts) and with_kana <= 0.05 * len(texts)
+
+def lyrics_unusable(texts):
+    if any(AI_LYRICS_RE.search(t) for t in texts):
+        return True
+    # a Japanese track whose "lyrics" are Chinese is a wrong match or a translation
+    return TRACK_CONTEXT["japanese"] and looks_chinese(texts)
+
+def usable(lines):
+    return [] if lyrics_unusable([l["text"] for l in lines]) else lines
+
+def has_japanese(text):
+    return bool(KANA_RE.search(text) or HAN_RE.search(text))
+
+def japanese_share(lines):
+    texts = [l["text"] for l in lines if l["text"].strip("• ")]
+    return sum(1 for t in texts if has_japanese(t)) / len(texts) if texts else 0
+
+def drop_translations(lines):
+    """Collapse lines that share a timestamp: a translation or romaji printed under each original.
+    On a Japanese track the line containing kana / Han is the one kept."""
+    out = []
+    for l in lines:
+        if out and abs(l["time"] - out[-1]["time"]) <= 0.05:
+            if TRACK_CONTEXT["japanese"] and not has_japanese(out[-1]["text"]) and has_japanese(l["text"]):
+                out[-1] = l
+            continue
+        out.append(l)
+    return out
 
 def is_credit_or_meta(text, title="", artist="", time=None):
     t = text.strip()
@@ -160,7 +277,8 @@ def parse_lrclib_lyricsfile(raw, title="", artist=""):
         if end_t and end_t > start_t:
             item["endTime"] = end_t
         lines.append(item)
-    return lines
+    lines = check_header(usable(drop_translations(lines)), title)
+    return lines or []
 
 def parse_lrc(lrc_text, title="", artist=""):
     if not lrc_text:
@@ -193,7 +311,8 @@ def parse_lrc(lrc_text, title="", artist=""):
             continue
         lines.append({"time": t, "text": text})
 
-    return lines
+    lines = check_header(usable(drop_translations(lines)), title)
+    return lines or []
 
 def fetch_lrclib(title, artist, album="", duration=0):
     dur_sec = (duration / 1000000.0) if duration > 10000 else duration
@@ -212,7 +331,7 @@ def fetch_lrclib(title, artist, album="", duration=0):
             req = urllib.request.Request(f"https://lrclib.net/api/get?{urllib.parse.urlencode(params)}", headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=3) as resp:
                 d = json.loads(resp.read().decode("utf-8"))
-                if not d.get("instrumental") and match_artist(artist, d.get("artistName")) and match_duration(dur_sec, d.get("duration")):
+                if not d.get("instrumental") and match_artist(artist, d.get("artistName")) and title_ok(title, d.get("trackName")) and match_duration(dur_sec, d.get("duration")):
                     if d.get("lyricsfile"):
                         lines = parse_lrclib_lyricsfile(d["lyricsfile"], title=cand, artist=artist)
                         if len(lines) >= 3:
@@ -222,11 +341,11 @@ def fetch_lrclib(title, artist, album="", duration=0):
                         if len(lines) >= 3:
                             return {"source": "LRCLIB", "synced": True, "lines": lines}
                     if d.get("plainLyrics"):
-                        lines = [{"time": -1, "text": l} for l in d["plainLyrics"].splitlines() if l.strip() and not is_credit_or_meta(l, title=cand, artist=artist)]
+                        lines = usable([{"time": -1, "text": l} for l in d["plainLyrics"].splitlines() if l.strip() and not is_credit_or_meta(l, title=cand, artist=artist)])
                         if len(lines) >= 3:
                             return {"source": "LRCLIB", "synced": False, "lines": lines}
         except Exception:
-            pass
+            FAILED.add("LRCLIB")
 
         # 2. Search fallback
         try:
@@ -234,7 +353,7 @@ def fetch_lrclib(title, artist, album="", duration=0):
             with urllib.request.urlopen(req, timeout=3) as resp:
                 items = json.loads(resp.read().decode("utf-8"))
                 for item in (items if isinstance(items, list) else []):
-                    if item.get("instrumental") or not match_artist(artist, item.get("artistName")) or not match_duration(dur_sec, item.get("duration")):
+                    if item.get("instrumental") or not match_artist(artist, item.get("artistName")) or not title_ok(title, item.get("trackName")) or not match_duration(dur_sec, item.get("duration")):
                         continue
                     if item.get("lyricsfile"):
                         lines = parse_lrclib_lyricsfile(item["lyricsfile"], title=cand, artist=artist)
@@ -245,11 +364,11 @@ def fetch_lrclib(title, artist, album="", duration=0):
                         if len(lines) >= 3:
                             return {"source": "LRCLIB", "synced": True, "lines": lines}
                     if item.get("plainLyrics"):
-                        lines = [{"time": -1, "text": l} for l in item["plainLyrics"].splitlines() if l.strip() and not is_credit_or_meta(l, title=cand, artist=artist)]
+                        lines = usable([{"time": -1, "text": l} for l in item["plainLyrics"].splitlines() if l.strip() and not is_credit_or_meta(l, title=cand, artist=artist)])
                         if len(lines) >= 3:
                             return {"source": "LRCLIB", "synced": False, "lines": lines}
         except Exception:
-            pass
+            FAILED.add("LRCLIB")
 
     return None
 
@@ -260,7 +379,7 @@ def fetch_netease(title, artist, duration=0):
 
     seen_ids = set()
     for cand in candidates:
-        q = f"{cand} {artist}".strip()
+        q = f"{cand} {search_artist(artist)}".strip()
         url = f"https://music.163.com/api/search/get?s={urllib.parse.quote(q)}&type=1&limit=5"
         try:
             req = urllib.request.Request(url, headers={"Referer": "https://music.163.com/", "User-Agent": USER_AGENT})
@@ -273,7 +392,7 @@ def fetch_netease(title, artist, duration=0):
                     seen_ids.add(sid)
 
                     cand_artists = [a.get("name", "") for a in s.get("artists", [])]
-                    if not match_artist(artist, cand_artists) or not match_duration(dur_sec, s.get("duration", 0) / 1000.0):
+                    if not match_artist(artist, cand_artists) or not title_ok(title, s.get("name")) or not match_duration(dur_sec, s.get("duration", 0) / 1000.0):
                         continue
 
                     lreq = urllib.request.Request(f"https://music.163.com/api/song/lyric?id={sid}&lv=1&kv=1&tv=-1",
@@ -289,7 +408,7 @@ def fetch_netease(title, artist, duration=0):
                         if len(lines) >= 3:
                             return {"source": "NetEase", "synced": True, "lines": lines}
         except Exception:
-            pass
+            FAILED.add("NetEase")
 
     return None
 
@@ -299,7 +418,7 @@ def fetch_kugou(title, artist, duration=0):
     candidates = [title] if clean_t == title else [title, clean_t]
 
     for cand in candidates:
-        q = f"{cand} {artist}".strip()
+        q = f"{cand} {search_artist(artist)}".strip()
         url = f"http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={urllib.parse.quote(q)}&page=1&pagesize=5"
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -311,7 +430,7 @@ def fetch_kugou(title, artist, duration=0):
                     sdur = s.get("duration", 0)
                     if not shash:
                         continue
-                    if not match_artist(artist, s.get("singername")) or not match_duration(dur_sec, sdur):
+                    if not match_artist(artist, s.get("singername")) or not title_ok(title, s.get("songname")) or not match_duration(dur_sec, sdur):
                         continue
 
                     # Search lyric candidates
@@ -319,26 +438,27 @@ def fetch_kugou(title, artist, duration=0):
                     lreq = urllib.request.Request(lurl, headers={"User-Agent": USER_AGENT})
                     with urllib.request.urlopen(lreq, timeout=3) as lresp:
                         ldata = json.loads(lresp.read().decode("utf-8"))
-                        cand_list = ldata.get("candidates", [])
-                        if not cand_list:
-                            continue
-                        cand_lrc = cand_list[0]
-                        cid = cand_lrc.get("id")
-                        ackey = cand_lrc.get("accesskey")
+                        # the candidates are ranked by score, not by how well they fit: take the first one that
+                        # is this song (title) and this recording (duration)
+                        for cand_lrc in ldata.get("candidates", [])[:6]:
+                            if not title_ok(title, cand_lrc.get("song")) or not match_duration(dur_sec, (cand_lrc.get("duration") or 0) / 1000.0):
+                                continue
+                            cid = cand_lrc.get("id")
+                            ackey = cand_lrc.get("accesskey")
 
-                        # Download lyric
-                        durl = f"http://krcs.kugou.com/download?ver=1&client=mobi&id={cid}&accesskey={ackey}&fmt=lrc&charset=utf8"
-                        dreq = urllib.request.Request(durl, headers={"User-Agent": USER_AGENT})
-                        with urllib.request.urlopen(dreq, timeout=3) as dresp:
-                            ddata = json.loads(dresp.read().decode("utf-8"))
-                            content = ddata.get("content")
-                            if content:
-                                lrc = base64.b64decode(content).decode("utf-8", errors="ignore")
-                                lines = parse_lrc(lrc, title=cand, artist=artist)
-                                if len(lines) >= 3:
-                                    return {"source": "Kugou", "synced": True, "lines": lines}
+                            # Download lyric
+                            durl = f"http://krcs.kugou.com/download?ver=1&client=mobi&id={cid}&accesskey={ackey}&fmt=lrc&charset=utf8"
+                            dreq = urllib.request.Request(durl, headers={"User-Agent": USER_AGENT})
+                            with urllib.request.urlopen(dreq, timeout=3) as dresp:
+                                ddata = json.loads(dresp.read().decode("utf-8"))
+                                content = ddata.get("content")
+                                if content:
+                                    lrc = base64.b64decode(content).decode("utf-8", errors="ignore")
+                                    lines = parse_lrc(lrc, title=cand, artist=artist)
+                                    if len(lines) >= 3:
+                                        return {"source": "Kugou", "synced": True, "lines": lines}
         except Exception:
-            pass
+            FAILED.add("Kugou")
 
     return None
 
@@ -355,12 +475,16 @@ def main():
     except (ValueError, TypeError):
         duration = 0
 
+    TRACK_CONTEXT["japanese"] = bool(KANA_RE.search(f"{title} {artist} {album}"))
+
     cache_file = get_cache_path(title, artist)
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-                if cached.get("success") and cached.get("lines"):
+                # an entry written while a better source was down expires, so it gets another chance
+                expired = cached.get("retry_after") and time.time() > cached["retry_after"]
+                if cached.get("success") and cached.get("lines") and not expired:
                     print(json.dumps(cached, ensure_ascii=False))
                     return
         except Exception:
@@ -385,14 +509,32 @@ def main():
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(order)) as pool:
         results = list(pool.map(run, order))
 
+    # Nothing matched by title. A romanised title on a Japanese track can't be compared with the
+    # kanji one a source lists, so try again with the artist and a tight duration as the evidence.
+    if (not any(r and r.get("lines") for r in results) and TRACK_CONTEXT["japanese"] and duration
+            and not has_japanese(title)):
+        LOOSE["on"] = True
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(order)) as pool:
+            results = list(pool.map(run, order))
+        LOOSE["on"] = False
+
+    # On a Japanese track, a result with no kana / Han at all is romaji or a translation, not the
+    # lyrics, so it is ruled out once another source has real Japanese (English-only songs by
+    # Japanese artists have no such source and are left alone).
+    has_japanese_source = TRACK_CONTEXT["japanese"] and any(r and r.get("lines") and japanese_share(r["lines"]) >= 0.2 for r in results)
+
     synced_result = None
     plain_result = None
     for res in results:
         if not res or not res.get("lines"):
             continue
+        if has_japanese_source and japanese_share(res["lines"]) < 0.05:
+            continue
         if res.get("synced"):
             # Keep the higher-priority source unless a later one is clearly more complete.
-            if synced_result is None or lyric_coverage(res["lines"]) > lyric_coverage(synced_result["lines"]) * 1.15:
+            # ...and only when it is the same lyrics (two different recordings of a song can differ)
+            if synced_result is None or (lyric_coverage(res["lines"]) > lyric_coverage(synced_result["lines"]) * 1.15
+                                         and agreement(res["lines"], synced_result["lines"]) >= 0.4):
                 synced_result = res
         elif not plain_result:
             plain_result = res
@@ -409,6 +551,13 @@ def main():
             "artist": artist,
             "lines": lines_with_dots
         }
+        # a source ranked above the chosen one failed (timeout, 5xx): remember the result for a few
+        # minutes only, so a later run can find the better one
+        names = {fetch_netease: "NetEase", fetch_kugou: "Kugou", fetch_lrclib: "LRCLIB"}
+        ranked = [names[f] for f in order]
+        chosen = ranked.index(out["source"]) if out["source"] in ranked else len(ranked)
+        if any(n in FAILED for n in ranked[:chosen]):
+            out["retry_after"] = time.time() + 600
         save_cache(cache_file, out)
         print(json.dumps(out, ensure_ascii=False))
     else:

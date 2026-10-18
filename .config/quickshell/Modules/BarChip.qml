@@ -18,4 +18,8 @@ Clickable {
     checkable: true
     color: checked ? (danger ? Colors.error_container : Colors.secondary_container) : Colors.surface_container_high
     contentColor: checked ? (danger ? Colors.on_error_container : Colors.on_secondary_container) : Colors.on_surface
+
+    // squishes on press and swells on hover; the fast spring overshoots, so releasing bounces
+    scale: pressed ? 0.93 : hovered ? 1.05 : 1
+    Behavior on scale { Spring { speed: "fast" } }
 }

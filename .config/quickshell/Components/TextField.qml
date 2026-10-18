@@ -61,7 +61,9 @@ Rectangle {
 
     TextInput {
         id: input
-        x: field._textX
+        // both edges anchored: `x` plus a right anchor would leave the text flush right
+        anchors.left: parent.left
+        anchors.leftMargin: field._textX
         anchors.right: trail.visible ? trail.left : parent.right
         anchors.rightMargin: trail.visible ? 4 : 16
         y: field.label !== "" ? 24 : (field.height - height) / 2
