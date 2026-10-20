@@ -336,7 +336,15 @@ Singleton {
         if (_ourPause || Mpv.paused)
             return;
         _ourPause = true;
+        // ModernX shows its OSC on every pause; this flag (read by scripts/modernx-lower-hover.py's patch) tells it this one is ours
+        Mpv.send(["set_property", "user-data/lexicon-hold", true]);
         Mpv.send(["set_property", "pause", true]);
+        holdFlag.restart();
+    }
+    Timer {
+        id: holdFlag
+        interval: 400
+        onTriggered: Mpv.send(["set_property", "user-data/lexicon-hold", false])
     }
     function releasePause() {
         if (!_ourPause)
