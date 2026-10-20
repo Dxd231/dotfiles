@@ -1,0 +1,11 @@
+# Copy to /etc/pacman.d/hooks/: puts the lower OSC hover point back after mpv-modernx is upgraded.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = mpv-modernx
+
+[Action]
+Description = Lowering the ModernX OSC hover point...
+When = PostTransaction
+Exec = /usr/bin/python3 /home/niconico/.config/quickshell/scripts/modernx-lower-hover.py
