@@ -56,6 +56,9 @@ KNOWN_FREQ = int(os.environ.get("QS_KNOWN_FREQ", 4500))
 
 FUNC_POS = {"助詞", "助動詞", "補助記号", "記号", "空白", "接頭辞"}
 PUNCT_POS = {"補助記号", "記号", "空白"}
+# vocal reactions (うう, フフッ, ハハハ, うわぁ): interjections made only of vowel / laugh / gasp kana are not vocabulary
+SOUND_KANA = re.compile(r"[あ-おぁ-ぉア-オァ-ォうゔヴッっーんンはひふへほハヒフヘホわワゃャキ]+")
+SOUND_KEEP = {"はい", "いえ", "ええ", "うん", "ほう"}
 RANK = {"unknown": 0, "ignored": 1, "learning": 2, "known": 3}
 
 
@@ -164,6 +167,10 @@ def tagger():
         import fugashi
         _tagger = fugashi.Tagger()
     return _tagger
+
+
+def is_sound(w):
+    return w["k"] == "word" and w["pos"] == "感動詞" and w["s"] not in SOUND_KEEP and SOUND_KANA.fullmatch(w["s"]) is not None
 
 
 def kata_to_hira(s):
@@ -492,7 +499,7 @@ def _status(term, reading, rank, matched):
 def annotate(texts):
     """texts: [str] -> [[token]] with lookups resolved in one batch."""
     segs = [apply_cuts(segment_text(t), store.cuts) for t in texts]
-    isname = lambda w: bool(store.names.get(w["s"], w.get("name")))
+    isname = lambda w: bool(store.names.get(w["s"], w.get("name"))) or is_sound(w)
     surfaces = [w["s"] for ws in segs for w in ws if w["k"] == "word" and not isname(w)]
     found = yom.lookup_many(surfaces)
     # words Yomitan could not match as a whole: retry with the unidic dictionary form
@@ -503,7 +510,11 @@ def annotate(texts):
         toks = []
         for w in ws:
             tok = {"s": w["s"], "k": w["k"]}
-            if w["k"] == "word" and (store.names.get(w["s"], w.get("name"))):
+            if is_sound(w) and not store.names.get(w["s"]):
+                reading = kata_to_hira(w["kana"])
+                tok.update(term=w["s"], reading=reading, freq=0, rank=0, status="none", known=False, auto=False,
+                           sound=True, key=w["s"] + "|" + reading)
+            elif w["k"] == "word" and (store.names.get(w["s"], w.get("name"))):
                 reading = kata_to_hira(w["kana"])
                 tok.update(term=w["s"], reading=reading, freq=0, rank=0, status="name", known=False, auto=False,
                            name=True, key=w["s"] + "|" + reading)
@@ -561,7 +572,7 @@ def _stats(lines, toks):
         for t in ts:
             if t["k"] != "word":
                 continue
-            if t.get("name"):
+            if t.get("name") or t.get("sound"):
                 continue
             t["status"] = _status(t["term"], t["reading"], t.get("rank", 0), t.get("known", False))
             if t["status"] == "none":
