@@ -1,0 +1,21 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = linux*
+Target = !linux-api-headers
+Target = nvidia*
+Target = amd-ucode
+Target = intel-ucode
+Target = systemd
+Target = glibc
+Target = mesa
+Target = wayland
+Target = hyprland
+
+[Action]
+Description = Telling quickshell a reboot is pending...
+When = PostTransaction
+NeedsTargets
+Exec = /bin/sh -c 'cat >> /run/quickshell-reboot-required; chmod 644 /run/quickshell-reboot-required; runuser -u niconico -- env XDG_RUNTIME_DIR=/run/user/1000 qs ipc call power refresh >/dev/null 2>&1 || true'

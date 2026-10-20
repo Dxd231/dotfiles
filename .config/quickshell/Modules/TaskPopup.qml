@@ -48,6 +48,7 @@ BarPopup {
     property int formSel: 0
     property int formTarget: 1
     property bool formNudge: true
+    property bool formPomodoro: false
     readonly property bool formValid: nameField.text.trim().length > 0 && formDays.some(d => d)
     readonly property string selTime: formSel >= 0 && formSel < formReminds.length ? formReminds[formSel] : "08:00"
     readonly property int selHour: Number(selTime.split(":")[0])
@@ -151,6 +152,7 @@ BarPopup {
         formSel = 0;
         formTarget = 1;
         formNudge = true;
+        formPomodoro = false;
     }
     function openNew() {
         resetForm();
@@ -168,6 +170,7 @@ BarPopup {
         formRemind = formReminds.length > 0;
         formTarget = Tasks.targetOf(t);
         formNudge = !!t.nudge;
+        formPomodoro = !!t.pomodoro;
         page = "form";
         Qt.callLater(() => nameField.forceActiveFocus());
     }
@@ -177,10 +180,10 @@ BarPopup {
         const days = [0, 1, 2, 3, 4, 5, 6].filter(d => formDays[d]);
         const reminds = formRemind ? formReminds.slice().sort() : [];
         if (editingId) {
-            Tasks.updateTask(editingId, { name: nameField.text.trim(), days: days, reminds: reminds, nudge: formNudge, target: formTarget });
+            Tasks.updateTask(editingId, { name: nameField.text.trim(), days: days, reminds: reminds, nudge: formNudge, target: formTarget, pomodoro: formPomodoro });
         } else {
             viewArchived = false;
-            selectedId = Tasks.addTask(nameField.text, days, reminds, formNudge, formTarget);
+            selectedId = Tasks.addTask(nameField.text, days, reminds, formNudge, formTarget, formPomodoro);
         }
         page = "list";
     }
@@ -367,7 +370,7 @@ BarPopup {
         }
         function link(name: string): void {
             const t = Tasks.byName(name);
-            Pomodoro.setTask(t ? t.id : "");
+            Pomodoro.setTask(t && t.pomodoro ? t.id : "");
         }
         // show or hide the tips card
         function help(): void {
@@ -947,6 +950,25 @@ BarPopup {
                                 onToggled: win.formNudge = !win.formNudge
                             }
                         }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            Icon {
+                                name: "timer"
+                                color: win.formPomodoro ? Colors.tertiary : Colors.on_surface_variant
+                            }
+                            StyledText {
+                                Layout.fillWidth: true
+                                role: "bodyMedium"
+                                wrapMode: Text.WordWrap
+                                text: "Use with the focus timer"
+                            }
+                            Switch {
+                                checked: win.formPomodoro
+                                onToggled: win.formPomodoro = !win.formPomodoro
+                            }
+                        }
                     }
                 }
 
@@ -1223,6 +1245,11 @@ BarPopup {
                     }
                 }
 
+                DayMarkPicker {
+                    Layout.fillWidth: true
+                    key: win.dayPick !== "" ? win.dayPick : Tasks.todayKey
+                }
+
                 HeatmapGrid {
                     id: heat
                     Layout.alignment: Qt.AlignHCenter
@@ -1294,7 +1321,8 @@ BarPopup {
                 readonly property var sections: [
                     { title: "Heatmap", icon: "grid_view", cols: 1, rows: [
                         { keys: ["Click"], text: "Pick a day, tick it in the list" },
-                        { keys: ["Right-click"], text: "Note, count or rest day" }
+                        { keys: ["Right-click"], text: "Note, count or rest day" },
+                        { keys: ["Busy / Rest"], text: "Half goal or pause, for every tracker" }
                     ] },
                     { title: "Keyboard", icon: "keyboard", cols: 2, rows: [
                         { keys: ["↑", "↓"], text: "Select" },

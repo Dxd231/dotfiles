@@ -31,7 +31,7 @@ Rectangle {
             delegate: Clickable {
                 id: trayItem
                 required property SystemTrayItem modelData
-                readonly property bool menuOpen: menu.visible && menu.forItem === modelData
+                readonly property bool menuOpen: menu.isOpen && menu.forItem === modelData
                 readonly property bool tintIcon: {
                     const id = (modelData.id || modelData.icon || "").toLowerCase();
                     return id.includes("fcitx") || id.includes("unikey");
@@ -86,15 +86,15 @@ Rectangle {
         menuHandle: forItem ? forItem.menu : null
 
         function openFor(item, anchorItem) {
-            submenu.visible = false;
+            submenu.isOpen = false;
             forItem = item;
             target = anchorItem;
             anchor.updateAnchor();
-            visible = true;
+            isOpen = true;
         }
         function close() {
-            visible = false;
-            submenu.visible = false;
+            isOpen = false;
+            submenu.isOpen = false;
         }
         anchor.onAnchoring: {
             if (!target)
@@ -103,11 +103,12 @@ Rectangle {
             anchor.rect.x = p.x - implicitWidth / 2;
             anchor.rect.y = p.y + 4;
         }
-        onVisibleChanged: if (!visible) submenu.visible = false
+        onIsOpenChanged: if (!isOpen) submenu.isOpen = false
     }
 
     MenuPopup {
         id: submenu
+        growFrom: Item.TopLeft
         anchor.window: menu
         anchor.onAnchoring: {
             if (!target)
@@ -120,7 +121,7 @@ Rectangle {
 
     // full-screen catcher so clicking anywhere else dismisses the menus
     PanelWindow {
-        visible: menu.visible
+        visible: menu.isOpen
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "quickshell:tray_menu_dismiss"
         exclusiveZone: -1
@@ -138,8 +139,11 @@ Rectangle {
         property var menuHandle: null
         property Item target: null
         readonly property int shadowPad: 12
+        property bool isOpen: false
+        property int growFrom: Item.Top
 
-        visible: false
+        // stays mapped while the exit plays
+        visible: isOpen || surface.opacity > 0
         color: "transparent"
         implicitWidth: 240 + shadowPad * 2
         implicitHeight: list.implicitHeight + 8 + shadowPad * 2
@@ -153,6 +157,9 @@ Rectangle {
             anchors.fill: surface
             radius: surface.radius
             level: 2
+            opacity: surface.opacity
+            scale: surface.scale
+            transformOrigin: popup.growFrom
         }
         Rectangle {
             id: surface
@@ -160,8 +167,29 @@ Rectangle {
             anchors.margins: popup.shadowPad
             radius: Motion.shapeLarge
             color: Colors.surface_container_low
-            focus: popup.visible
+            focus: popup.isOpen
             Keys.onEscapePressed: menu.close()
+            transformOrigin: popup.growFrom
+            opacity: 0
+            scale: 0.9
+
+            states: State {
+                name: "open"
+                when: popup.isOpen
+                PropertyChanges { surface.opacity: 1; surface.scale: 1 }
+            }
+            transitions: [
+                Transition {
+                    to: "open"
+                    Spring { property: "scale"; speed: "default" }
+                    Fade { property: "opacity"; speed: "default" }
+                },
+                Transition {
+                    from: "open"
+                    NumberAnimation { property: "scale"; duration: Motion.short4; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.emphasizedAccelerate }
+                    NumberAnimation { property: "opacity"; duration: Motion.short3; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.standardAccelerate }
+                }
+            ]
 
             Column {
                 id: list
@@ -193,6 +221,13 @@ Rectangle {
         // separators become an M3 Expressive group gap rather than a rule
         height: modelData.isSeparator ? 8 : 44
 
+        Appear {
+            shown: entry.ownerPopup.isOpen
+            delay: entry.index * 18
+            lift: 6
+            from: 0.96
+        }
+
         Clickable {
             id: row
             visible: !entry.modelData.isSeparator
@@ -211,7 +246,7 @@ Rectangle {
                     submenu.menuHandle = entry.modelData;
                     submenu.target = entry;
                     submenu.anchor.updateAnchor();
-                    submenu.visible = true;
+                    submenu.isOpen = true;
                 } else {
                     entry.modelData.triggered();
                     menu.close();

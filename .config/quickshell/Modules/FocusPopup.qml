@@ -7,8 +7,9 @@ import qs
 import qs.Components
 import qs.Services
 
-// Focus timer panel: mode selector, a wavy progress dial with the countdown, and play / reset /
-// skip controls. The timer itself lives in the Pomodoro singleton.
+// Focus timer panel: a row showing the current phase (it can't be clicked, breaks are earned by
+// finishing a focus session), a wavy progress dial with the countdown, and play / reset / skip
+// controls (skip only ends a break). The timer itself lives in the Pomodoro singleton.
 BarPopup {
     id: win
 
@@ -171,7 +172,7 @@ BarPopup {
                     interval: 110
                     onTriggered: mb.pop = 0
                 }
-                onClicked: Pomodoro.setMode(modelData.mode)
+                enabled: false
             }
         }
     }
@@ -279,6 +280,7 @@ BarPopup {
             opacity: Math.max(0, Math.min(1, appear * 1.6))
             scale: (0.5 + 0.5 * appear) * (pressed ? 0.92 : 1)
             Behavior on scale { Spring { speed: "fast" } }
+            enabled: Pomodoro.onBreak
             onClicked: Pomodoro.skip()
         }
     }
@@ -334,13 +336,13 @@ BarPopup {
         }
     }
 
-    // ---- linked task: a finished focus session counts for it ----
+    // ---- linked task: a full cycle of focus sessions counts for it ----
     Chip {
         id: linkChip
         readonly property var linked: Tasks.byId(Pomodoro.taskId)
         Layout.alignment: Qt.AlignHCenter
         Layout.bottomMargin: 4
-        visible: Tasks.count > 0
+        visible: Tasks.focusable.length > 0
         kind: "filter"
         icon: "checklist"
         text: linked ? "Counts for " + linked.name : "Link a task"
@@ -353,7 +355,7 @@ BarPopup {
         Behavior on scale { Spring { speed: "fast" } }
         // click steps through the active tasks and back to none; right-click unlinks
         onClicked: mouse => {
-            const ids = [""].concat(Tasks.active.map(t => t.id));
+            const ids = [""].concat(Tasks.focusable.map(t => t.id));
             if (mouse.button === Qt.RightButton)
                 Pomodoro.setTask("");
             else

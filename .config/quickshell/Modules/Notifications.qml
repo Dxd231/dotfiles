@@ -90,6 +90,13 @@ Scope {
         } catch (e) {}
     }
 
+    // task reminders carry their task id in the action id; the shell answers those itself
+    function invokeAction(action) {
+        if (!Alarm.handleAction(action.identifier))
+            Tasks.handleAction(action.identifier);
+        action.invoke();
+    }
+
     function dismissNotification(notifId, index) {
         dismissTracked(notifId);
         removePopup(notifId);
@@ -270,7 +277,7 @@ Scope {
                     if (acts && acts.length > 0) {
                         const def = acts.find(a => a.identifier === "default") ?? acts[0];
                         if (def) {
-                            def.invoke();
+                            notify_root.invokeAction(def);
                             actionInvoked = true;
                         }
                     }
@@ -394,7 +401,7 @@ Scope {
 
             notify_root.showPopup(n);
             // the task and focus-timer alarms play their own sound
-            if (n.appName !== "Tasks" && n.appName !== "Focus timer")
+            if (n.appName !== "Tasks" && n.appName !== "Focus timer" && n.appName !== "Alarm")
                 notify_root.playSound();
         }
     }
@@ -630,6 +637,7 @@ Scope {
                                         return tracked ? tracked.actions : [];
                                     }
                                     onActivated: notify_root.openNotification(hcard.model, hcard.index)
+                                    onActionInvoked: action => notify_root.invokeAction(action)
                                     onCloseRequested: notify_root.dismissNotification(hcard.model.notifId, hcard.index)
                                 }
                             }
@@ -720,6 +728,7 @@ Scope {
                 timeoutMs: model.urgency === NotificationUrgency.Critical ? 0 : (model.expireTimeout > 0 ? Math.min(30000, model.expireTimeout * 1000) : 5000)
 
                 onExpired: notify_root.removePopup(pcard.model.notifId)
+                onActionInvoked: action => notify_root.invokeAction(action)
                 onCloseRequested: notify_root.removePopup(pcard.model.notifId)
                 onActivated: notify_root.openNotification({
                     notifId: pcard.model.notifId,

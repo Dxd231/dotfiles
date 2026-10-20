@@ -29,12 +29,19 @@ ColumnLayout {
     property string actionIcon: ""
     property string actionText: ""
     property bool active: false                 // the panel is open: shapes may turn
+    // a colour taken from the cover (transparent = none): the card then tints itself with it
+    property color seed: "transparent"
     property bool shown: true                   // this card is the one on show: its parts spring in again
     signal action()
 
-    readonly property color main: accent === "secondary" ? Colors.secondary : Colors.tertiary
-    readonly property color onMain: accent === "secondary" ? Colors.on_secondary : Colors.on_tertiary
-    readonly property color container: accent === "secondary" ? Colors.secondary_container : Colors.tertiary_container
+    readonly property bool seeded: seed.a > 0
+    readonly property color main: seeded ? seed : accent === "secondary" ? Colors.secondary : Colors.tertiary
+    readonly property color textOnMain: seeded ? (seed.hslLightness > 0.55 ? "#1b1b1f" : "#ffffff") : accent === "secondary" ? Colors.on_secondary : Colors.on_tertiary
+    readonly property bool dark: Colors.surface.hslLightness < 0.5
+    readonly property color container: seeded ? Qt.hsla(seed.hslHue, Math.min(0.5, seed.hslSaturation), dark ? 0.25 : 0.88, 1) : accent === "secondary" ? Colors.secondary_container : Colors.tertiary_container
+    // text on the container: near-black or near-white by the container's own lightness, so it always reads
+    readonly property color textOnContainer: seeded ? (container.hslLightness > 0.55 ? "#1b1b1f" : "#f6f2ff") : accent === "secondary" ? Colors.on_secondary_container : Colors.on_tertiary_container
+    Behavior on seed { ColorFade {} }
 
     spacing: 12
 
@@ -77,7 +84,7 @@ ColumnLayout {
                 color: card.main
                 opacity: coverBox.has ? 0 : 1
                 Behavior on opacity { Fade {} }
-                Icon { anchors.centerIn: parent; size: 36; name: card.icon; color: card.onMain }
+                Icon { anchors.centerIn: parent; size: 36; name: card.icon; color: card.textOnMain }
             }
         }
 
@@ -140,7 +147,7 @@ ColumnLayout {
                         anchors.centerIn: parent
                         role: "labelLarge"
                         emphasized: true
-                        color: card.onMain
+                        color: card.textOnMain
                         text: card.liveText
                     }
                 }
@@ -161,10 +168,11 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: card.progress !== null && card.progress !== undefined
         spacing: 6
-        LinearProgress {
+        WavyProgress {
             Layout.fillWidth: true
             thickness: 8
             value: card.progress ? card.progress : 0
+            waving: card.live && card.active
             activeColor: card.main
             trackColor: Colors.surface_container_highest
         }
@@ -192,7 +200,7 @@ ColumnLayout {
     // ---- today ----
     RowLayout {
         Layout.fillWidth: true
-        spacing: 8
+        spacing: 3
         Repeater {
             model: card.tiles.length
             delegate: Rectangle {
@@ -202,27 +210,21 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 Layout.preferredHeight: 64
-                radius: Motion.shapeMedium
+                // a bento group: round at the ends, tight where the tiles meet
+                topLeftRadius: tile.index === 0 ? 20 : 4
+                bottomLeftRadius: topLeftRadius
+                topRightRadius: tile.index === card.tiles.length - 1 ? 20 : 4
+                bottomRightRadius: topRightRadius
                 color: Colors.surface_container
                 Appear { shown: card.shown; delay: 90 + tile.index * 55 }
                 ColumnLayout {
                     anchors.centerIn: parent
                     spacing: 0
-                    // a number that changes gives a small pop
-                    StyledText {
-                        id: value
+                    RollingDigits {
                         Layout.alignment: Qt.AlignHCenter
-                        role: "titleMedium"
-                        emphasized: true
+                        pixelSize: 16
+                        weight: Font.Bold
                         text: tile.d.v
-                        property real pop: 1
-                        scale: 0.85 + 0.15 * pop
-                        onTextChanged: popAnim.restart()
-                        SequentialAnimation {
-                            id: popAnim
-                            NumberAnimation { target: value; property: "pop"; to: 0; duration: 1 }
-                            Spring { target: value; property: "pop"; to: 1; speed: "fast" }
-                        }
                     }
                     StyledText { Layout.alignment: Qt.AlignHCenter; role: "labelSmall"; color: Colors.on_surface_variant; text: tile.d.l }
                 }
@@ -306,10 +308,13 @@ ColumnLayout {
     }
 
     Button {
-        Layout.alignment: Qt.AlignHCenter
+        Layout.fillWidth: true
+        Layout.preferredHeight: 44
         visible: card.actionText !== ""
         icon: card.actionIcon
         style: "tonal"
+        color: card.container
+        contentColor: card.textOnContainer
         text: card.actionText
         onClicked: card.action()
     }

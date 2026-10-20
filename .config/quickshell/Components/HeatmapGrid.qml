@@ -43,21 +43,37 @@ Item {
     implicitHeight: monthH + gridH + 8 + 24
 
     // ---- model: index = column * 7 + row ----
-    function build(t, todayKey, off, count) {
+    // the days of a page never change, so the dates and keys are worked out once per page and kept
+    property var _pages: ({})
+    function pageDays(todayKey, off, count) {
+        const id = todayKey + "|" + off + "|" + count;
+        const have = _pages[id];
+        if (have)
+            return have;
         const today = Tasks.dateOf(todayKey);
         const sunday = Tasks.addDays(today, -today.getDay());
         const start = Tasks.addDays(sunday, -7 * (off + count - 1));
+        const days = [];
+        for (let i = 0; i < count * 7; i++) {
+            const d = Tasks.addDays(start, i);
+            days.push({ d: d, k: Tasks.keyOf(d) });
+        }
+        _pages[id] = days;
+        return days;
+    }
+    function build(t, todayKey, off, count) {
+        const days = pageDays(todayKey, off, count);
         const out = [];
         for (let c = 0; c < count; c++) {
             for (let r = 0; r < 7; r++) {
-                const d = Tasks.addDays(start, c * 7 + r);
-                const k = Tasks.keyOf(d);
-                let state, level = 0, note = "", sessions = 0, count = 0, target = 1, label = "";
+                const d = days[c * 7 + r].d;
+                const k = days[c * 7 + r].k;
+                let state, level = 0, note = "", sessions = 0, count = 0, target = 1, label = "", star = false;
                 if (t) {
                     note = Tasks.noteOf(t, k);
                     sessions = Tasks.sessionsOf(t, k);
                     count = Tasks.countOf(t, k);
-                    target = Tasks.targetOf(t);
+                    target = Tasks.targetOn(t, k);
                 }
                 if (k > todayKey) {
                     state = "future";
@@ -65,7 +81,9 @@ Item {
                     const inf = grid.dayInfo(k) || ({});
                     label = inf.label || "";
                     level = inf.level || 0;
-                    state = level > 0 ? "done" : k === todayKey ? "pending" : "missed";
+                    star = !!inf.star;
+                    const mk = DayMarks.markOf(k);
+                    state = level > 0 ? "done" : mk === "rest" ? "skipped" : mk === "busy" ? "busy" : k === todayKey ? "pending" : "missed";
                 } else if (!t) {
                     // sample pattern for the empty state
                     const h = (c * 7 + r) * 37 % 11;
@@ -80,6 +98,10 @@ Item {
                 } else if (count > 0) {
                     state = "partial";
                     level = Tasks.levelOfProgress(count / target);
+                } else if (k >= t.created && DayMarks.isRest(k)) {
+                    state = "skipped";
+                } else if (k >= t.created && DayMarks.isBusy(k)) {
+                    state = "busy";
                 } else if (k < t.created) {
                     state = "before";
                 } else if (!Tasks.isDue(t, d)) {
@@ -88,7 +110,8 @@ Item {
                     state = k === todayKey ? "pending" : "missed";
                 }
                 out.push({ key: k, date: d, state: state, level: level, today: k === todayKey, col: c, row: r,
-                           note: note, sessions: sessions, count: count, target: target, label: label });
+                           note: note, sessions: sessions, count: count, target: target, label: label, star: star,
+                           mark: k > todayKey ? "" : DayMarks.markOf(k) });
             }
         }
         return out;
@@ -122,7 +145,7 @@ Item {
         property: "phase"
         from: 0
         to: 1
-        duration: 800
+        duration: 480
     }
     function replay() { phaseAnim.restart(); }
 
@@ -147,18 +170,52 @@ Item {
     property bool slideSpring: true
     Behavior on slide {
         enabled: grid.slideSpring
-        SpringAnimation { spring: 2.6; damping: 0.2; epsilon: 0.1 }
+        Spring { speed: "default" }
     }
     onEndOffsetChanged: {
+        // the page that was on show fades out and drifts away while the new one pops in
+        ghostDir = endOffset > _prevOffset ? 1 : -1;
+        ghostAnim.restart();
         slideSpring = false;
-        slide = (endOffset > _prevOffset ? -1 : 1) * 44;
+        slide = (endOffset > _prevOffset ? -1 : 1) * 28;
         slideSpring = true;
         slide = 0;
         _prevOffset = endOffset;
         replay();
     }
     property int _prevOffset: 0
-    onTaskIdChanged: replay()
+
+    // ---- crossfade between pages ----
+    // `ghostLayer` is a still copy of the cells, refreshed only once a page has finished arriving. When the page
+    // changes it still holds the old one, so it can fade out over the new cells.
+    property real ghostP: 0
+    property int ghostDir: 1
+    NumberAnimation {
+        id: ghostAnim
+        target: grid
+        property: "ghostP"
+        from: 1
+        to: 0
+        duration: 240
+        easing.type: Easing.OutCubic
+    }
+    // refreshed a moment after the cells settle (opening, new data, a page that has arrived), never in the
+    // middle of an entrance, so by the time the page changes it still holds the page being left
+    Timer {
+        id: snapTimer
+        interval: 120
+        onTriggered: if (grid.visible && grid.phase >= 1) ghostLayer.scheduleUpdate()
+    }
+    onPhaseChanged: if (phase >= 1) snapTimer.restart()
+    onCellsChanged: snapTimer.restart()
+    onVisibleChanged: if (visible) snapTimer.restart()
+    Connections {
+        target: grid.Window.window
+        function onVisibleChanged() {
+            if (grid.Window.window && grid.Window.window.visible)
+                snapTimer.restart();
+        }
+    }
 
     // a burst of small shapes flies out of the cell that was just marked
     property real burstP: 1
@@ -177,6 +234,13 @@ Item {
         burstX = col * step + cell / 2;
         burstY = row * step + cell / 2;
         burstAnim.restart();
+    }
+
+    // the goal-met star turns slowly, steadily
+    property real starSpin: 0
+    FrameAnimation {
+        running: grid.visible && grid.cells.some(c => c.star)
+        onTriggered: grid.starSpin = (grid.starSpin + frameTime * 24) % 360
     }
 
     // ---- hover bubble ----
@@ -213,13 +277,16 @@ Item {
         onTriggered: grid.focusIndex = -1
     }
     function stateText(c) {
-        if (grid.dayInfo)
-            return c.label;
+        if (grid.dayInfo) {
+            const m = c.mark === "rest" ? "Rest day" : c.mark === "busy" ? "Busy day" : "";
+            return m === "" ? c.label : c.state === "done" ? c.label + " · " + m : m;
+        }
         let t;
         switch (c.state) {
         case "done": t = c.target > 1 ? c.count + " of " + c.target : "Done"; break;
         case "partial": t = c.count + " of " + c.target; break;
         case "skipped": t = "Rest day"; break;
+        case "busy": t = "Busy day"; break;
         case "pending": t = "Due today"; break;
         case "missed": t = "Missed"; break;
         case "off": t = "Not scheduled"; break;
@@ -261,7 +328,7 @@ Item {
                 emphasized: true
                 color: Colors.on_surface_variant
                 text: modelData.text
-                opacity: Math.min(1, grid.phase * 2)
+                opacity: 0.4 + 0.6 * Math.min(1, grid.phase * 2.2)
             }
         }
     }
@@ -285,7 +352,7 @@ Item {
             color: Qt.alpha(grid.accent, 0.3)
             x: grid.todayIndex >= 0 ? grid.cells[grid.todayIndex].col * grid.step - 5 : 0
             y: grid.todayIndex >= 0 ? grid.cells[grid.todayIndex].row * grid.step - 5 : 0
-            scale: grid.backOut(Math.min(1, grid.phase * 1.4))
+            scale: 0.55 + 0.45 * grid.backOut(Math.min(1, grid.phase * 1.4))
             opacity: grid.ghost ? 0 : 1
         }
 
@@ -330,9 +397,10 @@ Item {
                 readonly property bool isDone: cd.state === "done"
                 readonly property bool showSquare: cd.state === "missed" || cd.state === "pending" || cd.state === "partial"
                 readonly property bool exists: cd.state !== "future"
-                // staggered along the diagonal
-                readonly property real delay: (cd.col * 0.5 + cd.row) / (grid.weeks * 0.5 + 6)
-                readonly property real p: Math.max(0, Math.min(1, (grid.phase - delay * 0.45) / 0.55))
+                // staggered along the diagonal from the incoming edge
+                readonly property int colOrder: grid.ghostDir < 0 ? (grid.weeks - 1 - cd.col) : cd.col
+                readonly property real delay: (colOrder * 0.5 + cd.row) / (grid.weeks * 0.5 + 6)
+                readonly property real p: Math.max(0, Math.min(1, (grid.phase - delay * 0.3) / 0.7))
                 // kicked on a click: 0 -> 1 -> 0
                 property real pop: 0
 
@@ -344,18 +412,30 @@ Item {
                 enabled: !grid.ghost && exists
                 restRadius: isDone ? width / 2 : 5
                 pressedRadius: isDone ? 5 : width / 2
-                color: isDone ? Qt.alpha(grid.accent, [0.35, 0.55, 0.78, 1][Math.max(0, cd.level - 1)])
+                // a day that met its goal (`star` from dayInfo) is a four-point star instead of a dot
+                readonly property color doneColor: Qt.alpha(grid.accent, [0.35, 0.55, 0.78, 1][Math.max(0, cd.level - 1)])
+                color: isDone ? (cd.star ? "transparent" : doneColor)
                     : showSquare ? (cd.today ? Colors.secondary_container : Colors.surface_container_highest)
                     : "transparent"
                 contentColor: grid.accent
                 // a click on a ticking grid kicks the cell hard; selecting only nudges it (and never on top of the hover swell)
                 readonly property real popGain: grid.dayInfo || grid.selectMode ? 0.15 : 0.5
-                scale: grid.backOut(p) * Math.max(1 + popGain * pop, grid.focusIndex === index && enabled ? 1.2 : 1)
-                opacity: !exists ? 0 : (grid.ghost ? 0.32 : 1) * Math.min(1, p * 2.5)
+                scale: (0.55 + 0.45 * grid.backOut(p)) * Math.max(1 + popGain * pop, grid.focusIndex === index && enabled ? 1.2 : 1)
+                opacity: !exists ? 0 : (grid.ghost ? 0.32 : 1) * (0.38 + 0.62 * Math.min(1, p * 2.2))
                 z: pop > 0 ? 2 : grid.focusIndex === index ? 1 : 0
-                Behavior on scale { Spring { speed: "fast" } }
+                Behavior on scale { enabled: grid.phase >= 1; Spring { speed: "fast" } }
                 Behavior on pop { Spring { speed: "fast" } }
 
+                MorphShape {
+                    visible: cd.star && day.isDone
+                    anchors.centerIn: parent
+                    width: grid.cell + 6
+                    height: grid.cell + 6
+                    shape: 7
+                    fromShape: 7
+                    spin: grid.starSpin
+                    color: day.doneColor
+                }
                 // days the task doesn't repeat on (or that predate it) are just a dot
                 Rectangle {
                     visible: cd.state === "off" || cd.state === "before"
@@ -382,6 +462,15 @@ Item {
                     width: grid.cell * 0.62
                     height: 4
                     radius: 2
+                    color: Colors.tertiary
+                }
+                // busy day: a small dot
+                Rectangle {
+                    visible: cd.state === "busy"
+                    anchors.centerIn: parent
+                    width: 7
+                    height: 7
+                    radius: 3.5
                     color: Colors.tertiary
                 }
                 // a day with a note
@@ -467,17 +556,35 @@ Item {
             readonly property bool shown: !!grid.hoverCell && !grid.ghost && grid.hoverCell.state !== "future"
             property var lastCell: null
             property bool glide: false
-            readonly property real fit: bubbleText.implicitWidth + 20
+            // the bubble may use the whole width of the grid, weekday labels included; a longer label wraps
+            readonly property real maxW: grid.labelW + grid.gridW
+            readonly property string dateText: lastCell ? Qt.formatDate(lastCell.date, "ddd, d MMM") : ""
+            readonly property string detailText: lastCell ? grid.stateText(lastCell) : ""
+            readonly property real oneLine: oneProbe.implicitWidth + 20
+            readonly property bool wraps: oneLine > maxW
+            readonly property real fit: wraps ? maxW : oneLine
+            readonly property real fitH: wraps ? twoLine.implicitHeight + 16 : 28
             property real wNow: fit
-            // the cell's centre, kept inside the grid for the width the pill is heading for
-            x: lastCell ? Math.max(fit / 2, Math.min(grid.gridW - fit / 2, lastCell.col * grid.step + grid.cell / 2)) : 0
-            y: lastCell ? lastCell.row * grid.step - 28 - 6 : 0
+            property real hNow: fitH
+            // the cell's centre, kept inside the grid area for the width the pill is heading for
+            x: lastCell ? Math.max(fit / 2 - grid.labelW, Math.min(grid.gridW - fit / 2, lastCell.col * grid.step + grid.cell / 2)) : 0
+            y: lastCell ? lastCell.row * grid.step - 6 : 0
             width: 0
-            height: 28
+            height: 0
             z: 5
             Behavior on x { enabled: bubble.glide; Spring { speed: "fast" } }
             Behavior on y { enabled: bubble.glide; Spring { speed: "fast" } }
             Behavior on wNow { enabled: bubble.glide; Spring { speed: "fast" } }
+            Behavior on hNow { enabled: bubble.glide; Spring { speed: "fast" } }
+
+            // measures the label on one line
+            StyledText {
+                id: oneProbe
+                visible: false
+                role: "labelMedium"
+                emphasized: true
+                text: bubble.detailText !== "" ? bubble.dateText + " · " + bubble.detailText : bubble.dateText
+            }
 
             function follow() {
                 const c = grid.hoverCell;
@@ -510,12 +617,14 @@ Item {
                 onTriggered: bubble.glide = false
             }
 
+            // the pill sits above the cell and grows upward, so a taller bubble never covers the cell it is about
             Rectangle {
                 id: pill
                 x: -width / 2
+                y: -height
                 width: Math.max(0, bubble.wNow)
-                height: 28
-                radius: 14
+                height: Math.max(0, bubble.hNow)
+                radius: bubble.wraps ? Motion.shapeMedium : height / 2
                 clip: true
                 color: Colors.inverse_surface
                 opacity: bubble.shown ? 1 : 0
@@ -523,16 +632,53 @@ Item {
                 transformOrigin: Item.Bottom
                 Behavior on opacity { Fade {} }
                 Behavior on scale { Spring { speed: "fast" } }
+                Behavior on radius { Spring { speed: "fast" } }
                 StyledText {
-                    id: bubbleText
                     anchors.centerIn: parent
+                    visible: !bubble.wraps
                     role: "labelMedium"
                     emphasized: true
                     color: Colors.inverse_on_surface
-                    text: bubble.lastCell ? Qt.formatDate(bubble.lastCell.date, "ddd, d MMM") + " · " + grid.stateText(bubble.lastCell) : ""
+                    text: oneProbe.text
+                }
+                Column {
+                    id: twoLine
+                    anchors.centerIn: parent
+                    visible: bubble.wraps
+                    width: bubble.maxW - 24
+                    spacing: 2
+                    StyledText {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        role: "labelMedium"
+                        emphasized: true
+                        color: Colors.inverse_on_surface
+                        text: bubble.dateText
+                    }
+                    StyledText {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        role: "labelMedium"
+                        color: Colors.inverse_on_surface
+                        text: bubble.detailText
+                    }
                 }
             }
         }
+    }
+
+    ShaderEffectSource {
+        id: ghostLayer
+        sourceItem: field
+        live: false
+        x: field.x + (1 - grid.ghostP) * grid.ghostDir * 36
+        y: field.y
+        width: field.width
+        height: field.height
+        // never quite 0 and never hidden: a source that is invisible or fully transparent is not refreshed
+        opacity: Math.max(0.003, grid.ghostP)
+        z: 4
     }
 
     // ---- legend ----

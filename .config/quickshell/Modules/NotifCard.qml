@@ -59,6 +59,7 @@ Item {
     readonly property var visibleActions: (actions || []).filter(a => a && a.identifier !== "default").slice(0, 3)
 
     signal activated
+    signal actionInvoked(var action)
     signal closeRequested
     signal expired
     signal dismissFinished
@@ -304,7 +305,7 @@ Item {
                             style: "tonal"
                             text: modelData.text
                             onClicked: {
-                                modelData.invoke();
+                                card.actionInvoked(modelData);
                                 card.triggerClose();
                             }
                         }

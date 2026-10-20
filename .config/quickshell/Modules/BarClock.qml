@@ -5,17 +5,19 @@ import qs
 import qs.Components
 import qs.Services
 
-// Time pill (rolling digits) + date. The time opens the focus timer and shows its countdown
-// while a session is running; the date opens the calendar.
+// Time pill (rolling digits) + date + pomodoro chip. The time opens the quick alarm panel (and rings
+// while an alarm goes off), the date opens the calendar, the chip opens the focus timer.
 Rectangle {
     id: clock
 
     property var calendarPopup: null
     property var focusPopup: null
+    property var alarmPopup: null
 
     // anchors for the popups that open from each part
     readonly property Item timeAnchor: timePill
     readonly property Item dateAnchor: dateButton
+    readonly property Item focusAnchor: focusChip
 
     implicitHeight: 32
     height: 32
@@ -28,8 +30,7 @@ Rectangle {
         precision: SystemClock.Minutes
     }
     readonly property string time: Qt.formatDateTime(sysClock.date, "HH:mm")
-    // the session countdown replaces the clock only while the timer is running; paused shows the clock again
-    readonly property string shownText: Pomodoro.running ? Pomodoro.label : time
+    readonly property string shownText: time
 
     // Every digit gets one fixed cell (the width of an "8", a typical digit; the colon has its own), so
     // the pill keeps one width as the numbers change instead of nudging the whole bar group each tick.
@@ -72,13 +73,29 @@ Rectangle {
             restRadius: 12
             pressedRadius: 6
             checkedRadius: Motion.shapeSmall
-            checked: !!clock.focusPopup && clock.focusPopup.isOpen
-            color: Pomodoro.running && Pomodoro.onBreak ? Colors.tertiary : Colors.primary
-            contentColor: Pomodoro.running && Pomodoro.onBreak ? Colors.on_tertiary : Colors.on_primary
+            checked: !!clock.alarmPopup && clock.alarmPopup.isOpen
+            color: Alarm.ringing ? Colors.error : Colors.primary
+            contentColor: Alarm.ringing ? Colors.on_error : Colors.on_primary
             Behavior on width { Spring {} }
             scale: pressed ? 0.93 : hovered ? 1.05 : 1
             Behavior on scale { Spring { speed: "fast" } }
-            onClicked: if (clock.focusPopup) clock.focusPopup.toggle()
+            onClicked: {
+                if (Alarm.ringing)
+                    Alarm.stop();
+                else if (clock.alarmPopup)
+                    clock.alarmPopup.toggle();
+            }
+
+            // shakes while an alarm rings
+            SequentialAnimation on rotation {
+                running: Alarm.ringing
+                loops: Animation.Infinite
+                alwaysRunToEnd: true
+                NumberAnimation { to: 6; duration: 70; easing.type: Easing.InOutQuad }
+                NumberAnimation { to: -6; duration: 140; easing.type: Easing.InOutQuad }
+                NumberAnimation { to: 0; duration: 70; easing.type: Easing.InOutQuad }
+                PauseAnimation { duration: 400 }
+            }
 
             Row {
                 id: pillRow
@@ -86,9 +103,9 @@ Rectangle {
                 spacing: 4
 
                 Icon {
-                    visible: Pomodoro.running
+                    visible: Alarm.active || Alarm.ringing
                     anchors.verticalCenter: parent.verticalCenter
-                    name: Pomodoro.onBreak ? "coffee" : "timer"
+                    name: "alarm"
                     size: 16
                     color: timePill.contentColor
                 }
@@ -177,6 +194,12 @@ Rectangle {
                 color: dateButton.contentColor
                 text: Qt.formatDateTime(sysClock.date, "ddd, d MMM")
             }
+        }
+
+        BarFocus {
+            id: focusChip
+            anchors.verticalCenter: parent.verticalCenter
+            focusPopup: clock.focusPopup
         }
     }
 }

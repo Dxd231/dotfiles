@@ -23,6 +23,8 @@ import struct
 import sys
 import tempfile
 import time
+import re
+import unicodedata
 
 # ---------------------------------------------------------------- snappy
 
@@ -257,17 +259,48 @@ def open_db(f):
         raise
 
 
-def read_store(db, name, keys=False):
+def snappy_frames(b):
+    """A snappy stream (the format of the files IndexedDB keeps a big value in)."""
+    out = bytearray()
+    i = 0
+    while i + 4 <= len(b):
+        kind, n = b[i], int.from_bytes(b[i + 1:i + 4], "little")
+        body = b[i + 4:i + 4 + n]
+        i += 4 + n
+        if kind == 0:
+            out += snappy_decompress(bytes(body[4:]))
+        elif kind == 1:
+            out += body[4:]
+    return bytes(out)
+
+
+def external_value(files_dir, fids):
+    """A value too big for the database sits in the file marked with a leading dot in file_ids."""
+    for fid in (fids or "").split():
+        if fid.startswith("."):
+            try:
+                with open(os.path.join(files_dir, fid[1:]), "rb") as fh:
+                    return snappy_frames(fh.read())
+            except OSError:
+                return None
+    return None
+
+
+def read_store(db, name, keys=False, files_dir=None):
     row = db.execute("select id from object_store where name = ?", (name,)).fetchone()
     if not row:
         return []
     out = []
     for key, blob, fids in db.execute("select key, data, file_ids from object_data where object_store_id = ?", (row[0],)):
         # a value too big for the database sits in a separate file and leaves an integer here
-        if not isinstance(blob, (bytes, bytearray, memoryview)):
-            continue
         try:
-            val = decode(snappy_decompress(bytes(blob)), partial_ok=name == "data")
+            if isinstance(blob, (bytes, bytearray, memoryview)):
+                raw = snappy_decompress(bytes(blob))
+            else:
+                raw = external_value(files_dir, fids) if files_dir else None
+                if raw is None:
+                    continue
+            val = decode(raw, partial_ok=name == "data")
         except Exception:
             continue
         out.append((decode_key(key), val, fids) if keys else val)
@@ -289,6 +322,36 @@ def cover_of(rec, fids):
     if idx is None or idx >= len(ids):
         return None
     return ids[idx].lstrip(".")
+
+
+def norm(work):
+    return re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", work).lower())
+
+
+def describe(title):
+    """-> (work, volume, extra) from a book title: 'Title ６ (文庫)' -> ('Title', '6', False)."""
+    t = unicodedata.normalize("NFKC", title).strip()
+    m = re.match(r"^『(.*?)\s*(\d+(?:\.\d+)?)』", t)
+    if m:
+        return m.group(1).strip(), m.group(2), True
+    t = re.sub(r"\s*\([^()]*\)\s*$", "", t).strip()
+    m = re.match(r"^(.*?\S)\s*(\d+(?:\.\d+)?)$", t)
+    if m and not re.search(r"\d$", m.group(1)):
+        return m.group(1).strip(), m.group(2), False
+    return t, "", False
+
+
+def tag_books(books):
+    """Give each book its work, volume and group, so volumes of one work can share a card."""
+    for b in books:
+        b["work"], b["volume"], b["extra"] = describe(b["title"])
+        b["group"] = norm(b["work"])
+    for g in {b["group"] for b in books}:
+        members = [b for b in books if b["group"] == g]
+        if len(members) > 1 and any(b["volume"] for b in members):
+            for b in members:
+                if not b["volume"]:
+                    b["volume"] = "1"
 
 
 def collect(files, covers_dir):
@@ -320,7 +383,7 @@ def collect(files, covers_dir):
                         "max": float(r.get("maxReadingSpeed") or 0),
                     }
             # the book's id is its key, not a field of the value
-            for k, r, fids in read_store(db, "data", keys=True):
+            for k, r, fids in read_store(db, "data", keys=True, files_dir=os.path.splitext(f)[0] + ".files"):
                 if isinstance(r, dict) and k is not None and r.get("title"):
                     items[k] = {"title": r["title"], "chars": r.get("characters"), "cover": None}
                     fid = cover_of(r, fids)
@@ -358,13 +421,21 @@ def collect(files, covers_dir):
             "explored": int(explored) if explored is not None else None,
             "modified": (bm.get("lastBookmarkModified") or 0) / 1000.0,
             "cover": cover_by_title.get(it["title"]),
+            "id": did,
         }
     # a book that was never bookmarked still shows up through its stats
     for (title, _day) in rows:
         books.setdefault(title, {"title": title, "progress": None, "chars": None, "explored": None, "modified": 0,
                                  "cover": cover_by_title.get(title)})
+    # every book in the ttu library is listed, read or not
+    for did, it in items.items():
+        if it["title"] in books:
+            books[it["title"]].setdefault("id", did)
+        books.setdefault(it["title"], {"title": it["title"], "progress": None, "chars": int(it["chars"]) if it.get("chars") else None,
+                                       "explored": None, "modified": 0, "cover": it.get("cover"), "id": did})
     for b in books.values():
         b.setdefault("cover", cover_by_title.get(b["title"]))
+    tag_books(list(books.values()))
     return (sorted(rows.values(), key=lambda r: (r["day"], r["modified"])), list(books.values()), last_item, items,
             failed == len(files) and bool(files))
 

@@ -2,14 +2,13 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Services.Mpris
-import Quickshell.Widgets
 import qs
 import qs.Components
 import qs.Services
 
 // What the lock screen shows over the blurred screenshot: a card with a seconds ring around a
-// rolling clock, the password pill, a Caps Lock warning, the media card and a power toolbar.
+// rolling clock, the password pill, a Caps Lock warning, today's tasks and goals and a power toolbar,
+// with a field of drifting shapes behind it.
 // It is driven entirely by properties (LockScreen owns authentication and the session lock), so
 // it can be rendered and tested in an ordinary window.
 Item {
@@ -23,11 +22,13 @@ Item {
     property bool shown: true         // the lock is up (drives the entrance)
     property bool capsOn: false
     property int keyTick: 0           // bumped on every key press, ripples the ring
-    property var player: null
+    property string greetName: Quickshell.env("USER") || ""
 
     signal suspendRequested
     signal restartRequested
     signal poweroffRequested
+    // "reboot" | "poweroff": chosen here, runs once the session is unlocked (the lock hides apps' save prompts)
+    property string pendingPower: ""
 
     // ---- entrance and unlock ----
     property real enter: shown ? 1 : 0
@@ -57,12 +58,41 @@ Item {
     readonly property color ringColor: unlocking ? Colors.tertiary : failed ? Colors.error : Colors.primary
     readonly property real seconds: date.getSeconds() + date.getMilliseconds() / 1000
 
+    ShapeField {
+        anchors.fill: parent
+        enter: view.enter
+        keyTick: view.keyTick
+        failed: view.failed
+        unlockT: view.unlockT
+    }
+
     Column {
         id: content
         anchors.centerIn: parent
         spacing: 16
         opacity: Math.min(1, view.enter) * (1 - Math.max(0, Math.min(1, (view.unlockT - 0.3) / 0.7)))
         scale: 0.9 + 0.1 * view.enter
+
+        // ---- greeting ----
+        Item {
+            id: greeting
+            width: 760
+            height: greetText.implicitHeight
+            Appear { delay: 60; lift: 14 }
+            StyledText {
+                id: greetText
+                anchors.horizontalCenter: parent.horizontalCenter
+                jp: true
+                role: "displaySmall"
+                emphasized: true
+                color: Colors.on_surface
+                text: {
+                    const h = view.date.getHours();
+                    const hello = h >= 5 && h < 11 ? "おはよう" : h >= 11 && h < 18 ? "こんにちは" : "こんばんは";
+                    return view.greetName ? hello + "、" + view.greetName : hello;
+                }
+            }
+        }
 
         // ---- clock + password ----
         Item {
@@ -263,191 +293,130 @@ Item {
             }
         }
 
-        // ---- tasks left today (display only: the keyboard here is for the password) ----
-        Item {
-            id: taskGlance
-            visible: Tasks.count > 0
+        // ---- today: tasks left, immersion and Anki goals (display only: the keyboard here is for the password) ----
+        RowLayout {
+            id: todayRow
             width: 760
             height: 80
+            spacing: 16
 
-            Elevation { anchors.fill: glanceSurface; radius: glanceSurface.radius; level: 3 }
-            Rectangle {
-                id: glanceSurface
-                anchors.fill: parent
-                radius: Motion.shapeExtraLarge
-                color: Colors.surface_container_high
-
-                RowLayout {
+            Item {
+                id: taskGlance
+                visible: Tasks.count > 0
+                Layout.fillWidth: true
+                Layout.preferredWidth: 304
+                Layout.preferredHeight: 80
+                Appear { delay: 220 }
+                Elevation { anchors.fill: glanceSurface; radius: glanceSurface.radius; level: 3 }
+                Rectangle {
+                    id: glanceSurface
                     anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-                    spacing: 16
+                    radius: Motion.shapeExtraLarge
+                    color: Colors.surface_container_high
 
-                    // a few of today's tasks; done ones fill in and turn
-                    Row {
-                        spacing: 8
-                        Repeater {
-                            model: Math.min(5, Tasks.active.length)
-                            delegate: TaskAvatar {
-                                required property int index
-                                width: 44
-                                height: 44
-                                task: Tasks.active[index]
-                                done: Tasks.isDone(Tasks.active[index], Tasks.todayKey)
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        spacing: 12
+
+                        // a few of today's tasks; done ones fill in and turn
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: Math.min(3, Tasks.active.length)
+                                delegate: TaskAvatar {
+                                    required property int index
+                                    width: 40
+                                    height: 40
+                                    task: Tasks.active[index]
+                                    done: Tasks.isDone(Tasks.active[index], Tasks.todayKey)
+                                }
                             }
                         }
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        StyledText {
-                            role: "titleMedium"
-                            emphasized: true
-                            text: Tasks.dueCount === 0 ? "Nothing due today"
-                                : Tasks.pendingCount === 0 ? "All done today"
-                                : Tasks.pendingCount + (Tasks.pendingCount === 1 ? " task" : " tasks") + " left today"
-                        }
-                        StyledText {
-                            role: "bodyMedium"
-                            color: Colors.on_surface_variant
-                            visible: Tasks.dueCount > 0
-                            text: (Tasks.dueCount - Tasks.pendingCount) + " of " + Tasks.dueCount + " done"
-                        }
-                    }
-                    Rectangle {
-                        visible: Tasks.topStreak > 0
-                        Layout.preferredHeight: 40
-                        Layout.preferredWidth: streakRow.implicitWidth + 28
-                        radius: 20
-                        color: Colors.tertiary_container
-                        Row {
-                            id: streakRow
-                            anchors.centerIn: parent
-                            spacing: 6
-                            Icon { anchors.verticalCenter: parent.verticalCenter; name: "local_fire_department"; size: 20; color: Colors.on_tertiary_container }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
                             StyledText {
-                                anchors.verticalCenter: parent.verticalCenter
-                                role: "labelLarge"
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                role: "titleMedium"
                                 emphasized: true
-                                color: Colors.on_tertiary_container
-                                text: Tasks.topStreak + (Tasks.topStreak === 1 ? " day" : " days")
+                                text: Tasks.dueCount === 0 ? "Nothing due"
+                                    : Tasks.pendingCount === 0 ? "All done"
+                                    : Tasks.pendingCount + (Tasks.pendingCount === 1 ? " task" : " tasks") + " left"
+                            }
+                            StyledText {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                role: "bodyMedium"
+                                color: Colors.on_surface_variant
+                                visible: Tasks.dueCount > 0
+                                text: (Tasks.dueCount - Tasks.pendingCount) + " of " + Tasks.dueCount + " done"
                             }
                         }
                     }
                 }
             }
-        }
 
-        // ---- now playing ----
-        Item {
-            id: mediaCard
-            readonly property bool playing: !!view.player && view.player.playbackState === MprisPlaybackState.Playing
-            readonly property real len: view.player ? (view.player.length || 0) : 0
-            readonly property real pos: view.player ? (view.player.position || 0) : 0
-            function fmt(sec) {
-                const t = Math.max(0, Math.floor(sec));
-                return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+            // immersion minutes against the day's goal
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 212
+                Layout.preferredHeight: 80
+                Appear { delay: 300 }
+                Elevation { anchors.fill: immSurface; radius: immSurface.radius; level: 3 }
+                Rectangle {
+                    id: immSurface
+                    anchors.fill: parent
+                    radius: Motion.shapeExtraLarge
+                    color: Colors.surface_container_high
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 12
+                        GoalBadge {
+                            anchors.verticalCenter: parent.verticalCenter
+                            progress: Math.min(1, Immersion.todayMinutes / Math.max(1, Immersion.todayGoal))
+                            over: Math.min(1, Immersion.overLaps)
+                            arcColor: Immersion.goalMet ? Colors.tertiary : Colors.primary
+                            Icon { anchors.centerIn: parent; name: "headphones"; size: 14; color: Colors.on_primary_container }
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            StyledText { role: "titleMedium"; emphasized: true; text: Math.floor(Immersion.todayMinutes) + " / " + Immersion.todayGoal + " min" }
+                            StyledText { role: "bodyMedium"; color: Colors.on_surface_variant; text: Immersion.goalMet ? "Goal met" : "Immersion" }
+                        }
+                    }
+                }
             }
 
-            visible: !!view.player && (view.player.trackTitle || "").length > 0
-            width: 760
-            height: 128
-
-            Elevation { anchors.fill: mediaSurface; radius: mediaSurface.radius; level: 3 }
-            Rectangle {
-                id: mediaSurface
-                anchors.fill: parent
-                radius: Motion.shapeExtraLarge
-                color: Colors.surface_container_high
-
-                RowLayout {
+            // cards mined against the day's goal
+            Item {
+                visible: Anki.online || Anki.minedToday > 0
+                Layout.fillWidth: true
+                Layout.preferredWidth: 212
+                Layout.preferredHeight: 80
+                Appear { delay: 380 }
+                Elevation { anchors.fill: ankiSurface; radius: ankiSurface.radius; level: 3 }
+                Rectangle {
+                    id: ankiSurface
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 16
-
-                    ClippingRectangle {
-                        Layout.preferredWidth: 96
-                        Layout.preferredHeight: 96
-                        radius: Motion.shapeLarge
-                        color: Colors.primary_container
-                        Icon {
-                            anchors.centerIn: parent
-                            visible: art.status !== Image.Ready
-                            name: "music_note"
-                            size: 40
-                            color: Colors.on_primary_container
-                        }
-                        Image {
-                            id: art
-                            anchors.fill: parent
-                            source: view.player ? (view.player.trackArtUrl || "") : ""
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Marquee {
-                            Layout.fillWidth: true
-                            centered: false
-                            role: "titleMedium"
-                            jp: true
-                            text: view.player ? (view.player.trackTitle || "") : ""
-                        }
-                        Marquee {
-                            Layout.fillWidth: true
-                            centered: false
-                            role: "bodyMedium"
-                            jp: true
-                            color: Colors.on_surface_variant
-                            visible: text.length > 0
-                            text: view.player ? (view.player.trackArtist || "") : ""
-                        }
-                        LinearProgress {
-                            Layout.fillWidth: true
-                            Layout.topMargin: 8
-                            visible: mediaCard.len > 0
-                            value: mediaCard.pos / Math.max(1, mediaCard.len)
-                            MouseArea {
-                                anchors.fill: parent
-                                anchors.margins: -8
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: mouse => view.player.position = mediaCard.len * Math.max(0, Math.min(1, (mouse.x - 8) / parent.width))
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            visible: mediaCard.len > 0
-                            StyledText { role: "labelSmall"; color: Colors.on_surface_variant; text: mediaCard.fmt(mediaCard.pos) }
-                            Item { Layout.fillWidth: true }
-                            StyledText { role: "labelSmall"; color: Colors.on_surface_variant; text: mediaCard.fmt(mediaCard.len) }
-                        }
-                    }
-
+                    radius: Motion.shapeExtraLarge
+                    color: Colors.surface_container_high
                     Row {
-                        spacing: 8
-                        IconButton {
+                        anchors.centerIn: parent
+                        spacing: 12
+                        GoalBadge {
                             anchors.verticalCenter: parent.verticalCenter
-                            icon: "skip_previous"
-                            style: "tonal"
-                            onClicked: view.player.previous()
+                            progress: Math.min(1, Anki.minedToday / Math.max(1, Anki.todayGoal))
+                            over: Math.min(1, Math.max(0, Anki.minedToday / Math.max(1, Anki.todayGoal) - 1))
+                            arcColor: Anki.goalMet ? Colors.tertiary : Colors.primary
+                            Icon { anchors.centerIn: parent; name: "style"; size: 14; color: Colors.on_primary_container }
                         }
-                        IconButton {
+                        Column {
                             anchors.verticalCenter: parent.verticalCenter
-                            size: "m"
-                            style: "filled"
-                            icon: mediaCard.playing ? "pause" : "play_arrow"
-                            // round while paused, square while playing
-                            restRadius: mediaCard.playing ? Motion.shapeLarge : height / 2
-                            onClicked: view.player.togglePlaying()
-                        }
-                        IconButton {
-                            anchors.verticalCenter: parent.verticalCenter
-                            icon: "skip_next"
-                            style: "tonal"
-                            onClicked: view.player.next()
+                            StyledText { role: "titleMedium"; emphasized: true; text: Anki.minedToday + " / " + Anki.todayGoal + " cards" }
+                            StyledText { role: "bodyMedium"; color: Colors.on_surface_variant; text: Anki.goalMet ? "Goal met" : "Mined" }
                         }
                     }
                 }
@@ -464,6 +433,40 @@ Item {
         height: toolbar.height
         opacity: content.opacity
 
+        // chosen but waiting for the unlock
+        StyledText {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: toolbar.top
+            anchors.bottomMargin: 12
+            role: "titleMedium"
+            emphasized: true
+            color: Colors.on_surface
+            id: pendingLabel
+            // keeps its words while it fades out, and pops when the choice changes
+            property string shownPower: ""
+            property real pop: 1
+            opacity: view.pendingPower !== "" ? 1 : 0
+            scale: (view.pendingPower !== "" ? 1 : 0.9) * pop
+            transform: Translate { y: (1 - pendingLabel.opacity) * 8 }
+            Behavior on opacity { Fade { speed: "default" } }
+            Behavior on scale { Spring { speed: "default" } }
+            text: shownPower === "reboot" ? "Unlock to restart" : shownPower === "poweroff" ? "Unlock to shut down" : ""
+            Connections {
+                target: view
+                function onPendingPowerChanged() {
+                    if (view.pendingPower === "")
+                        return;
+                    if (pendingLabel.shownPower !== "" && pendingLabel.shownPower !== view.pendingPower && pendingLabel.opacity > 0.5)
+                        pendingPop.restart();
+                    pendingLabel.shownPower = view.pendingPower;
+                }
+            }
+            SequentialAnimation {
+                id: pendingPop
+                PropertyAction { target: pendingLabel; property: "pop"; value: 0.88 }
+                NumberAnimation { target: pendingLabel; property: "pop"; to: 1; duration: 350; easing.type: Easing.OutBack }
+            }
+        }
         Elevation { anchors.fill: toolbar; radius: toolbar.radius; level: 3 }
         Rectangle {
             id: toolbar
@@ -485,14 +488,14 @@ Item {
                 }
                 IconButton {
                     icon: "restart_alt"
-                    style: "tonal"
+                    style: view.pendingPower === "reboot" ? "filled" : "tonal"
                     onClicked: view.restartRequested()
                 }
                 IconButton {
                     icon: "power_settings_new"
                     style: "tonal"
-                    color: Colors.error_container
-                    contentColor: Colors.on_error_container
+                    color: view.pendingPower === "poweroff" ? Colors.error : Colors.error_container
+                    contentColor: view.pendingPower === "poweroff" ? Colors.on_error : Colors.on_error_container
                     onClicked: view.poweroffRequested()
                 }
             }

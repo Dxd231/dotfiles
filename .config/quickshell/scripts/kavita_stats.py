@@ -7,7 +7,7 @@ service. Nothing is written to Kavita.
 
 Writes <state>/quickshell/immersion/kavita.json:
   { updated, latest, rows: [{series, work, volume, day, secs, pages, modified}],
-    series: [{id, name, work, volume, pages, read, progress, cover, modified}],
+    series: [{id, name, work, volume, pages, read, progress, cover, modified, library, format, chapter}],
     active, activeSeries, modified, stamp }
 and exits straight away when the database files did not change since the last run.
 
@@ -24,9 +24,10 @@ import sqlite3
 import sys
 import tempfile
 import time
+import unicodedata
 
 DEFAULT_DB = "/opt/kavita/config/kavita.db"
-VERSION = 1
+VERSION = 2
 # a stretch is capped so a reader left open (or a jump through the pages) doesn't pile up time
 SECS_PER_PAGE_CAP = 180
 MIN_CAP = 60
@@ -127,22 +128,28 @@ def collect(db, covers_dir):
     con, tmp = open_copy(db)
     try:
         series = {}
-        for sid, name, loc, pages, cover in con.execute(
-                "select Id, Name, LocalizedName, Pages, CoverImage from Series"):
+        for sid, name, loc, pages, cover, lib, fmt in con.execute(
+                "select Id, Name, LocalizedName, Pages, CoverImage, LibraryId, Format from Series"):
             work, volume = split_name(name)
             series[sid] = {"id": sid, "name": name, "work": work, "volume": volume, "pages": pages or 0,
-                           "read": 0, "progress": None, "cover": None, "modified": 0.0, "_cover": cover}
+                           "read": 0, "progress": None, "cover": None, "modified": 0.0, "_cover": cover,
+                           "library": lib, "format": fmt, "chapter": None}
 
         # pages read per series, and the newest progress save
         last_progress = 0.0
         last_series = None
-        for sid, pages, mod in con.execute(
-                "select SeriesId, PagesRead, LastModifiedUtc from AppUserProgresses"):
+        chapter_at = {}
+        for sid, pages, mod, cid in con.execute(
+                "select SeriesId, PagesRead, LastModifiedUtc, ChapterId from AppUserProgresses"):
             s = series.get(sid)
             if not s:
                 continue
             s["read"] += pages or 0
             m = utc_epoch(mod)
+            # the chapter last read is where the reader should reopen
+            if cid and m >= chapter_at.get(sid, 0.0):
+                chapter_at[sid] = m
+                s["chapter"] = cid
             s["modified"] = max(s["modified"], m)
             if m > last_progress:
                 last_progress, last_series = m, sid
@@ -150,20 +157,30 @@ def collect(db, covers_dir):
             if s["pages"]:
                 s["progress"] = min(1.0, s["read"] / s["pages"])
             s["cover"] = copy_cover(os.path.dirname(db), s.pop("_cover"), covers_dir)
+            if s["chapter"] is None:
+                row = con.execute("select c.Id from Chapter c join Volume v on c.VolumeId = v.Id "
+                                  "where v.SeriesId = ? order by v.MinNumber, c.SortOrder limit 1", (s["id"],)).fetchone()
+                s["chapter"] = row[0] if row else None
 
         # reading stretches: the activity table first, then the daily history for what it lacks
         acts = {}
 
+        by_name = {v["name"]: k for k, v in series.items()}
+
         def add(sid, cid, start, end, pages, name=None):
             if pages is None or pages <= 0:
                 return
+            # a series removed and added again keeps its history under the old id: follow it by name
+            if sid not in series and name in by_name:
+                sid = by_name[name]
             if sid not in series:
                 # a series that was removed from the library still has its history
                 if not name:
                     return
                 work, volume = split_name(name)
                 series[sid] = {"id": sid, "name": name, "work": work, "volume": volume, "pages": 0, "read": 0,
-                               "progress": None, "cover": None, "modified": 0.0}
+                               "progress": None, "cover": None, "modified": 0.0,
+                               "library": None, "format": None, "chapter": None}
             key = (sid, cid, int(start))
             if key not in acts:
                 acts[key] = (sid, start, end, pages)
@@ -205,7 +222,9 @@ def collect(db, covers_dir):
             active_series = rows[-1]["sid"]
         active = bool(newest) and (time.time() - newest < ACTIVE_WINDOW or (active_session and time.time() - newest < 3600))
         used = {r["sid"] for r in rows} | {s["id"] for s in series.values() if s["read"] > 0}
-        return rows, [s for s in series.values() if s["id"] in used], active, active_series, newest
+        for s in series.values():
+            s["group"] = re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", s["work"]).lower())
+        return rows, list(series.values()), active, active_series, newest
     finally:
         con.close()
         shutil.rmtree(tmp, ignore_errors=True)

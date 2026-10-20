@@ -3,7 +3,7 @@ import qs
 
 // Text whose digits roll vertically when they change (old one slides out, new one in from above).
 // Every digit sits in one fixed cell (the width of an "8", the colon with its own), so the string
-// keeps one width as the numbers tick over.
+// keeps one width as the numbers tick over. Any other character (m, h, ~, a space) keeps its own width.
 Item {
     id: root
 
@@ -51,7 +51,7 @@ Item {
                 readonly property string target: root.text.charAt(index)
                 property string shown: target
                 // natural width until the cell size has been measured
-                width: (target === ":" ? root.colonWidth : root.digitWidth) || current.implicitWidth
+                width: (target === ":" ? root.colonWidth : /\d/.test(target) ? root.digitWidth : letter.implicitWidth) || current.implicitWidth
                 height: root.implicitHeight
                 clip: true
 
@@ -70,6 +70,12 @@ Item {
                     roll.restart();
                 }
 
+                Text {
+                    id: letter
+                    visible: false
+                    text: digit.target === " " ? "\u00a0" : digit.target
+                    font: probe.font
+                }
                 Text {
                     id: current
                     x: (digit.width - width) / 2

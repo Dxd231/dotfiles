@@ -2,10 +2,10 @@ import QtQuick
 import qs
 import qs.Components
 
-// Which media the left card of the immersion panel shows: video (mpv), a book (ttu) or manga (Kavita).
-// By default it follows what you are doing; picking one pins the card to it (`pinned`, the indicator
-// squares off). A dot marks every source that is live right now.
-Rectangle {
+// Which media the left card of the immersion panel shows: anime (mpv), a book (ttu) or manga (Kavita).
+// By default it follows what you are doing; picking one pins the card to it (`pinned`, marked by a
+// pin badge). A dot marks every source that is live right now.
+Item {
     id: sw
 
     property string current: "mpv"
@@ -20,43 +20,54 @@ Rectangle {
         { k: "ttu", i: "auto_stories", c: Colors.tertiary, on: Colors.on_tertiary, live: liveTtu },
         { k: "kavita", i: "menu_book", c: Colors.secondary, on: Colors.on_secondary, live: liveKavita }
     ]
-    readonly property int idx: Math.max(0, items.findIndex(x => x.k === current))
 
-    width: 3 * 42 + 8
+    width: 3 * 48 + 2 * 2
     height: 40
-    radius: 20
-    color: Qt.alpha(Colors.surface_container_lowest, 0.94)
 
-    Rectangle {
-        y: 4
-        height: 32
-        width: 42
-        x: 4 + sw.idx * 42
-        radius: sw.pinned ? 10 : 16
-        color: sw.items[sw.idx].c
-        Behavior on x { Spring { speed: "default" } }
-        Behavior on radius { Spring { speed: "fast" } }
-        Behavior on color { ColorFade {} }
-    }
     Row {
-        x: 4
-        y: 4
+        spacing: 2
         Repeater {
             model: sw.items
             delegate: Clickable {
                 id: slot
                 required property var modelData
+                required property int index
                 readonly property bool here: sw.current === modelData.k
-                width: 42
-                height: 32
-                restRadius: 16
-                pressedRadius: 10
+                // a connected group: pill on the outside, tight where segments meet, a 12px squircle when active
+                readonly property real outer: here ? 12 : height / 2
+                property real _inner: here ? 12 : pressed ? 2 : 4
+                property real _outer: outer
+                Behavior on _inner { Spring { speed: "fast" } }
+                Behavior on _outer { Spring { speed: "fast" } }
+                width: 48
+                height: 40
+                restRadius: 12
+                pressedRadius: 12
+                topLeftRadius: Math.max(0, index === 0 ? _outer : _inner)
+                bottomLeftRadius: topLeftRadius
+                topRightRadius: Math.max(0, index === sw.items.length - 1 ? _outer : _inner)
+                bottomRightRadius: topRightRadius
+                color: here ? modelData.c : Colors.surface_container_highest
+                contentColor: here ? modelData.on : Colors.on_surface_variant
                 onClicked: sw.picked(modelData.k)
                 Icon {
                     anchors.centerIn: parent
                     size: 20
                     name: slot.modelData.i
                     color: slot.here ? slot.modelData.on : Colors.on_surface_variant
+                }
+                // the pinned source wears a four-point star with a pin, in the corner opposite the live shape
+                ShapeBadge {
+                    x: parent.width - 14
+                    y: parent.height - 14
+                    width: 14
+                    height: 14
+                    shapeRest: 7
+                    shapeActive: 7
+                    color: Colors.on_surface
+                    scale: sw.pinned && slot.here ? 1 : 0
+                    visible: scale > 0.02
+                    Behavior on scale { Spring { speed: "fast" } }
                 }
                 // while that source is live: a small shape that turns and drifts between shapes
                 ShapeBadge {

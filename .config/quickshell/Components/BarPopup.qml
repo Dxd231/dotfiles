@@ -18,6 +18,17 @@ PanelWindow {
     property int padding: 16
     property alias spacing: body.spacing
     property color panelColor: Colors.surface_container
+    // springs the panel to a new height when its content changes size, instead of snapping
+    property bool animateHeight: false
+    // the window is sized to where the panel is going, not to where it is: resizing a layer surface
+    // on every frame of the spring makes the whole panel shake. Growing takes effect at once, shrinking
+    // waits for the spring to settle; the headroom covers its overshoot.
+    readonly property real _targetBody: body.implicitHeight + padding * 2
+    property real _windowBody: _targetBody + 32
+    on_TargetBodyChanged: {
+        if (!animateHeight || _targetBody + 32 > _windowBody)
+            _windowBody = _targetBody + 32;
+    }
     property alias panel: panel
     default property alias content: body.data
 
@@ -50,7 +61,7 @@ PanelWindow {
     anchors.left: true
     margins.top: 0
     implicitWidth: panelWidth + _shadowPad * 2
-    implicitHeight: panel.height + _shadowPad * 2 + 4
+    implicitHeight: (animateHeight ? Math.max(panel.height, _windowBody) : panel.height) + _shadowPad * 2 + 4
     // input area follows the panel's size but not its entrance scale, so the bottom edge is
     // clickable from the first frame
     mask: Region { item: hitArea }
@@ -87,6 +98,13 @@ PanelWindow {
         y: 4
         width: popup.panelWidth
         height: body.implicitHeight + popup.padding * 2
+        Behavior on height {
+            enabled: popup.animateHeight && popup.isOpen
+            Spring {
+                speed: "default"
+                onRunningChanged: if (!running) popup._windowBody = popup._targetBody + 32
+            }
+        }
         radius: Motion.shapeExtraLarge
         color: popup.panelColor
         transformOrigin: Item.Top

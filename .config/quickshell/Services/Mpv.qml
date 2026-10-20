@@ -22,6 +22,8 @@ Singleton {
     property bool watching: false
 
     property bool connected: false
+    // the external subtitle file in use ("" for an embedded track or none)
+    property string subFile: ""
     property bool paused: true
     property real position: 0
     property real duration: 0
@@ -41,6 +43,30 @@ Singleton {
     property var subHistory: []
     // counts new lines, so the panel can animate each one
     property int subSeq: 0
+    // the line with its line breaks kept (the overlay breaks where the subtitle does)
+    property string subRaw: ""
+    // when subText ends, in seconds (observed, so it is right as soon as the line shows)
+    property real subEnd: 0
+    property bool fullscreen: false
+    // subtitle timing offset in seconds (positive shows lines later). sub-start / sub-end come from mpv
+    // in the subtitle file's own time, so subStart / subEnd add the delay to give playback time
+    property real subDelay: 0
+    // how mpv draws subtitles, for the overlay to match it (mpv.conf: sub-font-size, sub-margin-y, ...).
+    // subScale ignores 0 because the lexicon overlay sets it to 0 to hide mpv's own line
+    property real subFontSize: 45
+    property real subScale: 1
+    property real subPos: 100
+    property real subMarginY: 22
+    property real subBorder: 3
+    property real subShadowOffset: 0
+    property real subSpacing: 0
+    property bool subBold: false
+    property string subFont: ""
+    property string subColor: "#FFFFFFFF"
+    property string subBorderColor: "#FF000000"
+    property string subShadowColor: "#AF000000"
+    // mpv's OSD size and the black bars around the picture: { w, h, ml, mr, mt, mb }
+    property var osdDims: ({ w: 0, h: 0, ml: 0, mr: 0, mt: 0, mb: 0 })
     // snapshot of the picture, alternating between two files so the Image always sees a new url
     property string thumb: ""
     property int _thumbN: 0
@@ -174,7 +200,10 @@ Singleton {
     // written straight to the socket: `connected` only turns true once mpv has answered
     function _observe() {
         const names = ["pause", "duration", "media-title", "path", "sub-text", "sub-visibility", "speed",
-                       "playlist-pos", "playlist-count", "vid"];
+                       "playlist-pos", "playlist-count", "vid", "fullscreen", "sub-end", "osd-dimensions",
+                       "sub-delay", "sub-font-size", "sub-scale", "sub-pos", "sub-margin-y", "sub-border-size",
+                       "sub-shadow-offset", "sub-spacing", "sub-bold", "sub-font", "sub-color", "sub-border-color",
+                       "sub-shadow-color", "current-tracks/sub/external-filename"];
         names.forEach((n, i) => sock.write(JSON.stringify({ command: ["observe_property", i + 1, n] }) + "\n"));
         sock.write(JSON.stringify({ command: ["get_property", "time-pos"], request_id: 10 }) + "\n");
     }
@@ -207,9 +236,39 @@ Singleton {
             case "playlist-pos": playlistPos = d === undefined || d === null ? -1 : d; break;
             case "playlist-count": playlistCount = d || 0; break;
             case "vid": hasVideo = !(d === false || d === "no"); break;
+            case "fullscreen": fullscreen = d === true; break;
+            case "current-tracks/sub/external-filename": subFile = typeof d === "string" ? d : ""; break;
+            case "sub-end": subEnd = typeof d === "number" ? d + subDelay : subEnd; break;
+            case "sub-delay": {
+                const nd = typeof d === "number" ? d : 0;
+                // a line already on screen keeps its file time, so move its playback time along
+                subStart += nd - subDelay;
+                subEnd += nd - subDelay;
+                subHistory = subHistory.map(h => ({ text: h.text, start: h.start + nd - subDelay }));
+                subDelay = nd;
+                break;
+            }
+            case "sub-font-size": if (d > 0) subFontSize = d; break;
+            case "sub-scale": if (d > 0) subScale = d; break;
+            case "sub-pos": if (typeof d === "number") subPos = d; break;
+            case "sub-margin-y": if (typeof d === "number") subMarginY = d; break;
+            case "sub-border-size": if (typeof d === "number") subBorder = d; break;
+            case "sub-shadow-offset": if (typeof d === "number") subShadowOffset = d; break;
+            case "sub-spacing": if (typeof d === "number") subSpacing = d; break;
+            case "sub-bold": subBold = d === true; break;
+            case "sub-font": subFont = d || ""; break;
+            case "sub-color": if (d) subColor = d; break;
+            case "sub-border-color": if (d) subBorderColor = d; break;
+            case "sub-shadow-color": if (d) subShadowColor = d; break;
+            case "osd-dimensions":
+                if (d && typeof d === "object")
+                    osdDims = { w: d.w || 0, h: d.h || 0, ml: d.ml || 0, mr: d.mr || 0, mt: d.mt || 0, mb: d.mb || 0 };
+                break;
             case "sub-text": {
                 const t = String(d || "").replace(/\s*\n\s*/g, " ").trim();
                 subLive = t !== "";
+                if (t !== "")
+                    subRaw = String(d).trim();
                 // the last line stays up (dimmed) between lines; the one it replaces moves to the history
                 if (t !== "" && t !== subText) {
                     if (subText !== "")
@@ -228,7 +287,7 @@ Singleton {
         } else if (o.request_id === 10 && o.data !== undefined) {
             position = o.data;
         } else if (o.request_id === 20 && o.data !== undefined && o.data !== null) {
-            subStart = o.data;
+            subStart = o.data + subDelay;
         } else if (o.request_id === 77 && o.error === "success" && _pendingThumb !== "") {
             thumb = _pendingThumb;
         }

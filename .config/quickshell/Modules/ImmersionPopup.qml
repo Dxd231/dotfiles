@@ -51,14 +51,18 @@ BarPopup {
         target: Immersion
         function onContextChanged() {
             win.ctxFilter = Immersion.context;
-            win.pinned = "";
         }
     }
-    Component.onCompleted: ctxFilter = Immersion.context
-    // the card on the left follows the context, unless a source was picked by hand (`pinned`, cleared when
-    // the context changes or the panel closes)
-    property string pinned: ""
-    function pick(kind) { pinned = pinned === kind ? "" : kind; }
+    Component.onCompleted: ctxFilter = Immersion.pane !== "" ? Immersion.pane : Immersion.context
+    // the card on the left follows the context, unless a source was picked by hand (`pinned`, kept until
+    // it is tapped again; saved with the rest of the immersion state)
+    readonly property string pinned: Immersion.pane
+    // picking a source also points the list's filter chip at it; tapping the pin again goes back to the context
+    function pick(kind) {
+        const off = pinned === kind;
+        Immersion.setPane(off ? "" : kind);
+        ctxFilter = off ? Immersion.context : kind;
+    }
     readonly property string pane: pinned !== "" ? pinned : autoPane
     // a source with nothing to show falls back to the next
     readonly property string autoPane: {
@@ -77,6 +81,36 @@ BarPopup {
             return "ttu";
         return Immersion.hasKavita ? "kavita" : "idle";
     }
+    // the cover on show, and a colour taken from it that tints the left card (transparent = no cover)
+    readonly property string coverPath: pane === "mpv" ? (Mpv.hasFile && Mpv.hasVideo && Mpv.thumb !== "" ? Mpv.thumb : "")
+        : pane === "ttu" ? (Immersion.readerBook && Immersion.readerBook.cover ? Immersion.readerBook.cover : "")
+        : pane === "kavita" ? (Immersion.mangaSeries && Immersion.mangaSeries.cover ? Immersion.mangaSeries.cover : "") : ""
+    ColorQuantizer {
+        id: quant
+        source: win.isOpen && win.coverPath !== "" ? "file://" + win.coverPath : ""
+        depth: 3
+        rescaleSize: 64
+    }
+    readonly property color seed: {
+        const cs = quant.colors;
+        if (win.coverPath === "" || !cs || cs.length === 0)
+            return "transparent";
+        // the most colourful one that is not nearly black or white
+        let best = null, score = -1;
+        for (let i = 0; i < cs.length; i++) {
+            const c = cs[i], l = c.hslLightness;
+            const sc = c.hslSaturation * (1 - Math.abs(l - 0.5));
+            if (sc > score) { score = sc; best = c; }
+        }
+        if (!best || best.hslSaturation < 0.12)
+            return "transparent";
+        // light enough to read on a dark card, dark enough on a light one
+        const dark = Colors.surface.hslLightness < 0.5;
+        return Qt.hsla(best.hslHue, Math.min(0.75, Math.max(0.35, best.hslSaturation)), dark ? 0.72 : 0.38, 1);
+    }
+    readonly property color mpvMain: win.pane === "mpv" && seed.a > 0 ? seed : Colors.primary
+    readonly property color mpvOnMain: win.pane === "mpv" && seed.a > 0 ? (seed.hslLightness > 0.55 ? "#1b1b1f" : "#ffffff") : Colors.on_primary
+    readonly property color cardTint: seed.a > 0 ? Qt.tint(Colors.surface_container_high, Qt.alpha(seed, 0.12)) : Colors.surface_container_high
     // what mpv is playing is known to the script (it wrote live.json for this very file)
     readonly property bool tracked: Mpv.hasFile && Immersion.liveRaw.path === Mpv.path
     readonly property var playInfo: Mpv.hasFile ? Immersion.parsePath(Mpv.path, Mpv.title) : null
@@ -90,8 +124,31 @@ BarPopup {
             return "Yesterday";
         return Qt.formatDate(Tasks.dateOf(key), "ddd d MMM");
     }
+    // the newest day that reached the goal: the only one the heatmap draws as a spinning star
+    readonly property string lastGoalDay: {
+        let best = "";
+        for (const k in Immersion.days) {
+            const m = k === Tasks.todayKey ? Immersion.todayMinutes : Immersion.days[k].minutes;
+            if (m >= Immersion.goalOn(k) && k > best)
+                best = k;
+        }
+        return best;
+    }
+    // what the heatmap shows for each day, worked out once per day and kept: a past day only changes
+    // when the day data, the goal or the star day does, and then the cache starts over
+    readonly property var dayCache: {
+        Immersion.days;
+        Immersion.goal;
+        DayMarks.marks;
+        lastGoalDay;
+        return ({});
+    }
     // heatmap shading and hover text for one day
     function dayInfo(key) {
+        const cache = dayCache;
+        return cache[key] || (cache[key] = dayInfoOf(key));
+    }
+    function dayInfoOf(key) {
         const d = Immersion.days[key];
         const m = d ? d.minutes : 0;
         if (m < 0.5)
@@ -107,7 +164,7 @@ BarPopup {
             label += " · " + Math.round(d.pages) + " pages";
         if (d.est)
             label += " (estimated)";
-        return { level: Immersion.levelOf(m), label: label };
+        return { level: Immersion.levelOf(m, key), label: label, star: key === lastGoalDay };
     }
 
     function openTtu() { Quickshell.execDetached(["xdg-open", "https://reader.ttsu.app/"]); }
@@ -119,7 +176,7 @@ BarPopup {
     // ---- facts for the left card ----
     function nf(n) { return Math.round(n).toLocaleString(Qt.locale(), "f", 0); }
     function lastLabel(day, verb) { return day !== "" ? "Last " + verb + "  ·  " + dayLabel(day) : ""; }
-    // video: where in the playlist, the speed, sound only, and the time on this series
+    // anime: where in the playlist, the speed, sound only, and the time on this series
     readonly property var mpvChips: {
         const out = [];
         if (!Mpv.hasFile)
@@ -133,7 +190,17 @@ BarPopup {
             out.push({ icon: "speed", text: String(Math.round(Mpv.speed * 100) / 100) + "×" });
         if (!Mpv.hasVideo)
             out.push({ icon: "music_note", text: "Audio only" });
-        const sr = playInfo ? Immersion.seriesList.find(x => x.key === playInfo.key) : null;
+        // subtitles from Jimaku (the panel on Alt+j in mpv has the details)
+        if (Jimaku.state === "saved")
+            out.push({ icon: "subtitles", text: "Jimaku subs" });
+        else if (Jimaku.searching)
+            out.push({ icon: "subtitles", text: "Finding subs…" });
+        else if (Jimaku.state === "none")
+            out.push({ icon: "subtitles_off", text: "No subs on Jimaku" });
+        const cp = Lexicon.comprehension(Lexicon.subPath());
+        if (cp !== "")
+            out.push({ icon: "translate", text: cp });
+        const sr = playInfo ? Immersion.seriesList.find(x => x.key === playInfo.key || (x.memberKeys || []).indexOf(playInfo.key) >= 0) : null;
         if (sr)
             out.push({ icon: "schedule", text: Immersion.fmt(sr.minutes) + " in total" });
         return out;
@@ -205,7 +272,7 @@ BarPopup {
     }
     readonly property string mangaHint: Immersion.kavitaLatest !== "" && Immersion.kavitaLatest < Tasks.keyOf(Tasks.addDays(Tasks.dateOf(Tasks.todayKey), -7)) && !Immersion.kavitaNow
         ? "The last manga reading saved by Kavita is from " + dayLabel(Immersion.kavitaLatest) + "." : ""
-    function openKavita() { Quickshell.execDetached(["xdg-open", "http://localhost:5000/"]); }
+    function openKavita() { Quickshell.execDetached(["xdg-open", Immersion.kavitaUrl(Immersion.mangaSeries)]); }
     // "Continue" is only offered for .mkv files: the newest one played, even if something else came after it
     readonly property var lastMkv: {
         const segs = Immersion.segments;
@@ -263,7 +330,6 @@ BarPopup {
             stage = 0;
             reading = false;
             dayFilter = "";
-            pinned = "";
         }
     }
     Timer {
@@ -338,16 +404,16 @@ BarPopup {
             });
         }
         function ctx(): string {
-            return JSON.stringify({ context: Immersion.context, kind: Immersion.ctxKind, name: Immersion.ctxName, pane: win.pane, pinned: win.pinned, filter: win.ctxFilter });
+            return JSON.stringify({ context: Immersion.context, kind: Immersion.ctxKind, name: Immersion.ctxName, pane: win.pane, pinned: win.pinned, filter: win.ctxFilter, seed: String(win.seed), cover: win.coverPath });
         }
         // pin the left card to a source (mpv | ttu | kavita), or "auto" to follow the context again
-        function pane(kind: string): void { win.pinned = kind === "auto" ? "" : kind; }
+        function pane(kind: string): void { Immersion.setPane(kind === "auto" ? "" : kind); }
         function classify(appId: string, title: string): string { return JSON.stringify(Immersion.classify(appId, title)); }
         function ctxset(kind: string): void { Immersion.ctxKind = kind; Immersion.ctxName = ""; }
         function parse(path: string): string { return JSON.stringify(Immersion.parsePath(path, "")); }
         function dump(): string {
             return JSON.stringify({
-                today: Immersion.todayMinutes, goal: Immersion.goal, streak: Immersion.streak, best: Immersion.best,
+                today: Immersion.todayMinutes, goal: Immersion.todayGoal, streak: Immersion.streak, best: Immersion.best,
                 live: { on: Immersion.liveOn, counted: Immersion.liveCounted, series: Immersion.liveInfo ? Immersion.liveInfo.name : "" },
                 segments: Immersion.segments.length,
                 recent: Immersion.recent.map(r => ({ day: r.day, title: r.title, detail: r.detail, min: Math.round(r.minutes * 10) / 10, counted: r.counted })),
@@ -367,7 +433,8 @@ BarPopup {
             Layout.preferredWidth: 380
             Layout.fillHeight: true
             radius: Motion.shapeLarge
-            color: Colors.surface_container_high
+            color: win.cardTint
+            Behavior on color { ColorFade { speed: "slow" } }
             clip: true
             property real appear: win.stage >= 1 ? 1 : 0
             Behavior on appear { Spring { speed: "default" } }
@@ -379,6 +446,7 @@ BarPopup {
                 id: live
                 anchors.fill: parent
                 anchors.margins: 16
+                anchors.topMargin: 64
                 spacing: 10
                 opacity: win.pane === "mpv" && Mpv.hasFile ? 1 : 0
                 visible: opacity > 0.02
@@ -423,14 +491,14 @@ BarPopup {
                         Behavior on fit { Spring { speed: "fast" } }
                         width: Math.max(0, fit)
                         radius: 14
-                        color: Mpv.playing ? Colors.primary : Qt.alpha(Colors.surface_container_highest, 0.92)
+                        color: Mpv.playing ? win.mpvMain : Qt.alpha(Colors.surface_container_highest, 0.92)
                         Behavior on color { ColorFade {} }
                         StyledText {
                             id: stateLabel
                             anchors.centerIn: parent
                             role: "labelLarge"
                             emphasized: true
-                            color: Mpv.playing ? Colors.on_primary : Colors.on_surface
+                            color: Mpv.playing ? win.mpvOnMain : Colors.on_surface
                             text: Mpv.playing ? "Playing" : "Paused"
                         }
                     }
@@ -747,9 +815,10 @@ BarPopup {
                 }
             }
 
-            // ---- video: nothing playing ----
+            // ---- anime: nothing playing ----
             ImmersionEmpty {
                 anchors.centerIn: parent
+                anchors.verticalCenterOffset: 24
                 width: parent.width - 48
                 accent: "primary"
                 icon: "movie"
@@ -767,8 +836,10 @@ BarPopup {
             ImmersionBookCard {
                 anchors.fill: parent
                 anchors.margins: 16
+                anchors.topMargin: 64
                 accent: "tertiary"
                 icon: "auto_stories"
+                seed: win.pane === "ttu" ? win.seed : "transparent"
                 active: win.isOpen
                 shown: win.pane === "ttu" && win.isOpen
                 cover: Immersion.readerBook && Immersion.readerBook.cover ? Immersion.readerBook.cover : ""
@@ -802,6 +873,7 @@ BarPopup {
             }
             ImmersionEmpty {
                 anchors.centerIn: parent
+                anchors.verticalCenterOffset: 24
                 width: parent.width - 48
                 accent: "tertiary"
                 icon: "auto_stories"
@@ -819,8 +891,10 @@ BarPopup {
             ImmersionBookCard {
                 anchors.fill: parent
                 anchors.margins: 16
+                anchors.topMargin: 64
                 accent: "secondary"
                 icon: "menu_book"
+                seed: win.pane === "kavita" ? win.seed : "transparent"
                 active: win.isOpen
                 shown: win.pane === "kavita" && win.isOpen
                 cover: Immersion.mangaSeries && Immersion.mangaSeries.cover ? Immersion.mangaSeries.cover : ""
@@ -851,6 +925,7 @@ BarPopup {
             }
             ImmersionEmpty {
                 anchors.centerIn: parent
+                anchors.verticalCenterOffset: 24
                 width: parent.width - 48
                 accent: "secondary"
                 icon: "menu_book"
@@ -867,6 +942,7 @@ BarPopup {
             // ---- nothing anywhere yet ----
             ImmersionEmpty {
                 anchors.centerIn: parent
+                anchors.verticalCenterOffset: 24
                 width: parent.width - 48
                 accent: "primary"
                 icon: "auto_awesome"
@@ -891,11 +967,9 @@ BarPopup {
             // which media the card shows; floats over the picture so it costs the layout nothing
             ImmersionSourceSwitch {
                 id: sourceSwitch
-                // on the picture's top-left; low on a cover, so the title on it stays readable
-                readonly property bool onCover: (win.pane === "ttu" && Immersion.hasTtu) || (win.pane === "kavita" && Immersion.hasKavita)
-                x: 26
-                y: onCover ? 16 + 240 - 50 : 26
-                Behavior on y { Spring { speed: "default" } }
+                // in a strip of its own above the picture or cover
+                x: 16
+                y: 16
                 z: 5
                 current: win.pane === "idle" ? "mpv" : win.pane
                 pinned: win.pinned !== ""
@@ -1000,10 +1074,10 @@ BarPopup {
                     WavyRing {
                         anchors.fill: parent
                         // fills in with the card when the panel opens
-                        value: Math.min(1, Immersion.todayMinutes / Math.max(1, Immersion.goal)) * Math.max(0, Math.min(1, ringBox.appear))
+                        value: Math.min(1, Immersion.todayMinutes / Math.max(1, Immersion.todayGoal)) * Math.max(0, Math.min(1, ringBox.appear))
                         idleDrift: win.isOpen ? 1.5 : 0
                         quicken: true
-                        pace: Immersion.todayMinutes / Math.max(1, Immersion.goal)
+                        pace: Immersion.todayMinutes / Math.max(1, Immersion.todayGoal)
                         waving: ((Immersion.liveOn && Immersion.liveCounted) || Immersion.readingNow) && win.isOpen
                         overdrive: Immersion.overdrive && win.isOpen
                         overValue: Immersion.overLaps - Math.floor(Immersion.overLaps)
@@ -1037,7 +1111,8 @@ BarPopup {
                         RollingDigits {
                             Layout.alignment: Qt.AlignHCenter
                             pixelSize: 56
-                            text: String(Math.floor(Immersion.todayMinutes))
+                            // reads 0 until the card has landed, then rolls once to today's value
+                            text: win.stage >= 3 ? String(Math.floor(Immersion.todayMinutes)) : "0"
                             color: Immersion.overdrive ? ringBox.lapColor : Immersion.goalMet ? Colors.tertiary : Colors.on_surface
                             Behavior on color { ColorFade {} }
                         }
@@ -1057,8 +1132,9 @@ BarPopup {
                                 role: "labelLarge"
                                 emphasized: Immersion.overdrive
                                 color: Immersion.overdrive ? ringBox.lapColor : Colors.on_surface_variant
-                                text: Immersion.overdrive ? "+" + Math.max(1, Math.round(Immersion.todayMinutes - Immersion.goal)) + " min over"
-                                    : Immersion.goalMet ? "goal reached" : "of " + Immersion.goal + " min"
+                                text: Immersion.overdrive ? "+" + Math.max(1, Math.round(Immersion.todayMinutes - Immersion.todayGoal)) + " min over"
+                                    : Immersion.goalMet ? "goal reached"
+                                    : Immersion.todayMinutes < 1 && !Immersion.liveOn ? Immersion.todayGoal + " min to go" : "of " + Immersion.todayGoal + " min"
                             }
                         }
                     }
@@ -1097,10 +1173,24 @@ BarPopup {
                         RowLayout {
                             anchors.centerIn: parent
                             spacing: 8
-                            Icon { size: 22; name: "local_fire_department"; color: Colors.on_tertiary_container }
+                            // the cookie turns slowly once today's goal is met: the streak is safe
+                            ShapeBadge {
+                                Layout.preferredWidth: 34
+                                Layout.preferredHeight: 34
+                                shapeRest: 5
+                                shapeActive: 1
+                                active: Immersion.goalMet
+                                spinning: Immersion.goalMet && win.isOpen
+                                spinSpeed: 18
+                                color: Colors.tertiary
+                                Icon { anchors.centerIn: parent; size: 18; name: "local_fire_department"; color: Colors.on_tertiary }
+                            }
                             ColumnLayout {
                                 spacing: 0
-                                StyledText { role: "titleMedium"; emphasized: true; color: Colors.on_tertiary_container; text: Immersion.streak + (Immersion.streak === 1 ? " day" : " days") }
+                                Row {
+                                    RollingDigits { pixelSize: 16; color: Colors.on_tertiary_container; text: String(Immersion.streak) }
+                                    StyledText { role: "titleMedium"; emphasized: true; color: Colors.on_tertiary_container; text: Immersion.streak === 1 ? " day" : " days" }
+                                }
                                 StyledText { role: "labelSmall"; color: Colors.on_tertiary_container; text: "streak" }
                             }
                         }
@@ -1113,10 +1203,20 @@ BarPopup {
                         RowLayout {
                             anchors.centerIn: parent
                             spacing: 8
-                            Icon { size: 22; name: "star"; color: Colors.on_secondary_container }
+                            ShapeBadge {
+                                Layout.preferredWidth: 34
+                                Layout.preferredHeight: 34
+                                shapeRest: 7
+                                shapeActive: 7
+                                color: Colors.secondary
+                                Icon { anchors.centerIn: parent; size: 16; name: "star"; color: Colors.on_secondary }
+                            }
                             ColumnLayout {
                                 spacing: 0
-                                StyledText { role: "titleMedium"; emphasized: true; color: Colors.on_secondary_container; text: Immersion.best + (Immersion.best === 1 ? " day" : " days") }
+                                Row {
+                                    RollingDigits { pixelSize: 16; color: Colors.on_secondary_container; text: String(Immersion.best) }
+                                    StyledText { role: "titleMedium"; emphasized: true; color: Colors.on_secondary_container; text: Immersion.best === 1 ? " day" : " days" }
+                                }
                                 StyledText { role: "labelSmall"; color: Colors.on_secondary_container; text: "best" }
                             }
                         }
@@ -1134,40 +1234,79 @@ BarPopup {
                     transform: Translate { y: (1 - split.appear) * 12 }
                     readonly property real total: Immersion.todayWatch + Immersion.todayRead
 
+                    // two pills with a gap: watching and reading, each carrying its icon and time (an empty day
+                    // shows both, faint)
                     Item {
+                        id: splitBar
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 14
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 7
-                            color: Colors.surface_container_highest
-                            visible: split.total <= 0
-                        }
+                        Layout.preferredHeight: 34
+                        readonly property real usable: width - 4
+                        readonly property bool empty: split.total <= 0
+                        readonly property real watchW: empty ? usable / 2 : Math.max(70, Math.min(usable - 70, usable * Immersion.todayWatch / split.total))
+                        readonly property bool watchOn: Immersion.todayWatch > 0 || empty
+                        readonly property bool readOn: Immersion.todayRead > 0 || empty
                         Rectangle {
                             id: watchBar
                             height: parent.height
-                            radius: 7
-                            color: Colors.primary
-                            width: split.total > 0 ? Math.max(14, (parent.width - 4) * Immersion.todayWatch / split.total) : 0
-                            visible: Immersion.todayWatch > 0
+                            radius: height / 2
+                            color: splitBar.empty ? Colors.surface_container_highest : Colors.primary
+                            visible: splitBar.watchOn
+                            width: splitBar.watchOn && splitBar.readOn ? splitBar.watchW : splitBar.width
+                            clip: true
                             Behavior on width { Spring {} }
+                            Behavior on color { ColorFade {} }
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 6
+                                Icon { anchors.verticalCenter: parent.verticalCenter; size: 16; name: "movie"; color: splitBar.empty ? Colors.on_surface_variant : Colors.on_primary }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: watchBar.width >= 140
+                                    role: "labelLarge"
+                                    emphasized: true
+                                    color: splitBar.empty ? Colors.on_surface_variant : Colors.on_primary
+                                    text: "Watching"
+                                }
+                                RollingDigits {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: watchBar.width >= 70
+                                    pixelSize: 14
+                                    color: splitBar.empty ? Colors.on_surface_variant : Colors.on_primary
+                                    text: Immersion.fmt(Immersion.todayWatch)
+                                }
+                            }
                         }
                         Rectangle {
+                            id: readBar
                             height: parent.height
-                            radius: 7
-                            color: Colors.tertiary
-                            x: watchBar.visible ? watchBar.width + 4 : 0
-                            width: split.total > 0 ? (watchBar.visible ? parent.width - watchBar.width - 4 : parent.width) : 0
-                            visible: Immersion.todayRead > 0
+                            radius: height / 2
+                            color: splitBar.empty ? Colors.surface_container_highest : Colors.tertiary
+                            visible: splitBar.readOn
+                            x: splitBar.watchOn ? watchBar.width + 4 : 0
+                            width: Math.max(0, splitBar.watchOn ? splitBar.width - watchBar.width - 4 : splitBar.width)
+                            clip: true
+                            Behavior on color { ColorFade {} }
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 6
+                                Icon { anchors.verticalCenter: parent.verticalCenter; size: 16; name: "auto_stories"; color: splitBar.empty ? Colors.on_surface_variant : Colors.on_tertiary }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: readBar.width >= 140
+                                    role: "labelLarge"
+                                    emphasized: true
+                                    color: splitBar.empty ? Colors.on_surface_variant : Colors.on_tertiary
+                                    text: "Reading"
+                                }
+                                RollingDigits {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: readBar.width >= 70
+                                    pixelSize: 14
+                                    color: splitBar.empty ? Colors.on_surface_variant : Colors.on_tertiary
+                                    text: Immersion.fmt(Immersion.todayRead)
+                                }
+                            }
                         }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 4
-                        Layout.rightMargin: 4
-                        StyledText { role: "labelLarge"; color: Colors.primary; text: "Watching " + Immersion.fmt(Immersion.todayWatch) }
-                        Item { Layout.fillWidth: true }
-                        StyledText { role: "labelLarge"; color: Colors.tertiary; text: "Reading " + Immersion.fmt(Immersion.todayRead) }
                     }
                     // characters read today, and how fast
                     RowLayout {
@@ -1341,6 +1480,11 @@ BarPopup {
                     IconButton { icon: "chevron_right"; style: "tonal"; size: "xs"; enabled: win.back > 0; onClicked: win.back -= 1 }
                 }
 
+                DayMarkPicker {
+                    Layout.fillWidth: true
+                    key: win.dayFilter !== "" ? win.dayFilter : Tasks.todayKey
+                }
+
                 HeatmapGrid {
                     id: heat
                     Layout.alignment: Qt.AlignHCenter
@@ -1457,10 +1601,21 @@ BarPopup {
 
                         HoverHandler { id: rowHover }
 
+                        // a grouped list: the outer corners of the first and last rows are round, the inner ones
+                        // tight; a row under the pointer rounds right off
                         Rectangle {
+                            id: rowFill
                             anchors.fill: parent
-                            radius: Motion.shapeLarge
-                            color: rowHover.hovered ? Colors.surface_container_highest : "transparent"
+                            readonly property real outer: Motion.shapeLarge
+                            readonly property real inner: 4
+                            readonly property real hov: rowHover.hovered ? 30 : -1
+                            topLeftRadius: hov >= 0 ? hov : row.index === 0 ? outer : inner
+                            topRightRadius: Math.max(0, topLeftRadius)
+                            bottomLeftRadius: hov >= 0 ? hov : row.index === win.rows.length - 1 ? outer : inner
+                            bottomRightRadius: Math.max(0, bottomLeftRadius)
+                            Behavior on topLeftRadius { Spring { speed: "fast" } }
+                            Behavior on bottomLeftRadius { Spring { speed: "fast" } }
+                            color: rowHover.hovered ? Colors.surface_container_highest : Colors.surface_container
                             Behavior on color { ColorFade {} }
                         }
                         RowLayout {

@@ -4,12 +4,12 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import Quickshell.Services.Mpris
 import Quickshell.Services.Pam
 import Quickshell.Wayland
 import Quickshell.Widgets
 import qs
 import qs.Components
+import qs.Services
 
 // Session lock. Lock with `qs ipc call lockscreen lock` (or the power menu).
 // The screen is captured with grim before locking (once locked, screencopy only sees the
@@ -27,7 +27,21 @@ Scope {
         unlockTimer.start();
     }
 
+    // "reboot" | "poweroff" picked on the lock screen: runs once unlocked, so apps' save prompts are visible
+    property string pendingPower: ""
+    Timer {
+        id: powerAfterUnlock
+        property string kind: ""
+        interval: 900
+        onTriggered: Power.run(kind)
+    }
+
     function finishUnlock() {
+        if (root.pendingPower !== "") {
+            powerAfterUnlock.kind = root.pendingPower;
+            powerAfterUnlock.restart();
+            root.pendingPower = "";
+        }
         root.locked = false;
         root.cleanup();
         root.buffer = ""; root.failed = false; root.unlocking = false;
@@ -100,6 +114,7 @@ Scope {
     function lock() {
         if (root.locked || captureProc.running || captureDelay.running)
             return;
+        root.pendingPower = "";
         captureDelay.start();
     }
 
@@ -119,17 +134,6 @@ Scope {
     IpcHandler {
         target: "lockscreen"
         function lock(): void { root.lock() }
-    }
-
-    // Pass in shell.qml's activePlayer so the lock screen shows the same player as the bar
-    property var player: null
-
-    // MPRIS doesn't push position updates, so poke it once a second while playing
-    Timer {
-        interval: 1000
-        repeat: true
-        running: root.locked && !!root.player && root.player.playbackState === MprisPlaybackState.Playing && root.player.positionSupported
-        onTriggered: root.player.positionChanged()
     }
 
     SystemClock {
@@ -262,10 +266,10 @@ Scope {
                     shown: root.locked
                     capsOn: root.capsOn
                     keyTick: root.keyTick
-                    player: root.player
                     onSuspendRequested: Quickshell.execDetached(["systemctl", "suspend"])
-                    onRestartRequested: Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl reboot"])
-                    onPoweroffRequested: Quickshell.execDetached(["hyprshutdown", "--post-cmd", "systemctl poweroff"])
+                    pendingPower: root.pendingPower
+                    onRestartRequested: root.pendingPower = root.pendingPower === "reboot" ? "" : "reboot"
+                    onPoweroffRequested: root.pendingPower = root.pendingPower === "poweroff" ? "" : "poweroff"
                 }
             }
         }

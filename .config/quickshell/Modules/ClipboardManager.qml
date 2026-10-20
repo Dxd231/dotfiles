@@ -23,7 +23,10 @@ Item {
     property bool dirty: false
     // copy / delete / clear-all in flight (rows play a short motion before the real command runs)
     property bool copying: false
-    property string removingId: ""
+    property var removingIds: ({})
+    readonly property bool removingAny: Object.keys(removingIds).length > 0
+    // entries queued for the next `cliphist delete` (captured at click time, not at fire time)
+    property var pendingDeletes: []
     property bool wiping: false
     // selection to restore once a delete has refreshed the list
     property int keepIndex: -1
@@ -55,17 +58,20 @@ Item {
         id: deleteGo
         interval: 220
         onTriggered: {
-            if (!root.selectedEntry)
+            if (root.pendingDeletes.length === 0)
                 return;
-            const entry = root.selectedEntry;
-            deleteProc.stdinEnabled = true;
-            deleteProc.running = false;
+            // never kill a delete in flight: wait for it, then send the whole batch
+            if (deleteProc.running) {
+                restart();
+                return;
+            }
+            const batch = root.pendingDeletes;
+            root.pendingDeletes = [];
+            // lines go in as argv (no stdin race); ids of the batch follow "--" so their decoded previews go too
+            const raws = batch.map(e => e.raw);
+            const ids = batch.map(e => e.id);
+            deleteProc.command = ["sh", "-c", "n=$1; shift; i=0; while [ $i -lt $n ]; do printf '%s\\n' \"$1\"; shift; i=$((i+1)); done | cliphist delete; for id in \"$@\"; do rm -f -- /tmp/qs-clip-$id.*; done", "sh", String(raws.length)].concat(raws, ids);
             deleteProc.running = true;
-            deleteWriteTimer.callback = () => {
-                deleteProc.write(entry.raw + "\n");
-                deleteProc.stdinEnabled = false;
-            };
-            deleteWriteTimer.restart();
         }
     }
     Timer {
@@ -288,7 +294,12 @@ Item {
             timestampsAdapter.timestamps = cur;
         }
         // the row collapses first, then the entry is really deleted
-        root.removingId = entry.id;
+        if (root.removingIds[entry.id])
+            return;
+        const rem = Object.assign({}, root.removingIds);
+        rem[entry.id] = true;
+        root.removingIds = rem;
+        root.pendingDeletes = root.pendingDeletes.concat([entry]);
         deleteGo.restart();
     }
 
@@ -319,13 +330,6 @@ Item {
         onTriggered: if (callback)
             callback()
     }
-    Timer {
-        id: deleteWriteTimer
-        interval: 30
-        property var callback: null
-        onTriggered: if (callback)
-            callback()
-    }
 
     Process {
         id: listProc
@@ -334,7 +338,9 @@ Item {
             onStreamFinished: {
                 const lines = text.split("\n").filter(l => l.length > 0);
                 root.entries = lines.map(root.parseLine).filter(e => e !== null);
-                root.removingId = "";
+                // keep rows of a delete still in flight collapsed; forget the ones that are really gone
+                if (root.removingAny && !deleteProc.running && root.pendingDeletes.length === 0)
+                    root.removingIds = ({});
                 if (root.keepIndex >= 0) {
                     root.selectedIndex = Math.max(0, Math.min(root.keepIndex, root.entries.length - 1));
                     root.keepIndex = -1;
@@ -387,7 +393,8 @@ Item {
     // history is listed once per change (after cliphist's own store has landed).
     Process {
         running: true
-        command: ["wl-paste", "--watch", "echo", "changed"]
+        // an orphan (quickshell gone) hits a closed pipe on the next change and takes its wl-paste with it
+        command: ["sh", "-c", "trap '' PIPE; exec wl-paste --watch sh -c 'echo changed || kill $PPID'"]
         stdout: SplitParser {
             onRead: clipboardSettle.restart()
         }
@@ -428,7 +435,7 @@ Item {
 
     Process {
         id: wipeProc
-        command: ["cliphist", "wipe"]
+        command: ["sh", "-c", "cliphist wipe; rm -f -- /tmp/qs-clip-*"]
         onExited: {
             timestampsAdapter.timestamps = {};
             root.wiping = false;
@@ -650,7 +657,7 @@ Item {
                                 interval: 90
                                 onTriggered: {
                                     const it = entryList.currentItem;
-                                    if (scroller.running || entryList.count === 0)
+                                    if (scroller.running || entryList.count === 0 || root.removingAny)
                                         return;
                                     const top = entryList.contentY, bottom = top + entryList.height;
                                     // a pooled (scrolled-out) selected row has no item: judge by its index instead
@@ -708,7 +715,7 @@ Item {
                                 readonly property bool selected: index === root.selectedIndex
                                 // collapsing: this row was deleted, or Clear all is sweeping through
                                 property bool collapsed: false
-                                readonly property bool removing: collapsed || modelData.id === root.removingId
+                                readonly property bool removing: collapsed || !!root.removingIds[modelData.id]
 
                                 // rows rise in one after another when the panel opens
                                 readonly property bool shownNow: index >= 8 || root.stage > index
@@ -752,6 +759,8 @@ Item {
                                     target: entryRow.mouseArea
                                     function onDoubleClicked() { root.copySelected(); }
                                     function onPositionChanged(mouse) {
+                                        if (root.removingAny)
+                                            return;
                                         const p = entryRow.mapToItem(null, mouse.x, mouse.y);
                                         if (p.x === root.lastMouseX && p.y === root.lastMouseY)
                                             return;

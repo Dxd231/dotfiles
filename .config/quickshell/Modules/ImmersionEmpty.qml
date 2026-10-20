@@ -17,7 +17,7 @@ ColumnLayout {
     signal triggered(string id)
 
     readonly property color container: accent === "secondary" ? Colors.secondary_container : accent === "tertiary" ? Colors.tertiary_container : Colors.primary_container
-    readonly property color onContainer: accent === "secondary" ? Colors.on_secondary_container : accent === "tertiary" ? Colors.on_tertiary_container : Colors.on_primary_container
+    readonly property color textOnContainer: accent === "secondary" ? Colors.on_secondary_container : accent === "tertiary" ? Colors.on_tertiary_container : Colors.on_primary_container
 
     spacing: 12
 
@@ -29,7 +29,7 @@ ColumnLayout {
         shapeRest: empty.accent === "secondary" ? 5 : 1
         spinning: empty.active
         color: empty.container
-        Icon { anchors.centerIn: parent; size: 40; name: empty.icon; color: empty.onContainer }
+        Icon { anchors.centerIn: parent; size: 40; name: empty.icon; color: empty.textOnContainer }
         Appear { shown: empty.active; lift: 0; from: 0.55 }
     }
     StyledText {

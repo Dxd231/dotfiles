@@ -12,7 +12,8 @@ import qs.Services
 //
 // task = { id, name, days: [0..6] (Sun = 0), reminds: ["HH:mm"], nudge: bool, created: "yyyy-MM-dd",
 //          target: n (daily count, default 1), done: { "yyyy-MM-dd": count }, skipped: { key: 1 },
-//          notes: { key: "text" }, sessions: { key: n }, archived: bool, style: int }
+//          notes: { key: "text" }, sessions: { key: n }, archived: bool, style: int,
+//          pomodoro: bool (may be linked to the focus timer) }
 // (older records with a single `remind` string keep working)
 Singleton {
     id: tasks
@@ -29,6 +30,8 @@ Singleton {
     // style counter, so a task keeps its shape and colour when others are deleted
     property int _seq: 0
     readonly property var active: list.filter(t => !t.archived)
+    // the tasks the focus timer can be linked to
+    readonly property var focusable: active.filter(t => t.pomodoro)
     readonly property var archivedList: list.filter(t => !!t.archived)
     readonly property int count: active.length
     // local date, refreshed by the ticker so midnight rolls everything over
@@ -43,7 +46,7 @@ Singleton {
 
     readonly property var dueToday: {
         const d = dateOf(todayKey);
-        return active.filter(t => isDue(t, d) && !isSkipped(t, todayKey));
+        return active.filter(t => isDue(t, d) && !isSkipped(t, todayKey) && !DayMarks.isRest(todayKey));
     }
     readonly property int dueCount: dueToday.length
     readonly property int pendingCount: dueToday.filter(t => !isDone(t, todayKey)).length
@@ -76,10 +79,14 @@ Singleton {
     function isDue(t, date) { return !!t && t.days.indexOf(date.getDay()) >= 0; }
     function targetOf(t) { return Math.max(1, Math.floor(t && t.target || 1)); }
     function countOf(t, key) { return t && t.done && t.done[key] ? Number(t.done[key]) : 0; }
-    function isDone(t, key) { return !!t && countOf(t, key) >= targetOf(t); }
+    // a busy day halves the target
+    function targetOn(t, key) { return DayMarks.goalOn(targetOf(t), key); }
+    function isDone(t, key) { return !!t && countOf(t, key) >= targetOn(t, key); }
     // 0..1 toward the day's target
-    function progress(t, key) { return Math.min(1, countOf(t, key) / targetOf(t)); }
+    function progress(t, key) { return Math.min(1, countOf(t, key) / targetOn(t, key)); }
     function isSkipped(t, key) { return !!t && !!t.skipped && !!t.skipped[key]; }
+    // a rest day of the task's own, or a busy / rest day marked for everything
+    function isExcused(t, key) { return isSkipped(t, key) || DayMarks.isMarked(key); }
     function noteOf(t, key) { return t && t.notes && t.notes[key] ? String(t.notes[key]) : ""; }
     function sessionsOf(t, key) { return t && t.sessions && t.sessions[key] ? Number(t.sessions[key]) : 0; }
     function remindsOf(t) { return !t ? [] : t.reminds ? t.reminds : t.remind ? [t.remind] : []; }
@@ -106,7 +113,7 @@ Singleton {
                 break;
             if (isDone(t, k))
                 s++;
-            else if (i > 0 && isDue(t, d) && !isSkipped(t, k))
+            else if (i > 0 && isDue(t, d) && !isExcused(t, k))
                 break;
         }
         return s;
@@ -122,7 +129,7 @@ Singleton {
             if (isDone(t, k)) {
                 run++;
                 out[k] = run;
-            } else if (isDue(t, d) && !isSkipped(t, k) && k !== todayKey) {
+            } else if (isDue(t, d) && !isExcused(t, k) && k !== todayKey) {
                 run = 0;
             }
         }
@@ -143,7 +150,7 @@ Singleton {
         let due = 0, done = 0;
         for (let i = 0; i < 30; i++) {
             const d = addDays(today, -i), k = keyOf(d);
-            if (k < t.created || !isDue(t, d) || isSkipped(t, k))
+            if (k < t.created || !isDue(t, d) || isExcused(t, k))
                 continue;
             if (isDone(t, k)) {
                 due++;
@@ -180,7 +187,7 @@ Singleton {
     function _mutate(id, fn) {
         _commit(list.map(t => t.id === id ? fn(Object.assign({}, t)) : t));
     }
-    function addTask(name, days, reminds, nudge, target) {
+    function addTask(name, days, reminds, nudge, target, pomodoro) {
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
         const task = {
             id: id,
@@ -188,6 +195,7 @@ Singleton {
             days: days && days.length ? days.slice().sort() : [0, 1, 2, 3, 4, 5, 6],
             reminds: reminds || [],
             nudge: !!nudge,
+            pomodoro: !!pomodoro,
             created: todayKey,
             target: Math.max(1, Math.floor(target || 1)),
             done: {},
@@ -202,12 +210,21 @@ Singleton {
         return id;
     }
     function updateTask(id, fields) {
+        if (fields.pomodoro === false && id === Pomodoro.taskId)
+            Pomodoro.setTask("");
         _mutate(id, t => {
             Object.assign(t, fields);
             if (fields.reminds !== undefined)
                 t.remind = "";
             return t;
         });
+    }
+    // before the switch existed any task could be linked: keep the one the timer is on, and nothing else.
+    // Both files load on their own schedule, so each side calls this once its half is in.
+    function adoptLink(id) {
+        if (id === "" || list.length === 0 || list.some(t => t.pomodoro !== undefined))
+            return;
+        list = list.map(t => Object.assign({}, t, { pomodoro: t.id === id }));
     }
     function removeTask(id) {
         _commit(list.filter(t => t.id !== id));
@@ -297,7 +314,7 @@ Singleton {
         const t = byId(id);
         if (!t)
             return;
-        const n = countOf(t, key), target = targetOf(t);
+        const n = countOf(t, key), target = targetOn(t, key);
         const next = n >= target ? 0 : (target === 1 ? 1 : n + 1);
         let msg = "";
         if (announce !== false)
@@ -309,7 +326,7 @@ Singleton {
     function setDone(id, key, on) {
         const t = byId(id);
         if (t)
-            _change(id, key, { count: on ? targetOf(t) : 0 }, "");
+            _change(id, key, { count: on ? targetOn(t, key) : 0 }, "");
     }
     function setCount(id, key, n) {
         _change(id, key, { count: Math.max(0, Math.floor(n)) }, "");
@@ -337,22 +354,26 @@ Singleton {
         });
     }
 
-    // ---- focus link: a finished focus session counts for the linked task ----
+    // ---- focus link: each finished focus session is tallied for the linked task, and a full cycle
+    // (the set of sessions ending in the long break) counts as one completion ----
     Connections {
         target: Pomodoro
         function onFocusCompleted(id) {
             const t = tasks.byId(id);
+            if (t && !t.archived)
+                tasks.addSession(id, tasks.todayKey);
+        }
+        function onCycleCompleted(id) {
+            const t = tasks.byId(id);
             if (!t || t.archived)
                 return;
-            tasks.addSession(id, tasks.todayKey);
-            const n = tasks.countOf(t, tasks.todayKey), target = tasks.targetOf(t);
+            const n = tasks.countOf(t, tasks.todayKey), target = tasks.targetOn(t, tasks.todayKey);
             if (n < target)
-                tasks._change(id, tasks.todayKey, { count: n + 1 }, "Focus session counted for " + t.name);
+                tasks._change(id, tasks.todayKey, { count: n + 1 }, "Focus cycle counted for " + t.name);
         }
     }
 
     // ---- reminders ----
-    property var snoozed: ({})   // id -> epoch ms to fire again
 
     function _minutes(hhmm) {
         const p = String(hhmm).split(":").map(Number);
@@ -384,23 +405,25 @@ Singleton {
                     }
                 }
             }
-            if (!sent && t.nudge && streak(t) >= 3 && _inWindow(nowMin, nudgeMinute) && fired[t.id + ":nudge"] !== todayKey) {
+            if (!sent && t.nudge && !DayMarks.isMarked(todayKey) && streak(t) >= 3 && _inWindow(nowMin, nudgeMinute) && fired[t.id + ":nudge"] !== todayKey) {
                 fired[t.id + ":nudge"] = todayKey;
                 changed = true;
                 fire(t.id, "nudge");
             }
         }
 
-        const snooze = Object.assign({}, snoozed);
+        const snooze = Object.assign({}, adapter.snoozed);
         for (const id in snooze) {
             if (snooze[id] > now.getTime())
                 continue;
             delete snooze[id];
+            changed = true;
             const t = byId(id);
             if (t && !t.archived && !isDone(t, todayKey))
                 fire(id, "remind");
         }
-        snoozed = snooze;
+        if (changed)
+            adapter.snoozed = snooze;
 
         if (now.getDay() === 0 && nowMin >= recapHour * 60 && adapter.weeklyRecap && count > 0 && adapter.summaryWeek !== todayKey) {
             adapter.summaryWeek = todayKey;
@@ -428,12 +451,10 @@ Singleton {
             body = s > 1 ? "Keep your " + s + "-day streak going." : "Time for today's " + t.name.toLowerCase() + ".";
         tasks.fired(id);
         Sound.play(kind === "nudge" ? "nudge" : "alarm");
-        // notify-send waits for the notification and prints the action that was picked
-        notifier.createObject(tasks, {
-            taskId: id,
-            command: ["notify-send", "-a", "Tasks", "-u", "normal", "-t", "60000", "-A", "done=Done", "-A", "snooze10=+10 min", "-A", "snooze60=+1 hour", t.name, body],
-            running: true
-        });
+        // urgent, so it stays up until answered. The task id rides in the action ids: the
+        // notification server (Notifications.qml) hands the picked one to handleAction(), which
+        // keeps working for a notification carried over a reload
+        Quickshell.execDetached(["notify-send", "-a", "Tasks", "-u", "critical", "-t", "0", "-A", "done:" + id + "=Done", "-A", "snooze10:" + id + "=+10 min", "-A", "snooze60:" + id + "=+1 hour", t.name, body]);
     }
 
     // Sunday evening: how the week went
@@ -443,7 +464,7 @@ Singleton {
         for (const t of active) {
             for (let i = 0; i < 7; i++) {
                 const d = addDays(today, -i), k = keyOf(d);
-                if (k < t.created || !isDue(t, d) || isSkipped(t, k))
+                if (k < t.created || !isDue(t, d) || isExcused(t, k))
                     continue;
                 due++;
                 if (isDone(t, k))
@@ -459,15 +480,23 @@ Singleton {
             return;
         const body = done + " of " + due + " done this week" + (best && bestStreak > 1 ? ". Best streak: " + best.name + " (" + bestStreak + " days)" : ".");
         Sound.play("recap");
-        notifier.createObject(tasks, {
-            taskId: "",
-            command: ["notify-send", "-a", "Tasks", "-u", "normal", "-t", "60000", "-A", "open=Open tasks", "Weekly recap", body],
-            running: true
-        });
+        Quickshell.execDetached(["notify-send", "-a", "Tasks", "-u", "normal", "-t", "60000", "-A", "open:=Open tasks", "Weekly recap", body]);
     }
     function setWeeklyRecap(on) {
         adapter.weeklyRecap = !!on;
         store.writeAdapter();
+    }
+
+    // action ids look like "<action>:<task id>"; false when it isn't one of ours
+    function handleAction(identifier) {
+        const at = String(identifier).indexOf(":");
+        if (at < 0)
+            return false;
+        const action = identifier.slice(0, at);
+        if (["open", "done", "snooze10", "snooze60"].indexOf(action) < 0)
+            return false;
+        _onAction(identifier.slice(at + 1), action);
+        return true;
     }
 
     function _onAction(id, action) {
@@ -477,21 +506,10 @@ Singleton {
         } else if (action === "done") {
             setDone(id, todayKey, true);
         } else if (action === "snooze10" || action === "snooze60") {
-            const s = Object.assign({}, snoozed);
+            const s = Object.assign({}, adapter.snoozed);
             s[id] = Date.now() + (action === "snooze10" ? 10 : 60) * 60000;
-            snoozed = s;
-        }
-    }
-
-    Component {
-        id: notifier
-        Process {
-            id: proc
-            property string taskId
-            stdout: SplitParser {
-                onRead: data => tasks._onAction(proc.taskId, data.trim())
-            }
-            onExited: proc.destroy()
+            adapter.snoozed = s;
+            store.writeAdapter();
         }
     }
 
@@ -511,6 +529,7 @@ Singleton {
 
         onLoaded: {
             tasks.list = adapter.tasks || [];
+            tasks.adoptLink(Pomodoro.taskId);
             tasks._seq = adapter.seq;
         }
 
@@ -524,6 +543,8 @@ Singleton {
             // the Sunday (yyyy-MM-dd) the weekly recap last went out
             property string summaryWeek: ""
             property bool weeklyRecap: true
+            // task id -> epoch ms a snoozed reminder fires again
+            property var snoozed: ({})
         }
     }
 }

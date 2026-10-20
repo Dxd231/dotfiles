@@ -12,7 +12,10 @@ ShellRoot {
     id: shell
 
     // so the capture card can toast (Undo after a delete) however the capture was started or adopted
-    Component.onCompleted: Capture.toast = copyToast
+    Component.onCompleted: {
+        Capture.toast = copyToast;
+        Session.toast = copyToast;
+    }
 
     // Preferred player first, otherwise any playing/paused one.
     property string preferredPlayer: "spotify"
@@ -33,9 +36,11 @@ ShellRoot {
         notifications: notifications
         calendarPopup: calendarPopup
         focusPopup: focusPopup
+        alarmPopup: alarmPopup
         tasksPopup: taskPopup
         tasksQuickMenu: taskQuickMenu
         immersionPopup: immersionPopup
+        ankiPopup: ankiPopup
         systemStatusPopup: systemStatusPopup
         volumePopup: volumePopup
         albumPopup: albumPopup
@@ -49,6 +54,11 @@ ShellRoot {
 
     FocusPopup {
         id: focusPopup
+        anchorItem: bar.clockFocusAnchor
+    }
+
+    AlarmPopup {
+        id: alarmPopup
         anchorItem: bar.clockTimeAnchor
     }
 
@@ -67,6 +77,16 @@ ShellRoot {
         id: immersionPopup
         anchorItem: bar.immersionChip
         copyToast: copyToast
+    }
+
+    // opened from mpv (Alt+j), not from a bar item
+    JimakuPopup {
+        id: jimakuPopup
+    }
+
+    AnkiPopup {
+        id: ankiPopup
+        anchorItem: bar.ankiChip
     }
 
     SystemStatusPopup {
@@ -100,7 +120,11 @@ ShellRoot {
 
     LockScreen {
         id: lockScreen
-        player: shell.activePlayer
+    }
+    Binding {
+        target: Session
+        property: "blocked"
+        value: lockScreen.locked
     }
 
     AppDock {
@@ -126,7 +150,13 @@ ShellRoot {
         lockScreen: lockScreen
     }
 
+    SessionRestoreCard {}
+
+    ClosingApps {}
+
     WallpaperSwitcher {}
+
+    ShelfPanel {}
 
     OnScreenDisplay {
         volumePopup: volumePopup
@@ -138,6 +168,7 @@ ShellRoot {
 
     OcrOverlay {}
     OcrCard {}
+    SubOverlay {}
     // OCR: snip a region (auto engine), read the last region again, OCR the clipboard image
     IpcHandler {
         target: "ocr"

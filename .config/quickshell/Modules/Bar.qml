@@ -15,9 +15,11 @@ PanelWindow {
     property var notifications: null
     property var calendarPopup: null
     property var focusPopup: null
+    property var alarmPopup: null
     property var tasksPopup: null
     property var tasksQuickMenu: null
     property var immersionPopup: null
+    property var ankiPopup: null
     property var systemStatusPopup: null
     property var volumePopup: null
     property var albumPopup: null
@@ -28,9 +30,11 @@ PanelWindow {
     readonly property alias clockChip: clock
     readonly property alias tasksChip: tasksChip
     readonly property alias immersionChip: immersionChip
-    // the time and date parts of the clock anchor different popups
+    readonly property alias ankiChip: ankiChip
+    // the time, date and pomodoro parts of the clock anchor different popups
     readonly property Item clockTimeAnchor: clock.timeAnchor
     readonly property Item clockDateAnchor: clock.dateAnchor
+    readonly property Item clockFocusAnchor: clock.focusAnchor
 
     WlrLayershell.namespace: "quickshell:thebar"
     WlrLayershell.layer: WlrLayer.Top
@@ -138,6 +142,7 @@ PanelWindow {
                 id: clock
                 calendarPopup: bar.calendarPopup
                 focusPopup: bar.focusPopup
+                alarmPopup: bar.alarmPopup
             }
             BarTasks {
                 id: tasksChip
@@ -149,6 +154,11 @@ PanelWindow {
                 id: immersionChip
                 anchors.verticalCenter: parent.verticalCenter
                 popup: bar.immersionPopup
+            }
+            BarAnki {
+                id: ankiChip
+                anchors.verticalCenter: parent.verticalCenter
+                popup: bar.ankiPopup
             }
         }
 
@@ -267,14 +277,40 @@ PanelWindow {
                     height: 24
                     shapeRest: 7
                     shapeActive: 4
+                    id: powerBadge
                     active: powerChip.hovered || powerChip.checked
-                    spinning: powerChip.checked && powerChip.visible
-                    color: Colors.error
+                    // a reboot is pending: the shape keeps turning and morphing in the accent colour; the speed
+                    // eases up and down on a spring so it never snaps
+                    property real turn: Power.rebootPending ? 45 : (powerChip.checked ? 22 : 0)
+                    property real turnNow: turn
+                    Behavior on turnNow { Spring { speed: "slow" } }
+                    spinSpeed: Math.max(0, turnNow)
+                    spinning: (turn > 0 || turnNow > 0.5) && powerChip.visible
+                    cycle: Power.rebootPending ? [7, 4] : []
+                    cycleInterval: 2400
+                    color: Power.rebootPending ? Colors.primary : Colors.error
+                    Behavior on color { ColorFade {} }
+                    // a small pulse when the cue first appears
+                    Connections {
+                        target: Power
+                        function onRebootPendingChanged() {
+                            if (Power.rebootPending) {
+                                powerBadge.badgeScale = 1.3;
+                                powerPulse.restart();
+                            }
+                        }
+                    }
+                    Timer {
+                        id: powerPulse
+                        interval: 160
+                        onTriggered: powerBadge.badgeScale = 1
+                    }
                     Icon {
                         anchors.centerIn: parent
                         size: 13
-                        name: "power_settings_new"
-                        color: Colors.on_error
+                        name: Power.rebootPending ? "restart_alt" : "power_settings_new"
+                        color: Power.rebootPending ? Colors.on_primary : Colors.on_error
+                        Behavior on color { ColorFade {} }
                     }
                 }
             }

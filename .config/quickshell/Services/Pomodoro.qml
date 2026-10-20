@@ -7,7 +7,10 @@ import qs.Services
 // Pomodoro focus timer: 25 min focus, 5 min short break, 15 min long break after every 4th
 // focus. When a phase ends the next one starts on its own (only a phase that ran out while the shell
 // was down waits for play). The countdown runs from a deadline, so it stays right while the panel is
-// closed, and survives a shell restart.
+// closed, and survives a shell restart. A break is only earned by finishing a focus session, never
+// picked by hand. Every task has its own timer (time left, phase, finished sessions) and nothing is shared
+// between them: only the linked task's timer runs, linking another one pauses it where it was and it
+// picks up from there when linked again. The properties below always describe the linked task's timer.
 Singleton {
     id: pomo
 
@@ -15,13 +18,16 @@ Singleton {
     property real shortBreakMinutes: 5
     property real longBreakMinutes: 15
     property int longBreakEvery: 4
-    // a focus session that finishes counts for this task (Services/Tasks.qml listens)
+    // the linked task ("" = none): every focus session that finishes is tallied for it, and a full set
+    // (the long break starting) counts as one completion of it (Services/Tasks.qml listens)
     property string taskId: ""
     signal focusCompleted(string taskId)
+    signal cycleCompleted(string taskId)
 
     property string mode: "focus"        // focus | short | long
     property bool running: false
     property int completedFocus: 0       // focus sessions finished so far
+    property var timers: ({})            // the other tasks' timers: id -> { mode, remaining, done }
     property double deadline: 0          // ms timestamp, while running
     property real remaining: duration    // seconds left in the current phase
 
@@ -57,7 +63,18 @@ Singleton {
         _save();
     }
     function setTask(id) {
+        if (id === taskId)
+            return;
+        pause();
+        const saved = Object.assign({}, timers);
+        saved[taskId] = { mode: mode, remaining: remaining, done: completedFocus };
+        const t = saved[id] || { mode: "focus", remaining: focusMinutes * 60, done: 0 };
+        delete saved[id];
+        timers = saved;
         taskId = id;
+        mode = t.mode;
+        completedFocus = t.done;
+        remaining = t.remaining;
         _save();
     }
     function toggle() {
@@ -72,17 +89,10 @@ Singleton {
         remaining = duration;
         _save();
     }
-    // jump to the next phase without counting the current one as completed
+    // end a break early; a focus session can only be finished, not skipped
     function skip() {
-        _next(false);
-    }
-    function setMode(m) {
-        if (m === mode && !running)
-            return;
-        running = false;
-        mode = m;
-        remaining = duration;
-        _save();
+        if (mode !== "focus")
+            _next(false);
     }
 
     function _tick() {
@@ -100,6 +110,8 @@ Singleton {
             return;
         if (wasFocus && taskId !== "")
             pomo.focusCompleted(taskId);
+        if (wasFocus && mode === "long" && taskId !== "")
+            pomo.cycleCompleted(taskId);
         if (wasFocus) {
             const mins = mode === "long" ? longBreakMinutes : shortBreakMinutes;
             Sound.play("focusDone");
@@ -148,6 +160,7 @@ Singleton {
         adapter.deadline = deadline;
         adapter.remaining = remaining;
         adapter.completedFocus = completedFocus;
+        adapter.timers = timers;
         adapter.taskId = taskId;
         store.writeAdapter();
     }
@@ -160,8 +173,10 @@ Singleton {
 
         onLoaded: {
             pomo.mode = adapter.mode;
-            pomo.completedFocus = adapter.completedFocus;
             pomo.taskId = adapter.taskId;
+            Tasks.adoptLink(pomo.taskId);
+            pomo.completedFocus = adapter.completedFocus;
+            pomo.timers = Object.assign({}, adapter.timers);
             if (adapter.running) {
                 pomo.deadline = adapter.deadline;
                 pomo.running = true;
@@ -181,6 +196,7 @@ Singleton {
             property real deadline: 0
             property real remaining: 0
             property int completedFocus: 0
+            property var timers: ({})
             property string taskId: ""
         }
     }
