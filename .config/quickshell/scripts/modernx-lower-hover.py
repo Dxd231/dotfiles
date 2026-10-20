@@ -3,7 +3,7 @@
 
 ModernX shows the OSC when the pointer moves in the bottom `bottom_hover_zone` pixels (of 720). The default, 200, is
 high enough to cover the subtitle line, so reaching a word always lifts it. This patch shows the OSC only from a thin
-bottom strip (`bottom_hover_zone`, 40), and keeps it while the pointer is anywhere over the OSC itself (the
+bottom strip (`bottom_hover_zone`, 10), and keeps it while the pointer is anywhere over the OSC itself (the
 `bottom_keep_zone`, 200). Both can be set in ~/.config/mpv/script-opts/modernx.conf. Safe to run twice; the original is
 kept as modernx.lua.orig. The pacman hook next to this script runs it again after the package is upgraded.
 """
@@ -19,7 +19,7 @@ if "bottom_keep_zone" in src:
 
 edits = [
     ("    bottom_hover_zone = 200,",
-     "    bottom_hover_zone = 40,"),
+     "    bottom_hover_zone = 10,"),
     ("-- height of hover zone for bottom_hover (in pixels)",
      "-- height of the strip that shows the OSC (in pixels)\n    bottom_keep_zone = 200,                 -- height of the area that keeps it up once shown (in pixels)"),
     ("if mouseY > osc_param.playresy - (user_opts.bottom_hover_zone or 200) or",
