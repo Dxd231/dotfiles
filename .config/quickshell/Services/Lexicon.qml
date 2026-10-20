@@ -154,7 +154,7 @@ Singleton {
             holdFlag.restart();
         }
         const dir = (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/quickshell/lookup-profile";
-        Quickshell.execDetached(["sh", "-c", 'mkdir -p "$1" && exec librewolf --name qs-lookup --profile "$1" --new-window "$2"',
+        Quickshell.execDetached(["sh", "-c", 'mkdir -p "$1" && exec librewolf --class qs-lookup --name qs-lookup --profile "$1" --new-window "$2"',
             "sh", dir, "https://jisho.org/search/" + encodeURIComponent(word)]);
     }
 

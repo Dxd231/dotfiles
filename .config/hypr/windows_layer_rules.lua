@@ -27,7 +27,7 @@ hl.window_rule({ match = { class = "zalo" }, float = true })
 hl.window_rule({ match = { class = "clipse" }, float = true, size = { 622, 652 }, stay_focused = true })
 
 -- Jisho lookup window opened from the subtitle word card (Services/Lexicon.qml lookupOnline)
-hl.window_rule({ match = { class = "qs%-lookup" }, float = true, size = { 1000, 760 }, center = true, pin = true })
+hl.window_rule({ match = { class = "qs-lookup" }, float = true, size = { 1000, 760 }, center = true, pin = true })
 
 hl.window_rule({ match = { class = "org.gnome.Calculator" }, float = true, size = { 360, 616 }, stay_focused = true })
 
