@@ -45,12 +45,22 @@ Scope {
                 root._commit(c);
         });
     }
+    // where the word is now: a word of the live line moves when ModernX lifts the line, so it is asked again
+    function _anchorOf(c) {
+        try {
+            return c.fn ? c.fn() : c.anchor;
+        } catch (e) {
+            return c.anchor;
+        }
+    }
+    property var popAnchorFn: null
     function _commit(c) {
         capTimer.stop();
         _pending = null;
         popTok = c.tok;
         popFrom = c.from;
-        popAnchor = c.anchor;
+        popAnchorFn = c.fn || null;
+        popAnchor = _anchorOf(c);
         popCtx = c.ctx;
         Lexicon.focusTok = c.tok;
         Lexicon.focusCtx = c.ctx;
@@ -74,7 +84,7 @@ Scope {
     }
     // the word under the pointer: a leave that arrives after the next word was entered is stale
     property var _hoverTok: null
-    function wordEnter(tok, from, anchor, ctx) {
+    function wordEnter(tok, from, anchor, ctx, fn) {
         _hoverTok = tok;
         if (!popOpen) {
             Lexicon.focusTok = tok;
@@ -83,7 +93,7 @@ Scope {
         if (popPinned)
             return;
         closeTimer.stop();
-        const c = { tok: tok, from: from, anchor: anchor, ctx: ctx };
+        const c = { tok: tok, from: from, anchor: anchor, ctx: ctx, fn: fn };
         if (popOpen) {
             showWord(c);
             return;
@@ -104,20 +114,25 @@ Scope {
         else if (_pending && !popOpen)
             closeWord();
     }
-    function wordClick(tok, from, anchor, ctx) {
+    function wordClick(tok, from, anchor, ctx, fn) {
         if (popOpen && popPinned && popTok === tok) {
             closeWord();
             return;
         }
         openTimer.stop();
         closeTimer.stop();
-        showWord({ tok: tok, from: from, anchor: anchor, ctx: ctx });
+        showWord({ tok: tok, from: from, anchor: anchor, ctx: ctx, fn: fn });
         popPinned = true;
     }
     Timer {
         id: openTimer
         interval: 120
         onTriggered: {
+            // the line is still rising (or falling) with the OSC: wait until it has settled, then open at the word's new place
+            if (root.lineMoving) {
+                restart();
+                return;
+            }
             if (root._cand) {
                 root.showWord(root._cand);
                 root._cand = null;
@@ -132,6 +147,22 @@ Scope {
     // ModernX lifts mpv's subtitles (sub-pos) while its controls are up, and the line follows at once. It drops
     // back only once the pointer is off the line and the card, after a pause, so the line can be reached.
     property real effPos: Mpv.subPos
+    // true while the line is travelling to a new height; the card waits for it and then follows it
+    property bool lineMoving: false
+    onEffPosChanged: {
+        lineMoving = true;
+        settleTimer.restart();
+    }
+    Timer {
+        id: settleTimer
+        interval: 450
+        onTriggered: {
+            root.lineMoving = false;
+            if (root.popOpen && root.popFrom === "line" && root.popAnchorFn) {
+                try { root.popAnchor = root.popAnchorFn(); } catch (e) {}
+            }
+        }
+    }
     property bool lineHover: false
     readonly property bool lineHeld: lineHover || popOpen || _pending !== null || _cand !== null
     function settlePos() {
@@ -460,14 +491,14 @@ Scope {
                                         cursorShape: Qt.PointingHandCursor
                                         onHoveredChanged: {
                                             if (hovered)
-                                                root.wordEnter(word.modelData, "line", word.anchorRect(), word.ctx());
+                                                root.wordEnter(word.modelData, "line", word.anchorRect(), word.ctx(), word.anchorRect);
                                             else
                                                 root.wordLeave(word.modelData);
                                         }
                                     }
                                     TapHandler {
                                         enabled: word.isWord
-                                        onTapped: root.wordClick(word.modelData, "line", word.anchorRect(), word.ctx())
+                                        onTapped: root.wordClick(word.modelData, "line", word.anchorRect(), word.ctx(), word.anchorRect)
                                     }
                                 }
                             }
