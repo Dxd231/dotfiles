@@ -130,6 +130,34 @@ Singleton {
                 done(r);
         });
     }
+    // which dictionary entry a word means (term "" clears the choice, back to what unidic's context suggests)
+    function setPick(tok, term, reading, done) {
+        if (!tok)
+            return;
+        request({ op: "pick", surface: tok.s, base: tok.base || tok.s, term: term, reading: reading }, r => {
+            if (!r.error)
+                lex._reparse(tok.s);
+            if (done)
+                done(r);
+        });
+    }
+
+    // Jisho in its own LibreWolf window (profile + app_id qs-lookup, floated by a Hyprland rule); mpv stays paused
+    // while it is read, and the lexicon-hold flag keeps ModernX's OSC from popping on that pause
+    function lookupOnline(tok) {
+        if (!tok)
+            return;
+        const word = tok.term || tok.s;
+        if (!Mpv.paused) {
+            Mpv.send(["set_property", "user-data/lexicon-hold", true]);
+            Mpv.send(["set_property", "pause", true]);
+            holdFlag.restart();
+        }
+        const dir = (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/quickshell/lookup-profile";
+        Quickshell.execDetached(["sh", "-c", 'mkdir -p "$1" && exec librewolf --name qs-lookup --profile "$1" --new-window "$2"',
+            "sh", dir, "https://jisho.org/search/" + encodeURIComponent(word)]);
+    }
+
     // span: the text of the run being re-cut; parts: the pieces it should become
     function setCut(span, parts, done) {
         request({ op: "cut", span: span, parts: parts }, r => {

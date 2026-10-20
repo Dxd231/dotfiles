@@ -84,6 +84,8 @@ Item {
     }
     // ---- the cut editor: the word and its neighbours letter by letter, a click on a gap toggles a cut ----
     property bool cutting: false
+    property bool choosing: false
+    readonly property var alts: def && def.alts ? def.alts : []
     property var cutLetters: []
     property var cutTokOf: []
     property var cutOrig: []
@@ -155,6 +157,7 @@ Item {
 
     onTokChanged: {
         cutting = false;
+        choosing = false;
         load(false);
         swap.restart();
     }
@@ -399,6 +402,55 @@ Item {
                     icon: "content_cut"
                     text: "Fix cut"
                     onClicked: pop.startCut()
+                }
+                Button {
+                    visible: pop.phase === "ready" && pop.alts.length > 1
+                    style: pop.choosing ? "tonal" : "text"
+                    size: "xs"
+                    icon: "translate"
+                    text: pop.alts.length + " meanings"
+                    onClicked: pop.choosing = !pop.choosing
+                }
+                Button {
+                    style: "text"
+                    size: "xs"
+                    icon: "menu_book"
+                    text: "Jisho"
+                    onClicked: Lexicon.lookupOnline(pop.tok)
+                }
+            }
+
+            // ---- other dictionary entries for the same spelling ----
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: !pop.cutting && pop.choosing && pop.alts.length > 1
+                spacing: 4
+                Repeater {
+                    model: pop.alts
+                    Button {
+                        id: alt
+
+                        required property var modelData
+                        readonly property bool current: modelData.term === pop.term && modelData.reading === pop.reading
+                        Layout.fillWidth: true
+                        style: current ? "tonal" : "text"
+                        size: "xs"
+                        text: modelData.term + (modelData.reading !== modelData.term ? "  " + modelData.reading : "") + (modelData.chain.length > 0 ? "  ·  " + modelData.chain.join(" ← ") : "")
+                        onClicked: {
+                            Lexicon.setPick(pop.tok, alt.modelData.term, alt.modelData.reading);
+                            pop.closeRequested();
+                        }
+                    }
+                }
+                Button {
+                    style: "text"
+                    size: "xs"
+                    icon: "refresh"
+                    text: "Back to automatic"
+                    onClicked: {
+                        Lexicon.setPick(pop.tok, "", "");
+                        pop.closeRequested();
+                    }
                 }
             }
 

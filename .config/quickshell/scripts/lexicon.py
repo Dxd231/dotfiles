@@ -24,6 +24,7 @@ and given a status from the known-words store (Anki cards + manual marks).
      with path (the subtitle file) and start (the line's file time) the sentence takes in the neighbouring lines it continues into
   <- {"id": 9, "op": "capture", "noteId", "path", "video", "span": [a, b], "line": i}
   -> {"done": bool, "audio"?, "picture"?}   cuts the span's audio and the line's picture with ffmpeg into the note
+  <- {"id": 5, "op": "pick", "surface", "base", "term", "reading"}      -> {"ok": true}   which dictionary entry a word means (empty term clears)
   <- {"id": 6, "op": "status"}                     -> {"yomitan": bool, "words": n}
   <- {"quit": true}                                (or close stdin) to exit
 
@@ -87,10 +88,12 @@ class Store:
         self.db.execute("create table if not exists anki(term text primary key, reading text, status text)")
         self.db.execute("create table if not exists names(surface text primary key, flag int)")
         self.db.execute("create table if not exists cuts(span text primary key, parts text)")
+        self.db.execute("create table if not exists picks(surface text, base text, term text, reading text, primary key(surface, base))")
         self.db.commit()
         self.manual, self.anki = {}, {}
         self.names = {t: f for t, f in self.db.execute("select surface, flag from names")}
         self.cuts = {t: p.split("|") for t, p in self.db.execute("select span, parts from cuts")}
+        self.picks = {(s, b): (t, r) for s, b, t, r in self.db.execute("select surface, base, term, reading from picks")}
         for t, r, s in self.db.execute("select term, reading, status from manual"):
             self.manual[t] = s
         for t, r, s in self.db.execute("select term, reading, status from anki"):
@@ -142,6 +145,16 @@ class Store:
             else:
                 self.cuts[span] = parts
                 self.db.execute("insert or replace into cuts values(?,?)", (span, "|".join(parts)))
+            self.db.commit()
+
+    def set_pick(self, surface, base, term, reading):
+        with self.lock:
+            if not term:
+                self.picks.pop((surface, base), None)
+                self.db.execute("delete from picks where surface=? and base=?", (surface, base))
+            else:
+                self.picks[(surface, base)] = (term, reading)
+                self.db.execute("insert or replace into picks values(?,?,?,?)", (surface, base, term, reading))
             self.db.commit()
 
     def replace_anki(self, rows):
@@ -198,7 +211,9 @@ def _segment(text):
             continue
         kind = "punct" if pos1 in PUNCT_POS else ("func" if pos1 in FUNC_POS or pos2 == "準体助詞" else "word")
         lemma = (f.lemma or t.surface).split("-")[0]
+        base = getattr(f, "orthBase", "") or t.surface
         words.append({"s": t.surface, "k": kind, "lemma": lemma, "kana": getattr(f, "kana", "") or "",
+                      "base": base, "lform": kata_to_hira(getattr(f, "lForm", "") or ""),
                       "pos": pos1, "tail": t.surface, "morph": [(t.surface, getattr(f, "kana", "") or "")],
                       "name": pos2 == "固有名詞" and (f.pos3 or "") == "人名"})
     return words
@@ -305,7 +320,7 @@ def apply_cuts(words, cuts):
 
 class Yomitan:
     def __init__(self):
-        self.path = os.path.join(STATE, "lookups2.json")
+        self.path = os.path.join(STATE, "lookups3.json")
         self.cache = {}
         self.up = False
         self.dirty = 0
@@ -353,21 +368,57 @@ class Yomitan:
         return {"term": hw["term"], "reading": hw["reading"], "freq": min(ranks) if ranks else 0,
                 "rank": min(own) if own else 0, "pitch": pitch[:1], "chain": chain}
 
-    def _pick(self, surface, entries):
+    @staticmethod
+    def _matches(surface, entries):
         for e in entries:
-            if not e.get("headwords"):
-                continue
-            for s in e["headwords"][0].get("sources", []):
-                if s.get("isPrimary") and s.get("originalText") == surface:
-                    return e
-        return None
+            if e.get("headwords") and any(s.get("isPrimary") and s.get("originalText") == surface
+                                           for s in e["headwords"][0].get("sources", [])):
+                yield e
 
-    def lookup_many(self, surfaces):
-        """{surface: summary or None}. Cached; misses go to /termEntries in batches."""
-        need = [s for s in dict.fromkeys(surfaces) if s not in self.cache]
-        if need and self.alive():
-            for i in range(0, len(need), 40):
-                batch = need[i:i + 40]
+    def _pick(self, surface, entries, hint=None):
+        """The entry for a surface. Yomitan lists exact nouns first (しない -> 市内, 竹刀 before する), so
+        what unidic says about the word in context (dictionary form, reading, inflected or not) re-ranks them;
+        a manual choice in hint["pick"] = (term, reading) beats that."""
+        hint = hint or {}
+        best, top = None, -1
+        for e in self._matches(surface, entries):
+            h = e["headwords"][0]
+            if hint.get("pick"):
+                if (h["term"], h["reading"]) == tuple(hint["pick"]):
+                    return e
+                continue
+            score = 0
+            if hint.get("base") and h["term"] in (hint["base"], hint.get("lemma")):
+                score += 4
+            if hint.get("lform") and h["reading"] == hint["lform"]:
+                score += 2
+            if "infl" in hint and bool(e.get("inflectionRuleChainCandidates")) == hint["infl"]:
+                score += 2
+            if score > top:
+                best, top = e, score
+        return best
+
+    @staticmethod
+    def _key(surface, hint):
+        if not hint:
+            return surface
+        pick = hint.get("pick")
+        return "\t".join([surface, hint.get("base", ""), "p:%s|%s" % tuple(pick) if pick else "v" if hint.get("infl") else "n"])
+
+    def lookup_many(self, items):
+        """items: surfaces, or (surface, hint) pairs where the hint is the unidic view of the word in context
+        ({base, lemma, lform, infl, pick}). -> [summary or None] in the same order. Cached by surface + hint;
+        misses go to /termEntries in batches."""
+        items = [(x, None) if isinstance(x, str) else x for x in items]
+        keys = [self._key(s, h) for s, h in items]
+        need = {}
+        for (s, h), k in zip(items, keys):
+            if k not in self.cache:
+                need.setdefault(s, {})[k] = h
+        names = list(need)
+        if names and self.alive():
+            for i in range(0, len(names), 40):
+                batch = names[i:i + 40]
                 try:
                     res = post(YOMITAN + "/termEntries", {"term": batch}, 30)
                 except Exception as e:
@@ -376,11 +427,25 @@ class Yomitan:
                     break
                 for r in res:
                     s = batch[r["index"]]
-                    e = self._pick(s, r.get("dictionaryEntries", []))
-                    self.cache[s] = self._summary(e) if e else None
-                    self.dirty += 1
+                    for k, h in need[s].items():
+                        e = self._pick(s, r.get("dictionaryEntries", []), h)
+                        self.cache[k] = self._summary(e) if e else None
+                        self.dirty += 1
             self.save()
-        return {s: self.cache.get(s) for s in surfaces}
+        return [self.cache.get(k) for k in keys]
+
+    def alternates(self, surface):
+        """distinct headwords Yomitan offers for a surface, in its order"""
+        res = post(YOMITAN + "/termEntries", {"term": surface}, 15)
+        out, seen = [], set()
+        for e in self._matches(surface, res.get("dictionaryEntries", [])):
+            h = e["headwords"][0]
+            if (h["term"], h["reading"]) in seen:
+                continue
+            seen.add((h["term"], h["reading"]))
+            chain = [r["name"] for c in e.get("inflectionRuleChainCandidates", [])[:1] for r in c.get("inflectionRules", [])]
+            out.append({"term": h["term"], "reading": h["reading"], "chain": chain})
+        return out
 
     def entry(self, surface, term, reading):
         res = post(YOMITAN + "/termEntries", {"term": surface}, 15)
@@ -496,15 +561,27 @@ def _status(term, reading, rank, matched):
     return "none" if st == "unknown" and not matched else st
 
 
+def hint_of(w):
+    """what unidic knows about a word in context, for Yomitan._pick; a manual pick overrides it"""
+    base = w.get("base") or w["lemma"]
+    h = {"base": base, "lemma": w["lemma"], "lform": w.get("lform", ""),
+         "infl": w["pos"] in ("動詞", "形容詞", "助動詞") and w["s"] != base}
+    pick = store.picks.get((w["s"], base))
+    if pick:
+        h["pick"] = list(pick)
+    return h
+
+
 def annotate(texts):
     """texts: [str] -> [[token]] with lookups resolved in one batch."""
     segs = [apply_cuts(segment_text(t), store.cuts) for t in texts]
     isname = lambda w: bool(store.names.get(w["s"], w.get("name"))) or is_sound(w)
-    surfaces = [w["s"] for ws in segs for w in ws if w["k"] == "word" and not isname(w)]
-    found = yom.lookup_many(surfaces)
+    cand = [w for ws in segs for w in ws if w["k"] == "word" and not isname(w)]
+    res = yom.lookup_many([(w["s"], hint_of(w)) for w in cand])
+    found = {id(w): r for w, r in zip(cand, res)}
     # words Yomitan could not match as a whole: retry with the unidic dictionary form
-    miss = [w["lemma"] for ws in segs for w in ws if w["k"] == "word" and not isname(w) and not found.get(w["s"]) and w["lemma"] != w["s"]]
-    found2 = yom.lookup_many(miss) if miss else {}
+    miss = [w for w in cand if not found[id(w)] and w["lemma"] != w["s"]]
+    found2 = {id(w): r for w, r in zip(miss, yom.lookup_many([w["lemma"] for w in miss]))} if miss else {}
     out = []
     for ws in segs:
         toks = []
@@ -521,7 +598,7 @@ def annotate(texts):
                 if KANJI.search(w["s"]):
                     tok["ruby"] = ruby(w["morph"])
             elif w["k"] == "word":
-                info = found.get(w["s"]) or found2.get(w["lemma"])
+                info = found.get(id(w)) or found2.get(id(w))
                 term = info["term"] if info else w["lemma"]
                 reading = info["reading"] if info else kata_to_hira(w["kana"])
                 rank = info["rank"] if info else 0
@@ -529,6 +606,7 @@ def annotate(texts):
                            status=_status(term, reading, rank, bool(info)), known=bool(info),
                            auto=store.is_auto(term, reading, rank))
                 tok["key"] = term + "|" + reading
+                tok["base"] = w.get("base") or w["lemma"]
                 if KANJI.search(w["s"]):
                     tok["ruby"] = ruby(w["morph"])
             toks.append(tok)
@@ -944,6 +1022,7 @@ def handle(req):
         if not e:
             return {"error": "no-entry"}
         s = Yomitan._summary(e)
+        s["alts"] = yom.alternates(surface)
         s["freqs"] = [{"dict": f["dictionary"], "value": f.get("displayValue") or str(f.get("frequency", ""))}
                       for f in e.get("frequencies", []) if f.get("headwordIndex", 0) == 0]
         s["sections"] = glossary(e)
@@ -955,6 +1034,10 @@ def handle(req):
         return {"ok": True, "status": store.status(req["term"], req.get("reading", ""), req.get("rank", 0))}
     if op == "name":
         store.set_name(req["surface"], req["flag"])
+        _parsed.clear()
+        return {"ok": True}
+    if op == "pick":
+        store.set_pick(req["surface"], req["base"], req.get("term", ""), req.get("reading", ""))
         _parsed.clear()
         return {"ok": True}
     if op == "cut":
