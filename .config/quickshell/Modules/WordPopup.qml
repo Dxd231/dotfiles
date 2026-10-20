@@ -342,6 +342,7 @@ Item {
 
                 readonly property string st: pop.tok ? (Lexicon.mineState[pop.tok.term] || "") : ""
                 readonly property bool busy: st === "adding" || st === "finishing"
+                readonly property int lines: pop.tok ? (Lexicon.mineLines[pop.tok.term] || 1) : 1
                 Layout.fillWidth: true
                 visible: !pop.cutting && !pop.plain && pop.phase === "ready"
                 spacing: 8
@@ -352,7 +353,7 @@ Item {
                     icon: mineRow.st === "" || mineRow.busy ? "add_card" : mineRow.st.startsWith("error") ? "refresh" : "check"
                     enabled: !mineRow.busy && mineRow.st !== "partial"
                     text: mineRow.st === "adding" ? "Adding…" : mineRow.st === "finishing" ? "Adding audio and picture…"
-                        : mineRow.st === "done" ? "Mined" : mineRow.st === "partial" ? "Added, no sentence audio"
+                        : mineRow.st === "done" ? (mineRow.lines > 1 ? "Mined · " + mineRow.lines + " lines" : "Mined") : mineRow.st === "partial" ? "Added, no sentence audio"
                         : mineRow.st === "dup" ? "Already in Anki"
                         : mineRow.st === "error:yomitan-offline" ? "Open LibreWolf, then retry"
                         : mineRow.st.startsWith("error") ? "Couldn't add, retry" : "Mine"

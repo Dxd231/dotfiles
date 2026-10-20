@@ -141,10 +141,12 @@ Singleton {
     }
 
     // ---- mining ----
-    // The shell adds the word the way Yomitan's card format would (lexicon.py `mine`), then asks mpvacious
-    // (script-binding mpvacious-update-last-note) to add the line's audio and picture, so subs2srs.conf still
-    // decides those. State per term: adding | finishing | done | partial | dup | error:<code>.
+    // The helper adds the word the way Yomitan's card format would (lexicon.py `mine`), taking in the lines
+    // before / after that the sentence runs into, then cuts the sentence's audio and the line's picture with
+    // ffmpeg (`capture`) using mpvacious's subs2srs.conf settings. mpv is never seeked or paused for it.
+    // State per term: adding | finishing | done | partial | dup | error:<code>; mineLines is how many lines the card holds.
     property var mineState: ({})
+    property var mineLines: ({})
     property var focusTok: null
     property var focusCtx: null
     property var _mineQ: []
@@ -161,10 +163,9 @@ Singleton {
         if (st === "adding" || st === "finishing")
             return;
         _setMine(tok.term, "adding");
-        _mineQ.push({ tok: tok, ctx: ctx || {}, force: !!force });
+        _mineQ.push({ tok: tok, ctx: ctx || {}, force: !!force, path: subPath(), video: Mpv.path });
         _mineNext();
     }
-    // one at a time: mpvacious updates "the last note", so two in flight would mix their media up
     function _mineNext() {
         if (_mineBusy || _mineQ.length === 0)
             return;
@@ -173,51 +174,24 @@ Singleton {
         const tok = job.tok;
         const end = (st) => { lex._setMine(tok.term, st); lex._mineBusy = false; lex._mineNext(); };
         request({ op: "mine", term: tok.term, reading: tok.reading || "", surface: tok.s, force: job.force,
-                  prefix: job.ctx.prefix || "", body: tok.s, suffix: job.ctx.suffix || "" }, r => {
+                  prefix: job.ctx.prefix || "", body: tok.s, suffix: job.ctx.suffix || "",
+                  path: job.path, start: job.ctx.start === undefined ? -1 : job.ctx.start }, r => {
             if (r.error) {
                 end("error:" + r.error.split(":")[0]);
             } else if (r.dup) {
                 end("dup");
             } else {
+                const m = Object.assign({}, lex.mineLines);
+                m[tok.term] = r.lines || 1;
+                lex.mineLines = m;
                 lex._setMine(tok.term, "finishing");
                 lex._override(tok.term, "learning");
-                lex._mineLine(job.ctx, () => {
-                    Mpv.send(["script-binding", "mpvacious-update-last-note"]);
-                    lex.request({ op: "mine_wait", noteId: r.noteId, field: r.audioField }, w => {
-                        end(w.done ? "done" : "partial");
-                        lex.sync();
-                    });
+                lex.request({ op: "capture", noteId: r.noteId, path: job.path, video: job.video, span: r.span, line: r.line }, c => {
+                    end(c.done ? "done" : "partial");
+                    lex.sync();
                 });
             }
         });
-    }
-    // a word of another line: go there (paused) and wait for mpv to show that line, which is what mpvacious reads
-    property var _lineGo: null
-    function _mineLine(ctx, then) {
-        // already on that line (a word of the live line): nothing to seek
-        if (ctx.start === undefined || ctx.start < 0 || (ctx.flat && Mpv.subRaw.replace(/\s/g, "") === ctx.flat)) {
-            then();
-            return;
-        }
-        Mpv.send(["set", "pause", "yes"]);
-        Mpv.seekTo(ctx.start + Mpv.subDelay + 0.05);
-        _lineGo = { flat: ctx.flat || "", then: then, tries: 0 };
-        lineWait.restart();
-    }
-    Timer {
-        id: lineWait
-        interval: 100
-        repeat: true
-        onTriggered: {
-            const g = lex._lineGo;
-            if (!g) { stop(); return; }
-            g.tries++;
-            if (g.flat === "" || Mpv.subRaw.replace(/\s/g, "") === g.flat || g.tries > 15) {
-                stop();
-                lex._lineGo = null;
-                g.then();
-            }
-        }
     }
 
     // dictionary entries, newest 200 kept; failures are not remembered (LibreWolf may be opened a moment later)

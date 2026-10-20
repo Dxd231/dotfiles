@@ -19,19 +19,23 @@ and given a status from the known-words store (Anki cards + manual marks).
   -> {"id": 5, "lines": n, "tokens": n, "known": n, "unknown": n, "pct": 87.1, "newWords": n, "plusOne": n}
   <- {"id": 7, "op": "transcript", "path": "x.ja.srt"}
   -> {"id": 7, "lines": [{start, end, text, toks, unk}], "stats": {..as parse_file..}}
-  <- {"id": 8, "op": "mine", "term", "reading", "surface", "prefix", "body", "suffix", "force"?}
-  -> {"noteId", "audioField"} | {"dup": true, "noteId"} | {"error": "yomitan-offline|no-entry|..."}
-  <- {"id": 9, "op": "mine_wait", "noteId": n}     waits until mpvacious has filled the sentence audio
-  -> {"done": bool}
+  <- {"id": 8, "op": "mine", "term", "reading", "surface", "prefix", "body", "suffix", "force"?, "path"?, "start"?}
+  -> {"noteId", "span": [a, b], "line": i, "lines": n} | {"dup": true, "noteId"} | {"error": "yomitan-offline|no-entry|..."}
+     with path (the subtitle file) and start (the line's file time) the sentence takes in the neighbouring lines it continues into
+  <- {"id": 9, "op": "capture", "noteId", "path", "video", "span": [a, b], "line": i}
+  -> {"done": bool, "audio"?, "picture"?}   cuts the span's audio and the line's picture with ffmpeg into the note
   <- {"id": 6, "op": "status"}                     -> {"yomitan": bool, "words": n}
   <- {"quit": true}                                (or close stdin) to exit
 
 Errors come back as {"id": n, "error": "..."}. stdout carries the protocol only.
 """
+import base64
 import json
 import os
 import re
+import socket
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -597,6 +601,7 @@ def transcript(path):
 
 MINE_FORMAT = os.environ.get("QS_MINE_FORMAT", "")
 MINE_TAGS = [t for t in os.environ.get("QS_MINE_TAGS", "mining").split(",") if t]
+MEDIA_TMP = os.path.join(STATE, "media")
 SUBS2SRS_CONF = os.path.expanduser("~/.config/mpv/script-opts/subs2srs.conf")
 
 
@@ -645,10 +650,23 @@ def mine(req):
     if not res.get("fields"):
         return {"error": "no-entry"}
     vals = dict(res["fields"][0])
-    vals["cloze-prefix"] = req.get("prefix", "")
+    prefix, suffix = req.get("prefix", ""), req.get("suffix", "")
+    span, line = [0, 0], -1
+    if req.get("path") and req.get("start") is not None and req["start"] >= 0:
+        try:
+            lines, _toks = _load(req["path"])
+            line = _line_at(lines, req["start"])
+            if line >= 0:
+                a, b = sentence_span(lines, line)
+                span = [a, b]
+                prefix = "".join(l[2].replace(" ", "") for l in lines[a:line]) + prefix
+                suffix = suffix + "".join(l[2].replace(" ", "") for l in lines[line + 1:b + 1])
+        except OSError:
+            pass
+    vals["cloze-prefix"] = prefix
     vals["cloze-body"] = req.get("body", surface)
-    vals["cloze-suffix"] = req.get("suffix", "")
-    vals["popup-selection-text"] = req.get("body", surface)
+    vals["cloze-suffix"] = suffix
+    vals["popup-selection-text"] = ""
     vals["document-title"] = ""
     if "pitch-accent-positions" in vals:
         vals["pitch-accent-positions"] = _plain_pitch(vals["pitch-accent-positions"])
@@ -673,19 +691,214 @@ def mine(req):
     note_id = anki("addNote", note=note)
     if store.manual.get(term) == "unknown":
         store.mark(term, reading, "clear")
-    return {"noteId": note_id, "audioField": mpvacious_opt("audio_field", "SentenceAudio")}
+    return {"noteId": note_id, "span": span, "line": line, "lines": span[1] - span[0] + 1 if line >= 0 else 1}
 
 
-def mine_wait(req):
-    """Wait for mpvacious to fill the note's sentence audio (it runs in mpv, a moment after we add the note)."""
-    field = req.get("field") or mpvacious_opt("audio_field", "SentenceAudio")
-    end = time.time() + float(req.get("timeout", 15))
-    while time.time() < end:
-        info = anki("notesInfo", notes=[req["noteId"]])
-        if info and info[0].get("fields", {}).get(field, {}).get("value"):
-            return {"done": True}
-        time.sleep(0.4)
-    return {"done": False}
+# A subtitle cue is often half a sentence. These decide whether the neighbours belong to the target's sentence.
+SPAN_GAP = 1.2       # seconds of silence that still counts as one utterance
+SPAN_MAX = 12.0      # longest span taken
+END_MARKS = "。！？!?」』"
+OPEN_MARKS = "、…‥ー,"
+WEAK_PARTICLES = {"けど", "けれど", "けれども", "が", "から", "し", "のに", "ので", "って"}
+WEAK_GAP = 0.5
+FINAL_PARTICLES = {"か", "ね", "よ", "な", "わ", "ぞ", "ぜ", "さ", "の", "かな", "かしら", "よね"}
+LABEL_START = ("（", "(")
+
+
+def _unfinished(text):
+    """How sure a line stops mid-sentence: 2 a comma, a trailing て/を/に, a stem form; 1 a trailing けど/が/から/…
+    (often a speaker trailing off); 0 it is finished."""
+    t = text.rstrip()
+    if not t:
+        return 0
+    if t[-1] in END_MARKS:
+        return 0
+    if t[-1] in "…‥" or t.endswith("..."):
+        return 1
+    if t[-1] in OPEN_MARKS:
+        return 2
+    last = None
+    for tk in tagger()(t):
+        if (tk.feature.pos1 or "") not in PUNCT_POS:
+            last = tk
+    if last is None:
+        return 0
+    f = last.feature
+    pos1, pos2 = f.pos1 or "", f.pos2 or ""
+    if pos1 == "助詞":
+        if pos2 == "終助詞" or last.surface in FINAL_PARTICLES:
+            return 0
+        return 1 if last.surface in WEAK_PARTICLES else 2
+    if pos1 in ("動詞", "形容詞", "助動詞", "形状詞"):
+        form = getattr(f, "cForm", "") or ""
+        return 2 if form.startswith(("連用", "未然", "仮定")) else 0
+    return 0
+
+
+def _continues(text):
+    """True when a line starts like the tail of a sentence (、 or a particle / auxiliary)."""
+    t = text.lstrip()
+    if t[:1] == "、":
+        return True
+    for tk in tagger()(t):
+        pos1 = tk.feature.pos1 or ""
+        if pos1 in PUNCT_POS:
+            continue
+        return pos1 in ("助詞", "助動詞")
+    return False
+
+
+def sentence_span(lines, i):
+    """-> (first, last): the target line index with at most one neighbour either side that is part of the same sentence."""
+    def joins(a, b):
+        if b < 0 or b >= len(lines) or a < 0 or a >= len(lines):
+            return False
+        gap = lines[b][0] - lines[a][1]
+        if gap > SPAN_GAP or lines[b][2][:1] in LABEL_START or "♪" in lines[a][2] + lines[b][2]:
+            return False
+        if _continues(lines[b][2]):
+            return True
+        u = _unfinished(lines[a][2])
+        return u == 2 or (u == 1 and gap <= WEAK_GAP)
+
+    first, last = i, i
+    if joins(i - 1, i):
+        first = i - 1
+    if joins(i, i + 1):
+        last = i + 1
+    if lines[last][1] - lines[first][0] > SPAN_MAX:
+        last = i
+    if lines[last][1] - lines[first][0] > SPAN_MAX:
+        first = i
+    return first, last
+
+
+def _line_at(lines, start):
+    best, gap = -1, 0.3
+    for k, (a, _b, _t) in enumerate(lines):
+        if abs(a - start) < gap:
+            best, gap = k, abs(a - start)
+    return best
+
+
+def _mpv_get(*props):
+    """Properties of the running mpv through its IPC socket (the shell's own, QS_MPV_SOCKET); {} when it is not there."""
+    out = {}
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(2)
+        s.connect(os.environ.get("QS_MPV_SOCKET") or "/tmp/mpv-socket")
+        f = s.makefile("rw", encoding="utf-8")
+        for k, p in enumerate(props, 1):
+            f.write(json.dumps({"command": ["get_property", p], "request_id": k}) + "\n")
+            f.flush()
+            while True:
+                line = f.readline()
+                if not line:
+                    return out
+                r = json.loads(line)
+                if r.get("request_id") == k:
+                    out[p] = r.get("data")
+                    break
+    except Exception:
+        pass
+    return out
+
+
+def _tag_name(filename):
+    """mpvacious's %n and %d for a file name: show name with the episode number cut out, and the number."""
+    name = re.sub(r"\.\w+$", "", filename)
+    name = re.sub(r"2160p|1080p|720p|576p|480p", "", name)
+    name = re.sub(r"\[[^\]]*\]", "", name) if mpvacious_opt("tag_nuke_brackets", "yes") == "yes" else name
+    ep = ""
+    m = re.search(r"(?:[\s_]|^)[sS]?\d*[eE][pP]?(\d{1,3})(?!\d)", name) or re.search(r"[\s_-](\d{1,3})(?:[\s_]|$)", name)
+    if m:
+        ep = m.group(1)
+        name = name[:m.start(1)].rstrip("EePp") if mpvacious_opt("tag_del_episode_num", "yes") == "yes" else name
+        name = re.sub(r"[sS]\d*$", "", name) if mpvacious_opt("tag_del_after_episode_num", "yes") == "yes" else name
+    name = re.sub(r"_-_", "_", name.strip().replace(" ", "_")).strip("-_ ")
+    return name, ep
+
+
+def _hms(t):
+    h, m, sec = int(t // 3600), int(t // 60) % 60, int(t % 60)
+    return ("%dh" % h if h else "") + "%02dm%02ds%03dms" % (m, sec, int(t * 1000) % 1000)
+
+
+def _ffmpeg(args):
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + args, capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "ffmpeg failed")
+
+
+def capture(req):
+    """Cut the sentence's audio and the target line's picture straight from the video and put them in the note.
+    Settings come from mpvacious's subs2srs.conf so the files look like the ones mpvacious makes."""
+    lines, _toks = _load(req["path"])
+    a, b = req["span"]
+    i = req.get("line", a)
+    video = req.get("video") or ""
+    mp = _mpv_get("path", "working-directory", "sub-delay", "track-list")
+    if not os.path.isabs(video):
+        video = os.path.join(mp.get("working-directory") or "", video)
+    if not os.path.exists(video):
+        return {"error": "no-video"}
+    delay = float(mp.get("sub-delay") or 0) if os.path.basename(str(mp.get("path") or "")) == os.path.basename(video) else 0.0
+    amap = "0:a:0"
+    for t in mp.get("track-list") or []:
+        if t.get("type") == "audio" and t.get("selected") and t.get("ff-index") is not None:
+            amap = "0:%d" % t["ff-index"]
+
+    opt = mpvacious_opt
+    pad = float(opt("audio_padding", "0") or 0)
+    t0 = max(0.0, lines[a][0] + delay - pad)
+    t1 = lines[b][1] + delay + pad
+    show = re.sub(r"[\W_]+", "", re.sub(r"\.\w+$", "", os.path.basename(video)))[:40].lower() or "clip"
+    stamp = "_%s_%s" % (_hms(t0), _hms(t1))
+    out = {"done": False}
+    fields = {}
+
+    afmt = opt("audio_format", "mp3")
+    aname = show + stamp + (".ogg" if afmt == "opus" and opt("opus_container", "ogg") == "ogg" else ".opus" if afmt == "opus" else ".mp3")
+    apath = os.path.join(MEDIA_TMP, aname)
+    os.makedirs(MEDIA_TMP, exist_ok=True)
+    codec = ["-c:a", "libopus"] if afmt == "opus" else ["-c:a", "libmp3lame"]
+    _ffmpeg(["-ss", "%.3f" % t0, "-t", "%.3f" % (t1 - t0), "-i", video, "-map", amap, "-vn"] + codec
+            + ["-b:a", opt("audio_bitrate", "128k"), apath])
+    anki("storeMediaFile", filename=aname, data=base64.b64encode(open(apath, "rb").read()).decode())
+    os.remove(apath)
+    fields[opt("audio_field", "SentenceAudio")] = opt("audio_template", "[sound:%s]").replace("%s", aname)
+    out["audio"] = aname
+
+    ts, te = lines[i][0] + delay, lines[i][1] + delay
+    try:
+        if opt("animated_snapshot_enabled", "no") == "yes":
+            dur = min(6.0, max(0.5, te - ts))
+            pname = show + "_" + _hms(ts) + "_" + _hms(ts + dur) + ".avif"
+            ppath = os.path.join(MEDIA_TMP, pname)
+            _ffmpeg(["-ss", "%.3f" % ts, "-t", "%.3f" % dur, "-i", video, "-an", "-sn",
+                     "-vf", "fps=%s,scale=-2:%s" % (opt("animated_snapshot_fps", "24"), opt("animated_snapshot_height", "200")),
+                     "-c:v", "libsvtav1", "-crf", str(100 - int(opt("animated_snapshot_quality", "80"))), "-preset", "8", ppath])
+        else:
+            pname = show + "_" + _hms((ts + te) / 2) + ".avif"
+            ppath = os.path.join(MEDIA_TMP, pname)
+            _ffmpeg(["-ss", "%.3f" % ((ts + te) / 2), "-i", video, "-frames:v", "1",
+                     "-vf", "scale=-2:%s" % opt("snapshot_height", "350"), "-c:v", "libaom-av1", "-still-picture", "1",
+                     "-crf", opt("snapshot_quality", "15"), "-cpu-used", "8", ppath])
+        anki("storeMediaFile", filename=pname, data=base64.b64encode(open(ppath, "rb").read()).decode())
+        os.remove(ppath)
+        fields[opt("image_field", "Picture")] = opt("image_template", '<img alt="snapshot" src="%s">').replace("%s", pname)
+        out["picture"] = pname
+    except Exception as e:
+        out["pictureError"] = str(e)
+
+    if opt("miscinfo_enable", "no") == "yes":
+        name, ep = _tag_name(os.path.basename(video))
+        fmt = opt("miscinfo_format", "%n EP%d (%t)")
+        fields[opt("miscinfo_field", "MiscInfo")] = fmt.replace("%n", name).replace("%d", ep).replace("%t", _hms(ts))
+    anki("updateNoteFields", note={"id": req["noteId"], "fields": fields})
+    out["done"] = "audio" in out
+    return out
 
 
 def handle(req):
@@ -729,8 +942,8 @@ def handle(req):
         return transcript(req["path"])
     if op == "mine":
         return mine(req)
-    if op == "mine_wait":
-        return mine_wait(req)
+    if op == "capture":
+        return capture(req)
     if op == "status":
         return {"yomitan": yom.alive(), "words": store.counts()}
     return {"error": "unknown op %r" % op}
@@ -763,7 +976,7 @@ def main():
         if req.get("quit"):
             break
         # slow ops run on a thread so a long parse_file never blocks hover lookups
-        if req.get("op") in ("parse_file", "transcript", "sync", "mine", "mine_wait"):
+        if req.get("op") in ("parse_file", "transcript", "sync", "mine", "capture"):
             threading.Thread(target=run, args=(req,), daemon=True).start()
         else:
             run(req)

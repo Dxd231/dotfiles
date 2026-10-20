@@ -364,7 +364,7 @@ Scope {
 
                                     // readings (Alt+f): room is kept over every word while they are on, so the line never jumps
                                     readonly property string furi: Lexicon.furigana
-                                    readonly property real rubyH: furi !== "off" ? win.fontPx * 0.5 : 0
+                                    readonly property real rubyH: furi !== "off" ? win.fontPx * 0.66 : 0
                                     readonly property bool hasRuby: modelData.ruby !== undefined && (furi === "all" || (furi === "unknown" && marked))
 
                                     implicitWidth: label.implicitWidth
@@ -427,7 +427,7 @@ Scope {
                                                     styleColor: Mpv.subBorderColor
                                                     font.family: win.family
                                                     font.bold: Mpv.subBold
-                                                    font.pixelSize: win.fontPx * 0.42
+                                                    font.pixelSize: win.fontPx * 0.55
                                                 }
                                             }
                                         }
