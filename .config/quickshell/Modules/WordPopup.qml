@@ -351,7 +351,7 @@ Item {
                     Layout.fillWidth: true
                     style: mineRow.st === "" || mineRow.st.startsWith("error") ? "filled" : "tonal"
                     icon: mineRow.st === "" || mineRow.busy ? "add_card" : mineRow.st.startsWith("error") ? "refresh" : "check"
-                    enabled: !mineRow.busy && mineRow.st !== "partial"
+                    enabled: !mineRow.busy
                     text: mineRow.st === "adding" ? "Adding…" : mineRow.st === "finishing" ? "Adding audio and picture…"
                         : mineRow.st === "done" ? (mineRow.lines > 1 ? "Mined · " + mineRow.lines + " lines" : "Mined") : mineRow.st === "partial" ? "Added, no sentence audio"
                         : mineRow.st === "dup" ? "Already in Anki"
@@ -360,6 +360,8 @@ Item {
                     onClicked: {
                         if (mineRow.st === "" || mineRow.st.startsWith("error"))
                             Lexicon.mine(pop.tok, pop.ctx);
+                        else
+                            Lexicon.browse(pop.tok);
                     }
                 }
                 Button {

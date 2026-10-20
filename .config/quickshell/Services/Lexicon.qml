@@ -147,6 +147,13 @@ Singleton {
     // State per term: adding | finishing | done | partial | dup | error:<code>; mineLines is how many lines the card holds.
     property var mineState: ({})
     property var mineLines: ({})
+    property var mineNote: ({})
+    // open the card in Anki's browser
+    function browse(tok) {
+        const id = tok ? mineNote[tok.term] : 0;
+        if (id)
+            request({ op: "browse", noteId: id }, () => {});
+    }
     property var focusTok: null
     property var focusCtx: null
     property var _mineQ: []
@@ -179,11 +186,15 @@ Singleton {
             if (r.error) {
                 end("error:" + r.error.split(":")[0]);
             } else if (r.dup) {
+                if (r.noteId) { const n = Object.assign({}, lex.mineNote); n[tok.term] = r.noteId; lex.mineNote = n; }
                 end("dup");
             } else {
                 const m = Object.assign({}, lex.mineLines);
                 m[tok.term] = r.lines || 1;
                 lex.mineLines = m;
+                const n = Object.assign({}, lex.mineNote);
+                n[tok.term] = r.noteId;
+                lex.mineNote = n;
                 lex._setMine(tok.term, "finishing");
                 lex._override(tok.term, "learning");
                 lex.request({ op: "capture", noteId: r.noteId, path: job.path, video: job.video, span: r.span, line: r.line }, c => {

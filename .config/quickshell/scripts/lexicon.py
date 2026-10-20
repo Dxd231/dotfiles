@@ -961,6 +961,9 @@ def handle(req):
         return transcript(req["path"])
     if op == "mine":
         return mine(req)
+    if op == "browse":
+        anki("guiBrowse", query="nid:%d" % req["noteId"])
+        return {"ok": True}
     if op == "capture":
         return capture(req)
     if op == "status":
