@@ -650,7 +650,8 @@ def mine(req):
     if not res.get("fields"):
         return {"error": "no-entry"}
     vals = dict(res["fields"][0])
-    prefix, suffix = req.get("prefix", ""), req.get("suffix", "")
+    nospace = lambda t: re.sub(r"\s+", "", t)
+    prefix, suffix = nospace(req.get("prefix", "")), nospace(req.get("suffix", ""))
     span, line = [0, 0], -1
     if req.get("path") and req.get("start") is not None and req["start"] >= 0:
         try:
@@ -659,10 +660,16 @@ def mine(req):
             if line >= 0:
                 a, b = sentence_span(lines, line)
                 span = [a, b]
-                prefix = "".join(l[2].replace(" ", "") for l in lines[a:line]) + prefix
-                suffix = suffix + "".join(l[2].replace(" ", "") for l in lines[line + 1:b + 1])
+                # the caller sent one row of the cue (the live line is drawn row by row): add the rest of the cue
+                cue = nospace(lines[line][2])
+                row = prefix + nospace(req.get("body", surface)) + suffix
+                at = cue.find(row)
+                before, after = (cue[:at], cue[at + len(row):]) if at >= 0 else ("", "")
+                prefix = "".join(nospace(l[2]) for l in lines[a:line]) + before + prefix
+                suffix = suffix + after + "".join(nospace(l[2]) for l in lines[line + 1:b + 1])
         except OSError:
             pass
+    prefix = _strip_label(prefix)
     vals["cloze-prefix"] = prefix
     vals["cloze-body"] = req.get("body", surface)
     vals["cloze-suffix"] = suffix
@@ -699,15 +706,14 @@ SPAN_GAP = 1.2       # seconds of silence that still counts as one utterance
 SPAN_MAX = 12.0      # longest span taken
 END_MARKS = "。！？!?」』"
 OPEN_MARKS = "、…‥ー,"
-WEAK_PARTICLES = {"けど", "けれど", "けれども", "が", "から", "し", "のに", "ので", "って"}
-WEAK_GAP = 0.5
+WEAK_PARTICLES = {"けど", "けれど", "けれども", "が", "から", "し", "のに", "ので", "って", "と"}
 FINAL_PARTICLES = {"か", "ね", "よ", "な", "わ", "ぞ", "ぜ", "さ", "の", "かな", "かしら", "よね"}
 LABEL_START = ("（", "(")
 
 
 def _unfinished(text):
     """How sure a line stops mid-sentence: 2 a comma, a trailing て/を/に, a stem form; 1 a trailing けど/が/から/…
-    (often a speaker trailing off); 0 it is finished."""
+    (often a speaker trailing off: those join only when the next line starts like a continuation); 0 it is finished."""
     t = text.rstrip()
     if not t:
         return 0
@@ -758,8 +764,7 @@ def sentence_span(lines, i):
             return False
         if _continues(lines[b][2]):
             return True
-        u = _unfinished(lines[a][2])
-        return u == 2 or (u == 1 and gap <= WEAK_GAP)
+        return _unfinished(lines[a][2]) == 2
 
     first, last = i, i
     if joins(i - 1, i):
@@ -771,6 +776,20 @@ def sentence_span(lines, i):
     if lines[last][1] - lines[first][0] > SPAN_MAX:
         first = i
     return first, last
+
+
+def _strip_label(t):
+    """Drop a leading （speaker） label: it is not part of the sentence."""
+    if t[:1] in LABEL_START:
+        depth = 0
+        for j, ch in enumerate(t):
+            depth += ch in "（("
+            depth -= ch in "）)"
+            if depth == 0:
+                break
+        if depth == 0 and 2 < j <= 24 and j + 1 < len(t):
+            return t[j + 1:]
+    return t
 
 
 def _line_at(lines, start):
