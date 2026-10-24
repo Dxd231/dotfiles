@@ -47,8 +47,8 @@ BarPopup {
 
     // ---- dial shape: every mode has its own, and it morphs (with overshoot) when the mode changes ----
     readonly property var modeShapes: ({ focus: 1, short: 5, long: 2 })
-    property int dialFrom: 1
-    property int dialTo: 1
+    property var dialFrom: "cookie9"
+    property var dialTo: "cookie9"
     property real dialMorph: 1
     property bool dialSpring: true
     property int dialTurns: 0
@@ -208,7 +208,6 @@ BarPopup {
                 morph: win.dialMorph
                 spin: win.dialSpin + win.dialTurns * 90
                 color: win.accentContainer
-                Behavior on color { ColorFade {} }
             }
         }
         Column {
@@ -219,7 +218,6 @@ BarPopup {
                 pixelSize: Typography.size("displayMedium")
                 text: Pomodoro.label
                 color: win.onAccentContainer
-                Behavior on color { ColorFade {} }
             }
             StyledText {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -227,7 +225,6 @@ BarPopup {
                 emphasized: true
                 color: win.onAccentContainer
                 text: Pomodoro.modeLabel
-                Behavior on color { ColorFade {} }
             }
         }
     }
@@ -261,6 +258,7 @@ BarPopup {
             iconSize: 40
             iconRotation: win.playRot
             iconScale: win.playScale
+            iconKick: false
             color: win.accent
             contentColor: win.onAccent
             property real appear: win.stage >= 3 ? 1 : 0
@@ -337,29 +335,31 @@ BarPopup {
     }
 
     // ---- linked task: a full cycle of focus sessions counts for it ----
-    Chip {
-        id: linkChip
-        readonly property var linked: Tasks.byId(Pomodoro.taskId)
+    Collapse {
+        open: Tasks.focusable.length > 0
         Layout.alignment: Qt.AlignHCenter
         Layout.bottomMargin: 4
-        visible: Tasks.focusable.length > 0
-        kind: "filter"
-        icon: "checklist"
-        text: linked ? "Counts for " + linked.name : "Link a task"
-        selected: !!linked
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        property real appear: win.stage >= 6 ? 1 : 0
-        Behavior on appear { Spring { speed: "default" } }
-        opacity: Math.max(0, Math.min(1, appear * 1.6))
-        scale: (0.8 + 0.2 * appear) * (pressed ? 0.95 : 1)
-        Behavior on scale { Spring { speed: "fast" } }
-        // click steps through the active tasks and back to none; right-click unlinks
-        onClicked: mouse => {
-            const ids = [""].concat(Tasks.focusable.map(t => t.id));
-            if (mouse.button === Qt.RightButton)
-                Pomodoro.setTask("");
-            else
-                Pomodoro.setTask(ids[(ids.indexOf(Pomodoro.taskId) + 1) % ids.length]);
+        Chip {
+            id: linkChip
+            readonly property var linked: Tasks.byId(Pomodoro.taskId)
+            kind: "filter"
+            icon: "checklist"
+            text: linked ? "Counts for " + linked.name : "Link a task"
+            selected: !!linked
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            property real appear: win.stage >= 6 ? 1 : 0
+            Behavior on appear { Spring { speed: "default" } }
+            opacity: Math.max(0, Math.min(1, appear * 1.6))
+            scale: (0.8 + 0.2 * appear) * (pressed ? 0.95 : 1)
+            Behavior on scale { Spring { speed: "fast" } }
+            // click steps through the active tasks and back to none; right-click unlinks
+            onClicked: mouse => {
+                const ids = [""].concat(Tasks.focusable.map(t => t.id));
+                if (mouse.button === Qt.RightButton)
+                    Pomodoro.setTask("");
+                else
+                    Pomodoro.setTask(ids[(ids.indexOf(Pomodoro.taskId) + 1) % ids.length]);
+            }
         }
     }
 }

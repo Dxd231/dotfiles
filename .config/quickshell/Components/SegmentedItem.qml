@@ -9,8 +9,15 @@ Rectangle {
 
     color: Colors.surface_container_highest
     radius: Motion.shapeExtraSmall
-    topLeftRadius: first ? Motion.shapeLarge : radius
-    topRightRadius: first ? Motion.shapeLarge : radius
-    bottomLeftRadius: last ? Motion.shapeLarge : radius
-    bottomRightRadius: last ? Motion.shapeLarge : radius
+    // the outer corners spring when the item becomes or stops being the first/last one
+    property real _top: first ? Motion.shapeLarge : Motion.shapeExtraSmall
+    property real _bottom: last ? Motion.shapeLarge : Motion.shapeExtraSmall
+    Behavior on _top { Spring {} }
+    Behavior on _bottom { Spring {} }
+    topLeftRadius: Math.max(0, _top)
+    topRightRadius: Math.max(0, _top)
+    bottomLeftRadius: Math.max(0, _bottom)
+    bottomRightRadius: Math.max(0, _bottom)
+
+    Behavior on color { ColorFade {} }
 }

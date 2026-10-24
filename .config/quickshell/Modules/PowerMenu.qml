@@ -20,8 +20,10 @@ Scope {
     property int selectedIndex: 0
 
     // hero morph: the shape it came from, the one it is going to, and how far along (0..1)
-    property int heroFrom: 0
-    property int heroTo: 2
+    property var heroFrom: "boom"
+    property var heroTo: "cookie9"
+    property var heroFrom2: null
+    property real heroFromMix: 0
     property real heroMorph: 1
     property bool heroSpring: true
     property real heroSpin: 0
@@ -85,6 +87,8 @@ Scope {
         selectedIndex = 0;
         // open on the first action's shape, no morph
         heroSpring = false;
+        heroFrom2 = null;
+        heroFromMix = 0;
         heroFrom = heroTo = actions[0].shape;
         heroMorph = 1;
         heroSpring = true;
@@ -92,7 +96,19 @@ Scope {
     // a new selection: snap the morph to 0, then let it spring to 1; the low damping overshoots to
     // about 1.3 and wobbles back, so the shape visibly stretches past its target
     onSelectedIndexChanged: {
-        heroFrom = heroTo;
+        // re-target from what is on screen right now: keep the two heaviest of the old blend's shapes,
+        // and fold the morph's quarter turn into the spin so neither outline nor rotation jumps
+        const m = Math.max(0, Math.min(1, heroMorph));
+        const parts = [
+            { s: heroFrom, w: (1 - m) * (1 - heroFromMix) },
+            { s: heroFrom2, w: heroFrom2 === null ? 0 : (1 - m) * heroFromMix },
+            { s: heroTo, w: m }
+        ].sort((a, b) => b.w - a.w);
+        const wt = parts[0].w + parts[1].w;
+        heroFromMix = wt > 0 ? parts[1].w / wt : 0;
+        heroFrom = parts[0].s;
+        heroFrom2 = parts[1].w > 0 ? parts[1].s : null;
+        heroSpin = (heroSpin + heroMorph * 90) % 360;
         heroTo = actions[selectedIndex].shape;
         heroSpring = false;
         heroMorph = 0;
@@ -140,12 +156,12 @@ Scope {
 
     // role: "primary" | "tertiary" | "attention" | "error"; shape indices are MorphShape's
     readonly property var actions: [
-        { icon: "lock", label: "Lock", desc: "Lock the screen", role: "primary", shape: 2, run: () => root.lock() },
-        { icon: "monitor", label: "Screen off", desc: "Lock, then turn the display off", role: "primary", shape: 6, run: () => root.lockThen(["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\" })"]) },
-        { icon: "bedtime", label: "Suspend", desc: "Lock, then sleep until you wake it", role: "primary", shape: 5, run: () => root.lockThen(["systemctl", "suspend"]) },
-        { icon: "logout", label: "Log out", desc: "End this session", role: "tertiary", shape: 4, run: () => Power.run("logout") },
-        { icon: "restart_alt", label: "Restart", desc: root.restartDesc, role: Power.rebootPending ? "attention" : "tertiary", shape: 1, run: () => Power.run("reboot") },
-        { icon: "power_settings_new", label: "Shut down", desc: "Power off completely", role: "error", shape: 0, run: () => Power.run("poweroff") }
+        { icon: "lock", label: "Lock", desc: "Lock the screen", role: "primary", shape: "cookie9", run: () => root.lock() },
+        { icon: "monitor", label: "Screen off", desc: "Lock, then turn the display off", role: "primary", shape: "oval", run: () => root.lockThen(["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\" })"]) },
+        { icon: "bedtime", label: "Suspend", desc: "Lock, then sleep until you wake it", role: "primary", shape: "cookie4", run: () => root.lockThen(["systemctl", "suspend"]) },
+        { icon: "logout", label: "Log out", desc: "End this session", role: "tertiary", shape: "clover4", run: () => Power.run("logout") },
+        { icon: "restart_alt", label: "Restart", desc: root.restartDesc, role: Power.rebootPending ? "attention" : "tertiary", shape: "sunny", run: () => Power.run("reboot") },
+        { icon: "power_settings_new", label: "Shut down", desc: "Power off completely", role: "error", shape: "boom", run: () => Power.run("poweroff") }
     ]
 
     // colour roles: the hero and idle buttons use the container; the selected button the full colour
@@ -249,10 +265,11 @@ Scope {
                             anchors.fill: parent
                             shape: root.heroTo
                             fromShape: root.heroFrom
+                            fromShape2: root.heroFrom2
+                            fromMix: root.heroFromMix
                             morph: root.heroMorph
                             spin: root.heroSpin
                             color: root.container(root.current.role)
-                            Behavior on color { ColorFade {} }
                         }
                         Icon {
                             anchors.centerIn: parent
@@ -262,7 +279,6 @@ Scope {
                             // pops in with the morph's overshoot
                             scale: 0.5 + 0.5 * root.heroMorph
                             rotation: (1 - Math.min(1, root.heroMorph)) * -25
-                            Behavior on color { ColorFade {} }
                         }
                     }
 
@@ -301,7 +317,7 @@ Scope {
                                 readonly property bool selected: index === root.selectedIndex && !root.launching
                                 property bool shown: false
 
-                                width: selected ? row.implicitWidth + 44 : 64
+                                width: selected ? 18 + 28 + 8 + label.implicitWidth + 22 : 64
                                 height: 64
                                 Behavior on width { Spring { speed: "default" } }
 
@@ -351,32 +367,33 @@ Scope {
                                     Behavior on opacity { Fade { speed: "default" } }
                                     Behavior on scale { Spring { speed: "fast" } }
                                 }
-                                // selected: the full-colour pill
-                                Rectangle {
+                                // selected: the full-colour pill; clipped so a fading label never draws past a shrinking pill.
+                                // Icon and label sit at fixed offsets, so the pill's target width never depends on visibility.
+                                Item {
                                     anchors.fill: parent
-                                    radius: height / 2
-                                    color: root.full(btn.modelData.role)
-                                    opacity: btn.selected ? 1 : 0
-                                    scale: btn.selected ? 1 : 0.5
-                                    Behavior on opacity { Fade { speed: "default" } }
-                                    Behavior on scale { Spring { speed: "default" } }
-                                    Behavior on color { ColorFade {} }
-                                }
+                                    clip: true
 
-                                Row {
-                                    id: row
-                                    anchors.centerIn: parent
-                                    spacing: 8
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: height / 2
+                                        color: root.full(btn.modelData.role)
+                                        opacity: btn.selected ? 1 : 0
+                                        scale: btn.selected ? 1 : 0.5
+                                        Behavior on opacity { Fade { speed: "default" } }
+                                        Behavior on scale { Spring { speed: "default" } }
+                                        Behavior on color { ColorFade {} }
+                                    }
                                     Icon {
+                                        x: 18
                                         anchors.verticalCenter: parent.verticalCenter
                                         name: btn.modelData.icon
                                         size: 28
                                         color: btn.selected ? root.onFull(btn.modelData.role) : root.onContainer(btn.modelData.role)
-                                        Behavior on color { ColorFade {} }
                                     }
                                     StyledText {
+                                        id: label
+                                        x: 18 + 28 + 8
                                         anchors.verticalCenter: parent.verticalCenter
-                                        visible: opacity > 0
                                         opacity: btn.selected ? 1 : 0
                                         Behavior on opacity { Fade {} }
                                         role: "titleMedium"
@@ -391,8 +408,18 @@ Scope {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
+                                    // only a real pointer move selects: buttons sliding under a resting cursor re-deliver hover
+                                    // and would otherwise feed back into the layout
+                                    property point lastScene: Qt.point(-1, -1)
                                     onClicked: root.run(btn.index)
-                                    onContainsMouseChanged: if (containsMouse && !root.launching) root.selectedIndex = btn.index
+                                    onPositionChanged: mouse => {
+                                        const p = mapToItem(null, mouse.x, mouse.y);
+                                        const moved = lastScene.x >= 0 && Math.hypot(p.x - lastScene.x, p.y - lastScene.y) > 0.5;
+                                        lastScene = p;
+                                        if (moved && !root.launching)
+                                            root.selectedIndex = btn.index;
+                                    }
+                                    onExited: lastScene = Qt.point(-1, -1)
                                 }
                             }
                         }

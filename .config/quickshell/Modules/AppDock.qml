@@ -911,7 +911,9 @@ Scope {
             // M3 Expressive floating toolbar: 64px, full corners, surface-container
             Rectangle {
                 id: toolbar
-                visible: dockRoot.hasContent
+                opacity: dockRoot.hasContent ? 1 : 0
+                visible: opacity > 0
+                Behavior on opacity { Fade {} }
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: dockRoot.bottomMargin
@@ -958,12 +960,12 @@ Scope {
                     property real leftE: 0
                     property real rightE: 56
                     property int blobCount: 0
-                    property int blobShape: 5
-                    property int blobFrom: 5
+                    property var blobShape: "cookie4"
+                    property var blobFrom: "cookie4"
                     property real blobMorph: 1
                     property bool blobSpring: true
                     property real blobSpin: 0
-                    readonly property var blobShapes: [5, 1, 4, 2, 0]
+                    readonly property var blobShapes: ["cookie4", "clover4", "sunny", "flower"]
 
                     function glideTo(x) {
                         if (!blobReady) {
@@ -1126,7 +1128,9 @@ Scope {
 
                         // launcher: the toolbar's paired filled button; square while the launcher is open
                         IconButton {
-                            visible: cell.isLauncher
+                            opacity: cell.isLauncher ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             anchors.centerIn: parent
                             size: "m"
                             style: "filled"
@@ -1227,7 +1231,9 @@ Scope {
 
                                 // child of the icon so it grows and lifts with it
                                 Badge {
-                                    visible: cell.urgent
+                                    opacity: cell.urgent ? 1 : 0
+                                    visible: opacity > 0
+                                    Behavior on opacity { Fade {} }
                                     x: appIcon.width - 6
                                     y: -2
                                 }

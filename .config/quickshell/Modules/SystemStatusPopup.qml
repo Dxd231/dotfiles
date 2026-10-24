@@ -40,9 +40,9 @@ BarPopup {
     }
 
     // ---- hero: its shape follows the status (calm cookie, sunny when busy, burst when critical) ----
-    readonly property var statusShapes: [1, 4, 0]
-    property int heroShape: statusShapes[statusLevel]
-    property int heroFrom: heroShape
+    readonly property var statusShapes: ["cookie4", "flower", "boom"]
+    property var heroShape: statusShapes[statusLevel]
+    property var heroFrom: heroShape
     property real heroMorph: 1
     property bool heroSpring: true
     property real spin: 0
@@ -111,7 +111,6 @@ BarPopup {
                 morph: win.heroMorph
                 spin: win.spin
                 color: win.statusLevel === 2 ? Colors.error_container : win.statusLevel === 1 ? Colors.tertiary_container : Colors.primary_container
-                Behavior on color { ColorFade {} }
             }
             Icon {
                 anchors.centerIn: parent
@@ -180,7 +179,7 @@ BarPopup {
             severityColors: win.severity
             waving: win.isOpen
             icon: "memory"
-            badgeShape: 5
+            badgeShape: "cookie4"
             title: "Processor"
             subtitle: SystemStats.cpuFreqMhz > 0 ? (SystemStats.cpuFreqMhz / 1000).toFixed(2) + " GHz average" : "CPU load"
             percent: win.cpu
@@ -200,7 +199,7 @@ BarPopup {
             severityColors: win.severity
             waving: win.isOpen
             icon: "memory_alt"
-            badgeShape: 2
+            badgeShape: "pentagon"
             title: "Memory"
             subtitle: SystemStats.gb(SystemStats.memUsedKb) + " of " + SystemStats.gb(SystemStats.memTotalKb) + " GB"
             percent: win.mem
@@ -281,8 +280,8 @@ BarPopup {
                     implicitHeight: 44
                     MorphShape {
                         anchors.fill: parent
-                        shape: 4
-                        fromShape: 4
+                        shape: "sunny"
+                        fromShape: "sunny"
                         spin: -win.spin
                         color: Colors.tertiary_container
                     }

@@ -15,6 +15,7 @@ Item {
     implicitWidth: 52
     implicitHeight: 32
     opacity: enabled ? 1 : Motion.disabledContent
+    Behavior on opacity { Fade {} }
 
     Rectangle {
         id: track
@@ -39,6 +40,7 @@ Item {
             color: sw.checked ? Colors.primary : Colors.on_surface
             opacity: sw.pressed ? Motion.statePressed : sw.hovered ? Motion.stateHover : 0
             Behavior on opacity { Fade {} }
+            Behavior on color { ColorFade {} }
         }
 
         Rectangle {
@@ -56,6 +58,9 @@ Item {
 
             Icon {
                 visible: sw.showIcons
+                // the glyph turns a quarter as it swaps, with the handle's slide
+                rotation: sw.checked ? 0 : -90
+                Behavior on rotation { Spring {} }
                 anchors.centerIn: parent
                 size: 16
                 name: sw.checked ? "check" : "close"

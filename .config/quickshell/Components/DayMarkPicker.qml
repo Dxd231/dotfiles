@@ -30,6 +30,7 @@ RowLayout {
             selected: picker.mark === "rest"
             enabled: DayMarks.canMark(picker.key, "rest")
             opacity: enabled ? 1 : 0.5
+            Behavior on opacity { Fade {} }
             onClicked: DayMarks.setMark(picker.key, "rest")
         }
     }

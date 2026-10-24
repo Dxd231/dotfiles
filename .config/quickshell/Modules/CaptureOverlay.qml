@@ -181,7 +181,9 @@ PanelWindow {
                 required property var modelData
                 readonly property rect r: win.clampWin(modelData)
                 readonly property bool lit: win.hoverWin === modelData.addr
-                visible: modelData.onScreen && win.selWin !== modelData.addr
+                opacity: (modelData.onScreen && win.selWin !== modelData.addr) ? 1 : 0
+                visible: opacity > 0
+                Behavior on opacity { Fade {} }
                 x: r.x
                 y: r.y
                 width: r.width
@@ -192,7 +194,9 @@ PanelWindow {
                 scale: lit ? 1.012 : 1
                 Behavior on scale { Spring { speed: "fast" } }
                 Rectangle {
-                    visible: tint.lit
+                    opacity: tint.lit ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     x: 12
                     y: 12
                     height: 26
@@ -246,7 +250,9 @@ PanelWindow {
                 height: 16
                 radius: 8
                 color: Colors.primary
-                visible: win.target === "region"
+                opacity: win.target === "region" ? 1 : 0
+                visible: opacity > 0
+                Behavior on opacity { Fade {} }
                 x: win.dx + (index % 2) * win.dw - 8
                 y: win.dy + Math.floor(index / 2) * win.dh - 8
                 scale: win.target === "region" && win.hasSel ? (win.dragging ? 1.25 : 1) : 0
@@ -255,7 +261,9 @@ PanelWindow {
         }
         // what the box holds
         Rectangle {
-            visible: win.boxOn
+            opacity: win.boxOn ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             x: win.dx + 10
             y: Math.max(8, win.dy - height - 8)
             height: 26
@@ -337,7 +345,9 @@ PanelWindow {
                 // it is not drawn while it is out of view, so it is scrolled in for a moment to be captured
                 StyledText {
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: !peekThumb.hasContent
+                    opacity: !peekThumb.hasContent ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     role: "labelMedium"
                     color: Colors.on_surface_variant
                     text: win.video ? "Scrolls into view to record" : "Scrolls into view for the capture"
@@ -947,20 +957,17 @@ PanelWindow {
                 }
             }
 
-            // the shutter: always moving. It turns, drifts through its shapes (a soft burst and a cookie for
-            // a photo; the sunny shape, a four-cookie and a nine-cookie for a video), turns faster under the
-            // pointer and squeezes when pressed
+            // the shutter: always turning. A cookie for a photo, a boom (recording) for a video; it turns
+            // faster under the pointer and squeezes when pressed
             ShapeBadge {
                 id: shutter
                 Layout.preferredWidth: 60
                 Layout.preferredHeight: 60
-                shapeRest: 0
-                shapeActive: 4
+                shapeRest: "cookie4"
+                shapeActive: "boom"
                 active: win.video
                 spinning: win.active
                 spinSpeed: shutterArea.containsMouse ? 70 : 22
-                cycle: win.video ? [4, 5, 1] : [0, 1]
-                cycleInterval: win.video ? 2200 : 3200
                 color: win.video ? Colors.error : Colors.primary
                 badgeScale: shutterArea.pressed ? 0.88 : shutterArea.containsMouse ? 1.1 : 1
                 Icon {

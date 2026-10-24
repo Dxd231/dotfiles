@@ -392,8 +392,8 @@ Item {
                             id: searchBadge
                             Layout.preferredWidth: 40
                             Layout.preferredHeight: 40
-                            shapeRest: 1
-                            shapeActive: 4
+                            shapeRest: "cookie4"
+                            shapeActive: "clover4"
                             active: root.query.length > 0
                             spinning: active && panel.openP > 0.5
                             color: active ? Colors.primary : Colors.secondary_container
@@ -401,7 +401,6 @@ Item {
                                 anchors.centerIn: parent
                                 name: "search"
                                 color: searchBadge.active ? Colors.on_primary : Colors.on_secondary_container
-                                Behavior on color { ColorFade {} }
                             }
                         }
 
@@ -425,7 +424,9 @@ Item {
                             Keys.onEscapePressed: root.isOpenLauncher = false
 
                             StyledText {
-                                visible: searchField.text.length === 0
+                                opacity: searchField.text.length === 0 ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 anchors.verticalCenter: parent.verticalCenter
                                 role: "bodyLarge"
                                 color: Colors.on_surface_variant
@@ -603,8 +604,8 @@ Item {
                                 Layout.preferredHeight: 52
                                 ShapeBadge {
                                     anchors.fill: parent
-                                    shapeRest: 1
-                                    shapeActive: 4
+                                    shapeRest: "cookie4"
+                                    shapeActive: "clover4"
                                     active: row.launching
                                     spinning: row.current && row.visible
                                     badgeScale: row.launching ? 1.3 : (row.current ? 1 : 0)
@@ -665,7 +666,7 @@ Item {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: 104
                         Layout.preferredHeight: 104
-                        shapeRest: 0
+                        shapeRest: "softBurst"
                         spinning: emptyState.shown && emptyState.visible
                         color: Colors.secondary_container
                         Icon { anchors.centerIn: parent; size: 40; name: "search_off"; color: Colors.on_secondary_container }

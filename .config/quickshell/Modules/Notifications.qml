@@ -65,6 +65,7 @@ Scope {
             appIcon: n.appIcon ?? "",
             url: notifUrl ?? "",
             image: notify_root.iconFor(n),
+            hasImage: notify_root.isPicture(n),
             urgency: n.urgency ?? NotificationUrgency.Normal,
             expireTimeout: n.expireTimeout ?? 0,
             trackedRef: n
@@ -131,6 +132,19 @@ Scope {
         if (!notify_root.centerOpen && Date.now() - notify_root._closedAt < 250)
             return;
         notify_root.centerOpen = !notify_root.centerOpen;
+    }
+
+    // a real picture (screenshot, cover art) rather than an icon: `notify-send -i anki` arrives as the image
+    // "image://icon/anki", a file as "image://icon//path/to.png", pixel data as another provider
+    function isPicture(n) {
+        const img = n.image || "";
+        if (img === "")
+            return false;
+        const iconPrefix = "image://icon/";
+        if (!img.startsWith(iconPrefix))
+            return true;
+        const path = img.slice(iconPrefix.length);
+        return path.startsWith("/") && !/\/(icons|pixmaps)\//.test(path);
     }
 
     function iconFor(n) {
@@ -373,7 +387,8 @@ Scope {
                 url: notifUrl || "",
                 urgency: n.urgency,
                 stamp: stamp,
-                image: notify_root.iconFor(n)
+                image: notify_root.iconFor(n),
+                hasImage: notify_root.isPicture(n)
             });
 
             // Keep notification tracked on D-Bus so default action & resources remain valid
@@ -578,11 +593,14 @@ Scope {
                                 checked: notify_root.dnd
                                 onClicked: notify_root.dnd = !notify_root.dnd
                             }
-                            IconButton {
-                                visible: notify_root.hasNotifications
-                                icon: "clear_all"
-                                style: "tonal"
-                                onClicked: notify_root.clearAllHistory()
+                            Collapse {
+                                horizontal: true
+                                open: notify_root.hasNotifications
+                                IconButton {
+                                    icon: "clear_all"
+                                    style: "tonal"
+                                    onClicked: notify_root.clearAllHistory()
+                                }
                             }
                         }
 
@@ -630,6 +648,7 @@ Scope {
                                     appIcon: model.appIcon ?? ""
                                     url: model.url ?? ""
                                     iconSource: model.image
+                                    iconIsImage: model.hasImage ?? false
                                     urgency: model.urgency
                                     timeText: notify_root.relTime(model.stamp)
                                     actions: {
@@ -645,7 +664,9 @@ Scope {
                             ColumnLayout {
                                 anchors.centerIn: parent
                                 spacing: 12
-                                visible: history.count === 0
+                                opacity: history.count === 0 ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade { speed: "default" } }
 
                                 // a big turning shape that pops in when the list empties; sunny while do-not-disturb is on
                                 ShapeBadge {
@@ -653,8 +674,8 @@ Scope {
                                     Layout.alignment: Qt.AlignHCenter
                                     Layout.preferredWidth: 104
                                     Layout.preferredHeight: 104
-                                    shapeRest: 1
-                                    shapeActive: 4
+                                    shapeRest: "cookie4"
+                                    shapeActive: "clover4"
                                     active: notify_root.dnd
                                     spinning: history.count === 0 && centerPanel.visible
                                     color: notify_root.dnd ? Colors.tertiary_container : Colors.secondary_container
@@ -719,6 +740,7 @@ Scope {
                 desktopEntry: model.desktopEntry ?? ""
                 appIcon: model.appIcon ?? ""
                 iconSource: model.image
+                iconIsImage: model.hasImage ?? false
                 urgency: model.urgency
                 actions: {
                     const tracked = server.trackedNotifications.values.find(t => t.id === pcard.model.notifId);

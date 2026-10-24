@@ -110,6 +110,12 @@ BarPopup {
         }
     }
 
+    // an mpv-only panel: focusing another window takes it down at once
+    Connections {
+        target: Lexicon
+        function onOtherFocusedChanged() { if (Lexicon.otherFocused) win.hide(); }
+    }
+
     IpcHandler {
         target: "jimakuPanel"
         function toggle(): void { win.toggle(); }
@@ -165,11 +171,10 @@ BarPopup {
             anchors.verticalCenter: parent.verticalCenter
             width: 64
             height: 64
-            shapeRest: 1
-            shapeActive: 7
-            active: win.busy
-            spinning: win.busy
-            spinSpeed: 60
+            shapeRest: "cookie4"
+            shapeActive: "gem"
+            active: win.haveFile && !win.busy && !win.bad && !!win.cur && win.cur.state === "saved"
+            busy: win.busy
             color: win.bad ? Colors.error_container : Colors.primary_container
             Icon {
                 anchors.centerIn: parent
@@ -179,6 +184,10 @@ BarPopup {
                 rotation: (1 - win.pop) * -50
                 color: win.bad ? Colors.on_error_container : Colors.on_primary_container
             }
+        }
+        Connections {
+            target: win
+            function onBusyChanged() { if (!win.busy && win.haveFile) badge.finish(!win.bad); }
         }
         ColumnLayout {
             anchors.left: badge.right
@@ -203,159 +212,168 @@ BarPopup {
     }
 
     // ---- facts about what was saved ----
-    Flow {
+    Collapse {
+        open: win.cur !== null && win.cur.state === "saved"
         Layout.fillWidth: true
-        spacing: 6
-        move: Transition { Spring { properties: "x,y"; speed: "default" } }
-        visible: win.cur !== null && win.cur.state === "saved"
-        ImmersionChip { visible: win.cur !== null && win.cur.ep > 0; icon: "movie"; text: "Ep " + (win.cur ? win.cur.ep : "") }
-        ImmersionChip { icon: "subtitles"; text: win.cur ? win.extOf(win.cur.chosen) : "" }
-        ImmersionChip {
-            readonly property string cp: win.cur ? Lexicon.comprehension(win.cur.saved) : ""
-            visible: cp !== ""
-            icon: "translate"
-            text: cp
-            tint: Colors.secondary_container
-            ink: Colors.on_secondary_container
+        Flow {
+            spacing: 6
+            move: Transition { Spring { properties: "x,y"; speed: "default" } }
+            ImmersionChip { visible: win.cur !== null && win.cur.ep > 0; icon: "movie"; text: "Ep " + (win.cur ? win.cur.ep : "") }
+            ImmersionChip { icon: "subtitles"; text: win.cur ? win.extOf(win.cur.chosen) : "" }
+            ImmersionChip {
+                readonly property string cp: win.cur ? Lexicon.comprehension(win.cur.saved) : ""
+                visible: cp !== ""
+                icon: "translate"
+                ring: win.cur ? Lexicon.comprehensionParts(win.cur.saved) : null
+                text: cp
+                tint: Colors.secondary_container
+                ink: Colors.on_secondary_container
+            }
+            ImmersionChip { visible: win.cur !== null && !!win.cur.converted; icon: "sync"; text: "Converted to SRT" }
+            ImmersionChip { visible: win.cur !== null && !!win.cur.cleaned; icon: "cleaning_services"; text: "Cleaned 中日 subs"; tint: Colors.tertiary_container; ink: Colors.on_tertiary_container }
         }
-        ImmersionChip { visible: win.cur !== null && !!win.cur.converted; icon: "sync"; text: "Converted to SRT" }
-        ImmersionChip { visible: win.cur !== null && !!win.cur.cleaned; icon: "cleaning_services"; text: "Cleaned 中日 subs"; tint: Colors.tertiary_container; ink: Colors.on_tertiary_container }
     }
 
     // ---- API key ----
-    ColumnLayout {
-        visible: !Jimaku.hasKey
+    Collapse {
+        open: !Jimaku.hasKey
         Layout.fillWidth: true
-        spacing: 8
-        Appear { shown: win.isOpen && !Jimaku.hasKey }
-        StyledText {
-            Layout.fillWidth: true
-            role: "bodyMedium"
-            wrapMode: Text.WordWrap
-            color: Colors.on_surface_variant
-            text: "Make a free account on jimaku.cc, create an API key on its account page and paste it here."
-        }
-        TextField {
-            id: keyField
-            Layout.fillWidth: true
-            label: "API key"
-            leadingIcon: "key"
-            password: true
-            onAccepted: t => { if (t.trim() !== "") Jimaku.setKey(t.trim()); }
-        }
-        StyledText {
-            visible: Jimaku.keyError !== ""
-            Layout.fillWidth: true
-            role: "labelLarge"
-            color: Colors.error
-            text: Jimaku.keyError
-        }
-        RowLayout {
-            Layout.fillWidth: true
+        ColumnLayout {
             spacing: 8
-            Button {
+            Appear { shown: win.isOpen && !Jimaku.hasKey }
+            StyledText {
                 Layout.fillWidth: true
-                size: "s"
-                style: "tonal"
-                icon: "open_in_new"
-                text: "Open account page"
-                onClicked: Jimaku.openAccount()
+                role: "bodyMedium"
+                wrapMode: Text.WordWrap
+                color: Colors.on_surface_variant
+                text: "Make a free account on jimaku.cc, create an API key on its account page and paste it here."
             }
-            Button {
+            TextField {
+                id: keyField
                 Layout.fillWidth: true
-                size: "s"
-                icon: "check"
-                text: Jimaku.keyBusy ? "Checking…" : "Connect"
-                enabled: !Jimaku.keyBusy && keyField.text.trim() !== ""
-                onClicked: Jimaku.setKey(keyField.text.trim())
+                label: "API key"
+                leadingIcon: "key"
+                password: true
+                onAccepted: t => { if (t.trim() !== "") Jimaku.setKey(t.trim()); }
+            }
+            Collapse {
+                open: Jimaku.keyError !== ""
+                Layout.fillWidth: true
+                StyledText {
+                    role: "labelLarge"
+                    color: Colors.error
+                    text: Jimaku.keyError
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Button {
+                    Layout.fillWidth: true
+                    size: "s"
+                    style: "tonal"
+                    icon: "open_in_new"
+                    text: "Open account page"
+                    onClicked: Jimaku.openAccount()
+                }
+                Button {
+                    Layout.fillWidth: true
+                    size: "s"
+                    icon: "check"
+                    text: Jimaku.keyBusy ? "Checking…" : "Connect"
+                    enabled: !Jimaku.keyBusy && keyField.text.trim() !== ""
+                    onClicked: Jimaku.setKey(keyField.text.trim())
+                }
             }
         }
     }
 
     // ---- every file Jimaku has for this episode ----
-    Flickable {
-        id: listView
-        visible: Jimaku.hasKey && Jimaku.candidates.length > 0
+    Collapse {
+        open: Jimaku.hasKey && Jimaku.candidates.length > 0
         Layout.fillWidth: true
-        Layout.preferredHeight: Math.min(list.implicitHeight, 280)
-        contentHeight: list.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
+        Flickable {
+            id: listView
+            implicitHeight: Math.min(list.implicitHeight, 280)
+            contentHeight: list.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
-        Column {
-            id: list
-            width: listView.width
-            spacing: 4
-            Repeater {
-                model: Jimaku.candidates
-                delegate: Item {
-                    id: slot
-                    required property var modelData
-                    required property int index
-                    width: list.width
-                    height: 52
-                    // the rows come up one after another; the dimming of a banned one lives on the row itself
-                    Appear { shown: win.isOpen; delay: 40 + Math.min(slot.index, 8) * 45 }
-                    Clickable {
-                        id: row
-                        readonly property var modelData: slot.modelData
-                        readonly property bool here: win.cur !== null && modelData.name === win.cur.chosen
-                        readonly property string group: win.groupOf(modelData.name)
-                        readonly property string note: modelData.blocked ? String(modelData.blocked)
-                            : here ? "In use" : modelData.cls === "bi" ? "中日 · the Chinese is cleaned out" : ""
-                        anchors.fill: parent
-                        // the row in use rounds into a pill, the others stay squircles
-                        restRadius: here ? 26 : Motion.shapeMedium
-                        pressedRadius: Motion.shapeSmall
-                        color: here ? Colors.secondary_container : Colors.surface_container_high
-                        contentColor: here ? Colors.on_secondary_container : Colors.on_surface
-                        enabled: !modelData.blocked
-                        opacity: modelData.blocked ? 0.55 : 1
-                        onClicked: Jimaku.pick(modelData)
+            Column {
+                id: list
+                width: listView.width
+                spacing: 4
+                Repeater {
+                    model: Jimaku.candidates
+                    delegate: Item {
+                        id: slot
+                        required property var modelData
+                        required property int index
+                        width: list.width
+                        height: 52
+                        // the rows come up one after another; the dimming of a banned one lives on the row itself
+                        Appear { shown: win.isOpen; delay: 40 + Math.min(slot.index, 8) * 45 }
+                        Clickable {
+                            id: row
+                            readonly property var modelData: slot.modelData
+                            readonly property bool here: win.cur !== null && modelData.name === win.cur.chosen
+                            readonly property string group: win.groupOf(modelData.name)
+                            readonly property string note: modelData.blocked ? String(modelData.blocked)
+                                : here ? "In use" : modelData.cls === "bi" ? "中日 · the Chinese is cleaned out" : ""
+                            anchors.fill: parent
+                            // the row in use rounds into a pill, the others stay squircles
+                            restRadius: here ? 26 : Motion.shapeMedium
+                            pressedRadius: Motion.shapeSmall
+                            color: here ? Colors.secondary_container : Colors.surface_container_high
+                            contentColor: here ? Colors.on_secondary_container : Colors.on_surface
+                            enabled: !modelData.blocked
+                            opacity: modelData.blocked ? 0.55 : 1
+                            onClicked: Jimaku.pick(modelData)
 
-                        Icon {
-                            id: lead
-                            anchors.left: parent.left
-                            anchors.leftMargin: 14
-                            anchors.verticalCenter: parent.verticalCenter
-                            size: 20
-                            name: row.modelData.blocked ? "block" : row.here ? "check" : "subtitles"
-                            color: row.contentColor
-                        }
-                        Column {
-                            anchors.left: lead.right
-                            anchors.leftMargin: 12
-                            anchors.right: blockBtn.left
-                            anchors.rightMargin: 4
-                            anchors.verticalCenter: parent.verticalCenter
-                            StyledText {
-                                width: parent.width
-                                jp: true
-                                role: "bodyMedium"
-                                emphasized: true
-                                elide: Text.ElideMiddle
+                            Icon {
+                                id: lead
+                                anchors.left: parent.left
+                                anchors.leftMargin: 14
+                                anchors.verticalCenter: parent.verticalCenter
+                                size: 20
+                                name: row.modelData.blocked ? "block" : row.here ? "check" : "subtitles"
                                 color: row.contentColor
-                                text: row.modelData.name
                             }
-                            StyledText {
-                                visible: row.note !== ""
-                                width: parent.width
-                                role: "labelSmall"
-                                elide: Text.ElideRight
-                                color: row.modelData.blocked ? Colors.error : Qt.alpha(row.contentColor, 0.75)
-                                text: row.note
+                            Column {
+                                anchors.left: lead.right
+                                anchors.leftMargin: 12
+                                anchors.right: blockBtn.left
+                                anchors.rightMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                StyledText {
+                                    width: parent.width
+                                    jp: true
+                                    role: "bodyMedium"
+                                    emphasized: true
+                                    elide: Text.ElideMiddle
+                                    color: row.contentColor
+                                    text: row.modelData.name
+                                }
+                                StyledText {
+                                    visible: row.note !== ""
+                                    width: parent.width
+                                    role: "labelSmall"
+                                    elide: Text.ElideRight
+                                    color: row.modelData.blocked ? Colors.error : Qt.alpha(row.contentColor, 0.75)
+                                    text: row.note
+                                }
                             }
-                        }
-                        IconButton {
-                            id: blockBtn
-                            anchors.right: parent.right
-                            anchors.rightMargin: 6
-                            anchors.verticalCenter: parent.verticalCenter
-                            size: "xs"
-                            icon: "person_off"
-                            // only files named [Group] can be told apart by author
-                            visible: row.group !== "" && !row.modelData.blocked
-                            onClicked: Jimaku.block(row.group)
+                            IconButton {
+                                id: blockBtn
+                                anchors.right: parent.right
+                                anchors.rightMargin: 6
+                                anchors.verticalCenter: parent.verticalCenter
+                                size: "xs"
+                                icon: "person_off"
+                                // only files named [Group] can be told apart by author
+                                visible: row.group !== "" && !row.modelData.blocked
+                                onClicked: Jimaku.block(row.group)
+                            }
                         }
                     }
                 }
@@ -364,119 +382,126 @@ BarPopup {
     }
 
     // ---- authors you blocked ----
-    ColumnLayout {
-        visible: Jimaku.blacklist.length > 0
+    Collapse {
+        open: Jimaku.blacklist.length > 0
         Layout.fillWidth: true
-        spacing: 6
-        StyledText {
-            role: "labelLarge"
-            color: Colors.on_surface_variant
-            text: "Blocked authors"
-        }
-        Flow {
-            Layout.fillWidth: true
+        ColumnLayout {
             spacing: 6
-            Repeater {
-                model: Jimaku.blacklist
-                delegate: Chip {
-                    required property string modelData
-                    kind: "input"
-                    text: modelData
-                    trailingIcon: "close"
-                    onClicked: Jimaku.unblock(modelData)
-                    onTrailingClicked: Jimaku.unblock(modelData)
+            StyledText {
+                role: "labelLarge"
+                color: Colors.on_surface_variant
+                text: "Blocked authors"
+            }
+            Flow {
+                Layout.fillWidth: true
+                spacing: 6
+                Repeater {
+                    model: Jimaku.blacklist
+                    delegate: Chip {
+                        required property string modelData
+                        kind: "input"
+                        text: modelData
+                        trailingIcon: "close"
+                        onClicked: Jimaku.unblock(modelData)
+                        onTrailingClicked: Jimaku.unblock(modelData)
+                    }
                 }
             }
         }
     }
 
     // ---- actions ----
-    RowLayout {
-        visible: Jimaku.hasKey
+    Collapse {
+        open: Jimaku.hasKey
         Layout.fillWidth: true
-        spacing: 8
-        Button {
-            Layout.fillWidth: true
-            size: "s"
-            icon: "refresh"
-            text: "Search again"
-            enabled: win.haveFile && !win.busy
-            onClicked: Jimaku.fetch()
-        }
-        Button {
-            Layout.fillWidth: true
-            size: "s"
-            style: "tonal"
-            icon: "edit"
-            text: "Fix entry"
-            enabled: win.haveFile
-            onClicked: {
-                win.fixOpen = !win.fixOpen;
-                if (win.fixOpen)
-                    fixField.forceActiveFocus();
+        RowLayout {
+            spacing: 8
+            Button {
+                Layout.fillWidth: true
+                size: "s"
+                icon: "refresh"
+                text: "Search again"
+                enabled: win.haveFile && !win.busy
+                onClicked: Jimaku.fetch()
             }
-        }
-        IconButton {
-            style: "tonal"
-            icon: "open_in_new"
-            enabled: win.entryName !== ""
-            onClicked: Jimaku.openEntry()
+            Button {
+                Layout.fillWidth: true
+                size: "s"
+                style: "tonal"
+                icon: "edit"
+                text: "Fix entry"
+                enabled: win.haveFile
+                onClicked: {
+                    win.fixOpen = !win.fixOpen;
+                    if (win.fixOpen)
+                        fixField.forceActiveFocus();
+                }
+            }
+            IconButton {
+                style: "tonal"
+                icon: "open_in_new"
+                enabled: win.entryName !== ""
+                onClicked: Jimaku.openEntry()
+            }
         }
     }
 
     // ---- point this show at another Jimaku entry ----
-    ColumnLayout {
-        visible: win.fixOpen
+    Collapse {
+        open: win.fixOpen
         Layout.fillWidth: true
-        spacing: 6
-        Appear { shown: win.fixOpen }
-        TextField {
-            id: fixField
-            Layout.fillWidth: true
-            label: "Search Jimaku"
-            leadingIcon: "search"
-            onAccepted: t => { if (t.trim() !== "") Jimaku.searchEntry(t.trim()); }
-        }
-        StyledText {
-            visible: Jimaku.entrySearching
-            role: "labelLarge"
-            color: Colors.on_surface_variant
-            text: "Searching…"
-        }
-        Repeater {
-            model: Jimaku.searchResults
-            delegate: Clickable {
-                id: hit
-                required property var modelData
+        ColumnLayout {
+            spacing: 6
+            TextField {
+                id: fixField
                 Layout.fillWidth: true
-                implicitHeight: 48
-                restRadius: Motion.shapeMedium
-                pressedRadius: Motion.shapeSmall
-                color: Colors.surface_container_high
-                onClicked: {
-                    Jimaku.pinEntry(modelData.id);
-                    win.fixOpen = false;
+                label: "Search Jimaku"
+                leadingIcon: "search"
+                onAccepted: t => { if (t.trim() !== "") Jimaku.searchEntry(t.trim()); }
+            }
+            Collapse {
+                open: Jimaku.entrySearching
+                StyledText {
+                    role: "labelLarge"
+                    color: Colors.on_surface_variant
+                    text: "Searching…"
                 }
-                Column {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 14
-                    anchors.right: parent.right
-                    anchors.rightMargin: 14
-                    anchors.verticalCenter: parent.verticalCenter
-                    StyledText {
-                        width: parent.width
-                        jp: true
-                        role: "bodyMedium"
-                        emphasized: true
-                        elide: Text.ElideRight
-                        text: hit.modelData.japanese || hit.modelData.name
+            }
+            Repeater {
+                model: Jimaku.searchResults
+                delegate: Clickable {
+                    id: hit
+                    required property var modelData
+                    Layout.fillWidth: true
+                    implicitHeight: 48
+                    restRadius: Motion.shapeMedium
+                    pressedRadius: Motion.shapeSmall
+                    color: Colors.surface_container_high
+                    onClicked: {
+                        Jimaku.pinEntry(modelData.id);
+                        win.fixOpen = false;
                     }
-                    StyledText {
-                        width: parent.width
-                        role: "labelSmall"
-                        elide: Text.ElideRight
-                        color: Colors.on_surface_variant
-                        text: hit.modelData.english || hit.modelData.name
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 14
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        StyledText {
+                            width: parent.width
+                            jp: true
+                            role: "bodyMedium"
+                            emphasized: true
+                            elide: Text.ElideRight
+                            text: hit.modelData.japanese || hit.modelData.name
+                        }
+                        StyledText {
+                            width: parent.width
+                            role: "labelSmall"
+                            elide: Text.ElideRight
+                            color: Colors.on_surface_variant
+                            text: hit.modelData.english || hit.modelData.name
+                        }
                     }
                 }
             }

@@ -2,6 +2,7 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs
 import qs.Services
@@ -22,11 +23,33 @@ Singleton {
     readonly property bool wanted: enabled && Mpv.connected && Mpv.hasFile
     // the focused window is mpv: tabbing away takes the overlay down and gives mpv's own line back
     readonly property var activeWin: ToplevelManager.activeToplevel
-    readonly property bool mpvFocused: activeWin !== null && activeWin !== undefined && activeWin.appId === "mpv"
+    // Hyprland's view of the focused window: its pid tells which mpv it is (the shell's link is on one of them)
+    readonly property var hyprWin: Hyprland.activeToplevel
+    readonly property int focusedPid: Number(hyprWin && hyprWin.lastIpcObject ? hyprWin.lastIpcObject.pid : 0) || 0
+    readonly property bool mpvFocused: !!activeWin && activeWin.appId === "mpv" && (Mpv.pid || 0) > 0 && focusedPid === Mpv.pid
+    // lastIpcObject only fills on a refresh
+    Timer {
+        id: pidRefresh
+        interval: 100
+        onTriggered: Hyprland.refreshToplevels()
+    }
+    Connections {
+        target: lex
+        function onActiveWinChanged() { pidRefresh.restart(); }
+    }
+    Connections {
+        target: Mpv
+        function onPidChanged() { pidRefresh.restart(); }
+    }
     // tests drive a windowed mpv: QS_LEXICON_WINDOWED=1 drops the fullscreen requirement
     readonly property bool windowedOk: Quickshell.env("QS_LEXICON_WINDOWED") === "1"
     // overlay and mpv's own subs swap places only when this is true
-    readonly property bool overlayOn: wanted && ready && mpvFocused && (Mpv.fullscreen || windowedOk)
+    // the Words page is showing (it has a search box): our layer can take the keyboard on a click, and then the
+    // focused window is no longer mpv, so the overlay must not switch off
+    property bool panelSearch: false
+    // some other window took focus (a layer surface of ours holding the keyboard reports no window at all)
+    readonly property bool otherFocused: activeWin !== null && activeWin !== undefined && activeWin.appId !== "mpv"
+    readonly property bool overlayOn: wanted && ready && (mpvFocused || (panelSearch && !otherFocused)) && (Mpv.fullscreen || windowedOk)
 
     // readings over the kanji of the line: unknown (words being learned), all, off. Alt+f cycles; remembered.
     property string furigana: "unknown"
@@ -40,11 +63,46 @@ Singleton {
         printErrors: false
         blockLoading: true
         atomicWrites: true
-        onLoaded: if (["unknown", "all", "off"].indexOf(adapter.furigana) >= 0) lex.furigana = adapter.furigana
+        onLoaded: {
+            if (["unknown", "all", "off"].indexOf(adapter.furigana) >= 0)
+                lex.furigana = adapter.furigana;
+            lex.reviewPause = adapter.reviewPause === true;
+        }
         JsonAdapter {
             id: adapter
             property string furigana: lex.furigana
+            property bool reviewPause: lex.reviewPause
         }
+    }
+
+    // pause at the end of a line holding a word that is due today or a leech (Alt+r); remembered
+    property bool reviewPause: false
+    function setReviewPause(on) {
+        reviewPause = on;
+        prefs.writeAdapter();
+        if (on)
+            _armReview();
+        else
+            Mpv.send(["script-message", "lexicon-pause-at", "0"]);
+    }
+    // a line that is on screen with such a word tells the mpv script when it ends; the script does the pausing,
+    // so it lands on the frame even when the shell is busy
+    function _armReview() {
+        if (!reviewPause || !overlayOn || Mpv.paused || !Mpv.subLive || Mpv.subEnd <= Mpv.position + 0.15)
+            return;
+        for (const row of rows)
+            for (const t of row)
+                if (t.k === "word" && statusOf(t) === "learning" && (t.due === true || t.leech === true)) {
+                    Mpv.send(["script-message", "lexicon-pause-at", String(Mpv.subEnd)]);
+                    return;
+                }
+    }
+
+    // known and learning shares of a subtitle file (0..1), or null before the helper has read it
+    function comprehensionParts(path) {
+        if (!path || statsFor !== path || !stats.tokens)
+            return null;
+        return { known: stats.pct / 100, learning: (stats.learnPct || 0) / 100 };
     }
 
     // "79% known · 204 new" for a subtitle file once the helper has read it, else ""
@@ -88,7 +146,18 @@ Singleton {
         rev;
         if (tok && (tok.status === "name" || tok.status === "none"))
             return tok.status;
-        return (tok && overrides[tok.term]) || (tok && tok.status) || "unknown";
+        return (tok && overrides[tok.term]) || (tok && termStatus[tok.term]) || (tok && tok.status) || "unknown";
+    }
+    // what the helper last said about each word shown (line or transcript): a card or underline holding an older
+    // token reads the newest status instead of the one it was cut with
+    property var termStatus: ({})
+    function _index(rows) {
+        const o = Object.assign({}, termStatus);
+        for (const row of rows)
+            for (const t of (row.toks || row))
+                if (t.k === "word" && t.term)
+                    o[t.term] = t.status;
+        termStatus = o;
     }
     function _override(term, status) {
         const o = Object.assign({}, overrides);
@@ -108,6 +177,8 @@ Singleton {
                 lex._override(token.term, r.status);
             lex.refreshLine();
             statsDebounce.restart();
+            if (lex.panelOpen)
+                lex.loadLearning();
         });
     }
 
@@ -175,10 +246,73 @@ Singleton {
     // State per term: adding | finishing | done | partial | dup | error:<code>; mineLines is how many lines the card holds.
     property var mineState: ({})
     property var mineLines: ({})
+    // the lines the user chose for a word's sentence in one cue (key term|start), [first, last] cue indexes; unset means what mining picks itself
+    property var mineSpan: ({})
+    property var _mineJobs: ({})
+    property var _spanCache: ({})
+    // the cue under the word and its neighbours (op span), cached per word and cue
+    function spanOf(tok, ctx, done) {
+        const path = subPath();
+        if (!tok || !ctx || ctx.start === undefined || ctx.start < 0 || path === "") {
+            done(null);
+            return;
+        }
+        const key = tok.term + "|" + ctx.start;
+        if (_spanCache[key]) {
+            done(_spanCache[key]);
+            return;
+        }
+        request({ op: "span", path: path, start: ctx.start }, r => {
+            if (r.error || r.line === undefined || r.line < 0) {
+                done(null);
+                return;
+            }
+            lex._spanCache[key] = r;
+            done(r);
+        });
+    }
+    // the user changed the lines: remembered for Mine, or, for a card already mined, written to the note after a pause
+    property var _respanArgs: null
+    function spanKey(tok, ctx) { return tok.term + "|" + (ctx ? ctx.start : -1); }
+    function setSpan(tok, ctx, span) {
+        if (!tok || !tok.term)
+            return;
+        const m = Object.assign({}, mineSpan);
+        m[spanKey(tok, ctx)] = span;
+        mineSpan = m;
+        const st = mineState[tok.term] || "";
+        if (mineNote[tok.term] && (st === "done" || st === "partial")) {
+            _respanArgs = { tok: tok, ctx: ctx || {} };
+            respanTimer.restart();
+        }
+    }
+    Timer {
+        id: respanTimer
+        interval: 600
+        onTriggered: {
+            const a = lex._respanArgs;
+            lex._respanArgs = null;
+            if (!a)
+                return;
+            const st = lex.mineState[a.tok.term] || "";
+            if (st === "adding" || st === "finishing") {
+                lex._respanArgs = a;
+                restart();
+                return;
+            }
+            lex._setMine(a.tok.term, "finishing");
+            lex._mineQ.push({ kind: "respan", tok: a.tok, ctx: a.ctx, span: lex.mineSpan[lex.spanKey(a.tok, a.ctx)], path: lex.subPath(), video: Mpv.path });
+            lex._mineNext();
+        }
+    }
     property var mineNote: ({})
     // open the card in Anki's browser
     function browse(tok) {
         const id = tok ? mineNote[tok.term] : 0;
+        if (id)
+            request({ op: "browse", noteId: id }, () => {});
+    }
+    function browseNote(id) {
         if (id)
             request({ op: "browse", noteId: id }, () => {});
     }
@@ -191,14 +325,15 @@ Singleton {
         o[term] = st;
         mineState = o;
     }
-    function mine(tok, ctx, force) {
+    // replace: overwrite the card already mined for the word instead of adding a second one
+    function mine(tok, ctx, replace) {
         if (!tok || !tok.term)
             return;
         const st = mineState[tok.term] || "";
         if (st === "adding" || st === "finishing")
             return;
         _setMine(tok.term, "adding");
-        _mineQ.push({ tok: tok, ctx: ctx || {}, force: !!force, path: subPath(), video: Mpv.path });
+        _mineQ.push({ tok: tok, ctx: ctx || {}, force: !!replace, replace: replace ? (mineNote[tok.term] || 0) : 0, path: subPath(), video: Mpv.path, span: mineSpan[spanKey(tok, ctx)] });
         _mineNext();
     }
     function _mineNext() {
@@ -208,9 +343,24 @@ Singleton {
         const job = _mineQ.shift();
         const tok = job.tok;
         const end = (st) => { lex._setMine(tok.term, st); lex._mineBusy = false; lex._mineNext(); };
-        request({ op: "mine", term: tok.term, reading: tok.reading || "", surface: tok.s, force: job.force,
+        if (job.kind === "respan") {
+            request({ op: "respan", noteId: lex.mineNote[tok.term], term: tok.term, reading: tok.reading || "", surface: tok.s,
+                      prefix: job.ctx.prefix || "", body: tok.s, suffix: job.ctx.suffix || "", path: job.path,
+                      start: job.ctx.start === undefined ? -1 : job.ctx.start, span: job.span }, r => {
+                if (r.error) {
+                    end("partial");
+                    return;
+                }
+                const m = Object.assign({}, lex.mineLines);
+                m[tok.term] = r.lines || 1;
+                lex.mineLines = m;
+                lex.request({ op: "capture", noteId: r.noteId, path: job.path, video: job.video, span: r.span, line: r.line }, c => end(c.done ? "done" : "partial"));
+            });
+            return;
+        }
+        request({ op: "mine", term: tok.term, reading: tok.reading || "", surface: tok.s, force: job.force, replace: job.replace,
                   prefix: job.ctx.prefix || "", body: tok.s, suffix: job.ctx.suffix || "",
-                  path: job.path, start: job.ctx.start === undefined ? -1 : job.ctx.start }, r => {
+                  path: job.path, start: job.ctx.start === undefined ? -1 : job.ctx.start, span: job.span }, r => {
             if (r.error) {
                 end("error:" + r.error.split(":")[0]);
             } else if (r.dup) {
@@ -253,33 +403,107 @@ Singleton {
             done(r);
         });
     }
+    // kanji entries (KANJIDIC + JPDB Kanji, merged by the helper) for the card's kanji viewer; the data never changes
+    property var _kanji: ({})
+    function kanji(ch, done) {
+        const hit = _kanji[ch];
+        if (hit !== undefined) {
+            done(hit ? { kanji: hit } : { error: "none" });
+            return;
+        }
+        request({ op: "kanji", chars: [ch] }, r => {
+            if (r.error) {
+                done(r);
+                return;
+            }
+            const k = r.kanji && r.kanji[0];
+            lex._kanji[ch] = k || null;
+            done(k ? { kanji: k } : { error: "none" });
+        });
+    }
+    // Anki can change behind our back (a card deleted, suspended, matured): the word under the card is asked about
+    // again each time it opens, and the whole deck is re-read now and then while the overlay is up
+    function recheck(tok) {
+        if (!ready || !tok || !tok.term || tok.status === "name" || tok.status === "none")
+            return;
+        const term = tok.term;
+        request({ op: "recheck", term: term, reading: tok.reading || "", rank: tok.rank || 0 }, r => {
+            if (r.error || !r.changed)
+                return;
+            lex._override(term, r.status);
+            if (!r.noteId) {
+                const m = Object.assign({}, lex.mineState);
+                delete m[term];
+                lex.mineState = m;
+                const n = Object.assign({}, lex.mineNote);
+                delete n[term];
+                lex.mineNote = n;
+            }
+            lex.refreshLine();
+            if (lex.panelOpen)
+                lex.loadTranscript(true);
+            statsDebounce.restart();
+        });
+    }
+    Timer {
+        interval: 300000
+        repeat: true
+        running: lex.overlayOn
+        onTriggered: lex.sync()
+    }
     function sync() {
         request({ op: "sync" }, r => {
             if (!r.error) {
                 lex.knownWords = (r.known || 0) + (r.learning || 0);
-                lex.overrides = ({});
                 lex.rev++;
                 lex.refreshStats();
                 lex.loadTranscript(true);
+                if (lex.panelOpen)
+                    lex.loadLearning();
             }
-            lex.refreshLine();
+            // the overrides stand in until the line has been cut again with the new statuses, so a word just mined
+            // does not fall back to unknown meanwhile
+            lex.refreshLine(() => { lex.overrides = ({}); lex.rev++; });
         });
     }
 
+    // ---- the OCR card: its text is cut into words and looked up like a subtitle, without marks or mining ----
+    // the helper is started for it when no video is open and left running for ten minutes after the last use
+    property bool ocrKeep: false
+    Timer {
+        id: ocrKeepTimer
+        interval: 600000
+        onTriggered: lex.ocrKeep = false
+    }
+    function segmentText(text, done) {
+        ocrKeep = true;
+        ocrKeepTimer.restart();
+        request({ op: "segment", lines: text.split("\n").map(s => s.trim()).filter(s => s !== "") }, r => done(r.error ? [] : r.lines));
+    }
+
     // the line on screen, cut into words
-    function refreshLine() {
+    function refreshLine(done) {
         const text = Mpv.subRaw;
         if (text === "") {
             rows = [];
             rowsFor = "";
+            if (done)
+                done();
             return;
         }
         const lines = text.split("\n").map(s => s.trim()).filter(s => s !== "");
         request({ op: "segment", lines: lines }, r => {
-            if (r.error || text !== Mpv.subRaw)
+            if (r.error || text !== Mpv.subRaw) {
+                if (done)
+                    done();
                 return;
+            }
+            lex._index(r.lines);
             lex.rows = r.lines;
             lex.rowsFor = text;
+            lex._armReview();
+            if (done)
+                done();
         });
     }
 
@@ -305,6 +529,24 @@ Singleton {
         });
     }
 
+    // ---- every word being learned, for the panel's Words page: { term, reading, ivl, lapses, due, leech, note, source, here } ----
+    property var learningList: []
+    // the user's own known / unknown / ignored marks, newest first: { term, reading, status, updated, ivl, lapses, due, leech, note, anki, here }
+    property var markedList: []
+    property bool learningBusy: false
+    function loadLearning() {
+        if (!ready)
+            return;
+        learningBusy = true;
+        request({ op: "learning", path: subPath() }, r => {
+            lex.learningBusy = false;
+            if (!r.error) {
+                lex.learningList = r.words;
+                lex.markedList = r.marks || [];
+            }
+        });
+    }
+
     // ---- transcript: every line of the subtitle file, for the side panel ----
     property var transcript: []
     property string transcriptFor: ""
@@ -326,6 +568,7 @@ Singleton {
                     lex.transcript = [];
                 return;
             }
+            lex._index(r.lines);
             lex.transcript = r.lines;
             lex.transcriptFor = sp;
             lex.stats = r.stats;
@@ -352,7 +595,12 @@ Singleton {
     // the side panel: opened by the right screen edge (SubOverlay) or Alt+t, which pins it
     property bool panelOpen: false
     property bool panelPinned: false
-    onPanelOpenChanged: if (panelOpen) loadTranscript(false)
+    onPanelOpenChanged: {
+        if (panelOpen) {
+            loadTranscript(false);
+            loadLearning();
+        }
+    }
     function togglePanel() {
         panelPinned = !panelPinned;
         panelOpen = panelPinned;
@@ -407,7 +655,8 @@ Singleton {
             const q = _pending;
             _pending = [];
             q.forEach(r => proc.write(JSON.stringify(r) + "\n"));
-            if (ready) {
+            // started for the OCR card alone: no Anki sync, no subtitle work
+            if (ready && lex.wanted) {
                 lex.sync();
                 lex.refreshStats();
                 lex.refreshLine();
@@ -459,6 +708,7 @@ Singleton {
     property bool _hidden: false
     onOverlayOnChanged: {
         if (!overlayOn) {
+            Mpv.send(["script-message", "lexicon-pause-at", "0"]);
             _ourPause = false;
             panelOpen = false;
             panelPinned = false;
@@ -481,7 +731,7 @@ Singleton {
     Process {
         id: proc
         command: [lex.python, Quickshell.shellDir + "/scripts/lexicon.py"]
-        running: lex.wanted
+        running: lex.wanted || lex.ocrKeep
         stdinEnabled: true
         stdout: SplitParser { onRead: line => lex._onLine(line) }
         onExited: code => {
@@ -502,6 +752,7 @@ Singleton {
         function ignore(): void { if (lex.focusTok) lex.mark(lex.focusTok, "ignored"); }
         function name(): void { if (lex.focusTok) lex.setName(lex.focusTok, lex.focusTok.status === "name" ? 0 : 1); }
         function furigana(): void { lex.cycleFurigana(); }
+        function reviewpause(): void { lex.setReviewPause(!lex.reviewPause); }
         function panel(): void { lex.togglePanel(); }
         function open(): void { lex.panelOpen = true; }
         function close(): void { lex.panelOpen = false; lex.panelPinned = false; }
@@ -510,7 +761,7 @@ Singleton {
                                     focused: lex.mpvFocused, fullscreen: Mpv.fullscreen, subDelay: Mpv.subDelay,
                                     subStart: Mpv.subStart, subEnd: Mpv.subEnd, live: Mpv.subLive, panel: lex.panelOpen, pinned: lex.panelPinned,
                                     lines: lex.transcript.length, current: lex.currentIndex, subPath: lex.subPath(),
-                                    known: lex.knownWords, stats: lex.stats, rows: lex.rows });
+                                    known: lex.knownWords, reviewPause: lex.reviewPause, stats: lex.stats, rows: lex.rows });
         }
     }
 }

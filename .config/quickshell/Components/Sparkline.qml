@@ -38,6 +38,7 @@ Item {
 
         ShapePath {
             strokeColor: root.series2.length > 1 ? root.color2 : "transparent"
+            Behavior on strokeColor { ColorFade { speed: "default" } }
             strokeWidth: root.thickness
             fillColor: "transparent"
             capStyle: ShapePath.RoundCap
@@ -46,6 +47,7 @@ Item {
         }
         ShapePath {
             strokeColor: root.series.length > 1 ? root.color : "transparent"
+            Behavior on strokeColor { ColorFade { speed: "default" } }
             strokeWidth: root.thickness
             fillColor: "transparent"
             capStyle: ShapePath.RoundCap
@@ -56,13 +58,18 @@ Item {
 
     // the newest point pulses
     Rectangle {
-        visible: root._p1.length > 1
+        opacity: root._p1.length > 1 ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { Fade {} }
         width: 12
         height: 12
         radius: 6
         color: root.color
+        Behavior on color { ColorFade {} }
         x: root._p1.length ? root._p1[root._p1.length - 1].x - width / 2 : 0
         y: root._p1.length ? root._p1[root._p1.length - 1].y - height / 2 : 0
+        Behavior on x { Spring { speed: "fast" } }
+        Behavior on y { Spring { speed: "fast" } }
         SequentialAnimation on scale {
             running: root.visible && root._p1.length > 1
             loops: Animation.Infinite

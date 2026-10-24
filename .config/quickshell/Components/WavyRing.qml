@@ -6,7 +6,8 @@ import qs
 // (clockwise from the top), a gap, then a wavy track for the rest. With `waving` the wave drifts
 // slowly around the ring. In `overdrive` (past the goal) the full ring is charged: the wave swells and
 // races around, a second lap (`overValue` of it, in `overColor`) fills on top, and a faint wave breathes
-// just inside the ring.
+// just inside the ring. `secondValue` adds a second arc (in `secondColor`) right after the first, for a ring
+// split three ways: value, secondValue, and the track for the rest.
 Item {
     id: ring
 
@@ -24,6 +25,8 @@ Item {
     property color overColor: Colors.primary
     property color activeColor: Colors.primary
     property color trackColor: Colors.secondary_container
+    property real secondValue: 0      // 0..1, a second arc after the first
+    property color secondColor: Colors.secondary
 
     // glide between updates that arrive a few times a second
     property real _visual: value
@@ -36,6 +39,8 @@ Item {
     readonly property real _near: quicken ? Math.max(0, pace) : 0
     property real _drift: overdrive && !quicken ? 4.5 : (waving ? (quicken ? 1.8 : 0.9) : idleDrift) * (1 + 1.4 * _near)
     Behavior on _drift { Spring { speed: "slow" } }
+    property real _secondVisual: secondValue
+    Behavior on _secondVisual { NumberAnimation { duration: 280; easing.type: Easing.Linear } }
     property real _overVisual: overValue
     Behavior on _overVisual { NumberAnimation { duration: 280; easing.type: Easing.Linear } }
 
@@ -63,19 +68,32 @@ Item {
     // `base` with a wave of `amp` and phase `ph`
     function arcOn(a0, a1, base, amp, ph) {
         const pts = [];
-        const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / 2));
-        for (let i = 0; i <= n; i++) {
-            const t = (a0 + (a1 - a0) * i / n) * Math.PI / 180;
+        // samples sit on a fixed 1.5° grid (plus the exact ends), so a growing arc or a drifting wave
+        // never reshuffles the points and shimmers the crests
+        const step = 1.5;
+        const lo = Math.min(a0, a1), hi = Math.max(a0, a1);
+        const add = d => {
+            const t = d * Math.PI / 180;
             const r = base + amp * Math.sin(waves * t + ph);
             pts.push(Qt.point(width / 2 + r * Math.sin(t), height / 2 - r * Math.cos(t)));
+        };
+        add(a0);
+        for (let d = Math.floor(lo / step + 1e-6) * step + step; d < hi - 0.2; d += step) {
+            if (d > lo + 0.2) add(d);
         }
+        if (a1 !== a0) add(a1);
         return pts;
     }
     function arc(a0, a1) { return arcOn(a0, a1, _r, Math.max(0, _amp), _phase); }
 
     readonly property real _end: Math.max(0, Math.min(1, _visual)) * 360
     readonly property bool _hasActive: _end > 0.5
-    readonly property bool _hasTrack: _end < 360 - gap * 2
+    readonly property real _s2Start: _hasActive ? _end + gap : 0
+    readonly property real _s2End: Math.min(360, _s2Start + Math.max(0, Math.min(1, _secondVisual)) * 360)
+    readonly property bool _hasSecond: _secondVisual * 360 > 0.5 && _s2End - _s2Start > 0.5
+    readonly property real _trackStart: _hasSecond ? _s2End + gap : (_hasActive ? _end + gap : 0)
+    readonly property real _trackEnd: 360 - (_hasActive || _hasSecond ? gap : 0)
+    readonly property bool _hasTrack: _trackEnd - _trackStart > 0
     readonly property real _overEnd: Math.max(0, Math.min(1, _overVisual)) * 360
     readonly property bool _hasOver: overdrive && _overEnd > 0.5
 
@@ -89,7 +107,15 @@ Item {
             fillColor: "transparent"
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
-            PathPolyline { path: ring._hasTrack ? ring.arc(ring._hasActive ? ring._end + ring.gap : 0, 360 - (ring._hasActive ? ring.gap : 0)) : [] }
+            PathPolyline { path: ring._hasTrack ? ring.arc(ring._trackStart, ring._trackEnd) : [] }
+        }
+        ShapePath {
+            strokeColor: ring._hasSecond ? ring.secondColor : "transparent"
+            strokeWidth: ring.thickness
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            joinStyle: ShapePath.RoundJoin
+            PathPolyline { path: ring._hasSecond ? ring.arc(ring._s2Start, ring._s2End) : [] }
         }
         ShapePath {
             strokeColor: ring._hasActive ? ring.activeColor : "transparent"
@@ -108,14 +134,14 @@ Item {
             joinStyle: ShapePath.RoundJoin
             PathPolyline { path: ring._hasOver ? ring.arc(0, ring._overEnd) : [] }
         }
-        // overdrive: a faint wave breathing just inside the ring, running the other way
+        // overdrive: a faint wave breathing just inside the ring, running the other way (an integer multiple of the phase, so it stays seamless when the phase wraps)
         ShapePath {
             strokeColor: ring.overdrive ? Qt.alpha(ring.overColor, 0.18 + 0.22 * ring._breath) : "transparent"
             strokeWidth: 2
             fillColor: "transparent"
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
-            PathPolyline { path: ring.overdrive ? ring.arcOn(0, 360, ring._r - ring.thickness - 7, 2.5, -ring._phase * 1.3) : [] }
+            PathPolyline { path: ring.overdrive ? ring.arcOn(0, 360, ring._r - ring.thickness - 7, 2.5, -ring._phase * 2) : [] }
         }
     }
 }

@@ -58,7 +58,9 @@ Item {
         StyledText {
             parent: list
             anchors.centerIn: parent
-            visible: root.rows.length === 0
+            opacity: root.rows.length === 0 ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             horizontalAlignment: Text.AlignHCenter
             role: "bodyMedium"
             color: Colors.on_surface_variant

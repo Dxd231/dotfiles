@@ -55,7 +55,7 @@ Scope {
         margins.left: 24
         exclusiveZone: 0
         visible: toast.shown || bar.opacity > 0
-        implicitWidth: bar.width + 16
+        implicitWidth: 560 + 16 + 16 // the widest the bar gets plus headroom: its width springs, the window does not
         implicitHeight: 48 + 16
         color: "transparent"
         // click-through, except over the bar while it carries a button
@@ -76,7 +76,9 @@ Scope {
             id: bar
             x: 8
             y: 8
-            width: Math.max(288, Math.min(560, row.implicitWidth + 32))
+            property real _w: Math.max(288, Math.min(560, row.implicitWidth + 32))
+            Behavior on _w { Spring { speed: "fast" } }
+            width: Math.max(0, _w)
             height: 48
             radius: Motion.shapeExtraSmall
             color: Colors.inverse_surface
@@ -103,8 +105,8 @@ Scope {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 32
                     height: 32
-                    shapeRest: 1
-                    shapeActive: 4
+                    shapeRest: "cookie4"
+                    shapeActive: "clover4"
                     active: toast.tick
                     color: Colors.inverse_primary
                     Icon {
@@ -114,16 +116,18 @@ Scope {
                         color: Colors.inverse_surface
                     }
                 }
-                StyledText {
+                SwapText {
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(implicitWidth, toast.actionText !== "" ? 360 : 480)
                     role: "bodyMedium"
                     color: Colors.inverse_on_surface
                     elide: Text.ElideRight
-                    text: toast.message
+                    value: toast.message
                 }
                 Clickable {
-                    visible: toast.actionText !== ""
+                    opacity: toast.actionText !== "" ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     anchors.verticalCenter: parent.verticalCenter
                     height: 32
                     width: actionLabel.implicitWidth + 24

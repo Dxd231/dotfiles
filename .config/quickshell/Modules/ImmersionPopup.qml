@@ -199,7 +199,7 @@ BarPopup {
             out.push({ icon: "subtitles_off", text: "No subs on Jimaku" });
         const cp = Lexicon.comprehension(Lexicon.subPath());
         if (cp !== "")
-            out.push({ icon: "translate", text: cp });
+            out.push({ icon: "translate", text: cp, ring: Lexicon.comprehensionParts(Lexicon.subPath()) });
         const sr = playInfo ? Immersion.seriesList.find(x => x.key === playInfo.key || (x.memberKeys || []).indexOf(playInfo.key) >= 0) : null;
         if (sr)
             out.push({ icon: "schedule", text: Immersion.fmt(sr.minutes) + " in total" });
@@ -271,8 +271,8 @@ BarPopup {
         return out;
     }
     readonly property string mangaHint: Immersion.kavitaLatest !== "" && Immersion.kavitaLatest < Tasks.keyOf(Tasks.addDays(Tasks.dateOf(Tasks.todayKey), -7)) && !Immersion.kavitaNow
-        ? "The last manga reading saved by Kavita is from " + dayLabel(Immersion.kavitaLatest) + "." : ""
-    function openKavita() { Quickshell.execDetached(["xdg-open", Immersion.kavitaUrl(Immersion.mangaSeries)]); }
+        ? "The last manga reading saved is from " + dayLabel(Immersion.kavitaLatest) + "." : ""
+    function openKavita() { Manga.show(Immersion.mangaSeries && Immersion.mangaSeries.vol !== undefined ? Immersion.mangaSeries.vol : -1); }
     // "Continue" is only offered for .mkv files: the newest one played, even if something else came after it
     readonly property var lastMkv: {
         const segs = Immersion.segments;
@@ -439,6 +439,7 @@ BarPopup {
             property real appear: win.stage >= 1 ? 1 : 0
             Behavior on appear { Spring { speed: "default" } }
             opacity: Math.max(0, Math.min(1, appear * 1.6))
+            scale: 0.95 + 0.05 * Math.min(1, player.appear)
             transform: Translate { y: (1 - player.appear) * 14 }
 
             // ---- playing ----
@@ -455,10 +456,15 @@ BarPopup {
                 // the picture: squarer while playing, rounder while paused
                 ClippingRectangle {
                     Layout.fillWidth: true
+                    // 16:9 when there's room; gives way (before the lines history does) so nothing below is cut off
+                    Layout.fillHeight: true
                     Layout.preferredHeight: Math.round(width * 9 / 16)
+                    Layout.maximumHeight: Math.round(width * 9 / 16)
+                    Layout.minimumHeight: 96
                     radius: Mpv.playing ? Motion.shapeLarge : 40
                     color: Colors.surface_container_highest
                     Behavior on radius { Spring {} }
+                    Appear { visible: false; shown: win.stage >= 1 && live.visible; delay: 60; lift: 12; from: 0.94 }
 
                     Image {
                         anchors.fill: parent
@@ -473,7 +479,7 @@ BarPopup {
                         anchors.centerIn: parent
                         width: 64
                         height: 64
-                        shapeRest: 5
+                        shapeRest: "cookie4"
                         spinning: Mpv.playing && win.isOpen
                         color: Colors.primary_container
                         opacity: Mpv.thumb === "" || !Mpv.hasVideo ? 1 : 0
@@ -505,6 +511,7 @@ BarPopup {
                 }
 
                 ColumnLayout {
+                    Appear { visible: false; shown: win.stage >= 1 && live.visible; delay: 110; lift: 12; from: 0.94 }
                     Layout.fillWidth: true
                     spacing: 0
                     StyledText {
@@ -523,19 +530,22 @@ BarPopup {
                         elide: Text.ElideRight
                         text: win.playInfo && win.playInfo.episode !== "" ? win.playInfo.episode + "  ·  " + Mpv.title : Mpv.title
                     }
-                    Flow {
+                    Collapse {
+                        open: win.mpvChips.length > 0
                         Layout.fillWidth: true
                         Layout.topMargin: 6
-                        spacing: 6
-                        move: Transition { Spring { properties: "x,y"; speed: "default" } }
-                        visible: win.mpvChips.length > 0
-                        Repeater {
-                            model: win.mpvChips.length
-                            delegate: ImmersionChip {
-                                required property int index
-                                readonly property var d: win.mpvChips[index] || ({})
-                                icon: d.icon || ""
-                                text: d.text || ""
+                        Flow {
+                            spacing: 6
+                            move: Transition { Spring { properties: "x,y"; speed: "default" } }
+                            Repeater {
+                                model: win.mpvChips.length
+                                delegate: ImmersionChip {
+                                    required property int index
+                                    readonly property var d: win.mpvChips[index] || ({})
+                                    icon: d.icon || ""
+                                    text: d.text || ""
+                                    ring: d.ring || null
+                                }
                             }
                         }
                     }
@@ -543,6 +553,7 @@ BarPopup {
 
                 // seek bar and times
                 ColumnLayout {
+                    Appear { visible: false; shown: win.stage >= 1 && live.visible; delay: 160; lift: 12; from: 0.94 }
                     Layout.fillWidth: true
                     spacing: 0
                     Slider {
@@ -574,6 +585,7 @@ BarPopup {
 
                 // transport
                 RowLayout {
+                    Appear { visible: false; shown: win.stage >= 1 && live.visible; delay: 210; lift: 12; from: 0.94 }
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 8
                     IconButton {
@@ -601,6 +613,7 @@ BarPopup {
                         // round while paused, square while playing
                         restRadius: Mpv.playing ? Motion.shapeLarge : height / 2
                         property bool spinSpring: true
+                        iconKick: false
                         Behavior on iconRotation { enabled: play.spinSpring; Spring {} }
                         Behavior on iconScale { enabled: play.spinSpring; Spring {} }
                         Connections {
@@ -635,6 +648,7 @@ BarPopup {
                 // the line being said: a caption that is only as tall as it needs to be
                 Rectangle {
                     id: caption
+                    Appear { visible: false; shown: win.stage >= 1 && live.visible; delay: 260; lift: 12; from: 0.94 }
                     Layout.fillWidth: true
                     visible: Mpv.connected && (Mpv.hasVideo || Mpv.subText !== "" || Mpv.subHistory.length > 0)
                     Layout.preferredHeight: Math.max(52, Math.min(104, curLine.implicitHeight + 24))
@@ -801,17 +815,20 @@ BarPopup {
                 }
 
                 // does this count?
-                Chip {
+                Collapse {
+                    open: win.tracked
                     Layout.alignment: Qt.AlignHCenter
-                    visible: win.tracked
-                    kind: "filter"
-                    icon: "block"
-                    selected: Immersion.liveCounted
-                    text: win.tracked && Immersion.liveInfo
-                        ? (Immersion.liveCounted ? "Counting" : "Not counting") + "  ·  "
-                          + Immersion.reasonOf(Immersion.liveInfo.key, Immersion.liveRaw.alang, Immersion.liveRaw.slang, Immersion.liveRaw.title + " " + Immersion.liveRaw.path)
-                        : ""
-                    onClicked: if (Immersion.liveInfo) Immersion.setCounted(Immersion.liveInfo.key, !Immersion.liveCounted)
+                    Chip {
+                        kind: "filter"
+                        icon: "block"
+                        selected: Immersion.liveCounted
+                        text: win.tracked && Immersion.liveInfo
+                            ? (Immersion.liveCounted ? "Counting" : "Not counting") + "  ·  "
+                              + Immersion.reasonOf(Immersion.liveInfo.key, Immersion.liveRaw.alang, Immersion.liveRaw.slang, Immersion.liveRaw.title + " " + Immersion.liveRaw.path)
+                            : ""
+                        onClicked: if (Immersion.liveInfo) Immersion.setCounted(Immersion.liveInfo.key, !Immersion.liveCounted)
+                        Appear { shown: win.tracked && live.visible; delay: 320; lift: 10; from: 0.85 }
+                    }
                 }
             }
 
@@ -887,7 +904,7 @@ BarPopup {
                 onTriggered: win.openTtu()
             }
 
-            // ---- manga (Kavita) ----
+            // ---- manga (the reader; named kavita internally) ----
             ImmersionBookCard {
                 anchors.fill: parent
                 anchors.margins: 16
@@ -899,7 +916,7 @@ BarPopup {
                 shown: win.pane === "kavita" && win.isOpen
                 cover: Immersion.mangaSeries && Immersion.mangaSeries.cover ? Immersion.mangaSeries.cover : ""
                 title: Immersion.mangaSeries ? Immersion.mangaSeries.work : ""
-                subtitle: "Kavita"
+                subtitle: "Manga reader"
                 live: Immersion.kavitaNow
                 status: win.lastLabel(Immersion.kavitaLatest, "read")
                 chips: win.mangaChips
@@ -917,7 +934,7 @@ BarPopup {
                 recent: win.mangaRecent
                 hint: win.mangaHint
                 actionIcon: "menu_book"
-                actionText: "Open Kavita"
+                actionText: "Read"
                 opacity: win.pane === "kavita" && Immersion.hasKavita ? 1 : 0
                 visible: opacity > 0.02
                 Behavior on opacity { Fade {} }
@@ -931,8 +948,8 @@ BarPopup {
                 icon: "menu_book"
                 active: win.isOpen && win.pane === "kavita" && !Immersion.hasKavita
                 title: "No manga yet"
-                text: "Read in Kavita: the cover, your page and the reading time show up here."
-                actions: [{ id: "open", icon: "menu_book", text: "Open Kavita" }]
+                text: "Read manga in the shell: the cover, your page and the reading time show up here."
+                actions: [{ id: "open", icon: "menu_book", text: "Read manga" }]
                 opacity: win.pane === "kavita" && !Immersion.hasKavita ? 1 : 0
                 visible: opacity > 0.02
                 Behavior on opacity { Fade {} }
@@ -948,9 +965,9 @@ BarPopup {
                 icon: "auto_awesome"
                 active: win.isOpen && win.pane === "idle"
                 title: "Nothing to show yet"
-                text: "Play something in mpv with Japanese audio, or read in ttu or Kavita."
+                text: "Play something in mpv with Japanese audio, or read in ttu or the manga reader."
                 actions: (win.lastMkv ? [{ id: "continue", icon: "play_arrow", text: win.continueText() }] : [])
-                    .concat([{ id: "ttu", icon: "auto_stories", text: "Open ttu", style: "text" }, { id: "kavita", icon: "menu_book", text: "Open Kavita", style: "text" }])
+                    .concat([{ id: "ttu", icon: "auto_stories", text: "Open ttu", style: "text" }, { id: "kavita", icon: "menu_book", text: "Read manga", style: "text" }])
                 opacity: win.pane === "idle" ? 1 : 0
                 visible: opacity > 0.02
                 Behavior on opacity { Fade {} }
@@ -1095,7 +1112,7 @@ BarPopup {
                             readonly property real dist: 104 + 28 * ringBox.burst
                             width: 12
                             height: 12
-                            shape: index % 3 === 0 ? 4 : index % 3 === 1 ? 1 : 5
+                            shape: index % 3 === 0 ? "sunny" : index % 3 === 1 ? "cookie9" : "cookie4"
                             fromShape: shape
                             color: index % 2 === 0 ? Colors.tertiary : Colors.primary
                             x: ringBox.width / 2 + Math.sin(ang) * dist - 6
@@ -1114,7 +1131,6 @@ BarPopup {
                             // reads 0 until the card has landed, then rolls once to today's value
                             text: win.stage >= 3 ? String(Math.floor(Immersion.todayMinutes)) : "0"
                             color: Immersion.overdrive ? ringBox.lapColor : Immersion.goalMet ? Colors.tertiary : Colors.on_surface
-                            Behavior on color { ColorFade {} }
                         }
                         // past the goal: how far, with a bolt
                         Row {
@@ -1122,7 +1138,9 @@ BarPopup {
                             spacing: 4
                             Icon {
                                 anchors.verticalCenter: parent.verticalCenter
-                                visible: Immersion.overdrive
+                                opacity: Immersion.overdrive ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 size: 16
                                 name: "bolt"
                                 color: ringBox.lapColor
@@ -1177,8 +1195,8 @@ BarPopup {
                             ShapeBadge {
                                 Layout.preferredWidth: 34
                                 Layout.preferredHeight: 34
-                                shapeRest: 5
-                                shapeActive: 1
+                                shapeRest: "cookie4"
+                                shapeActive: "cookie9"
                                 active: Immersion.goalMet
                                 spinning: Immersion.goalMet && win.isOpen
                                 spinSpeed: 18
@@ -1206,8 +1224,8 @@ BarPopup {
                             ShapeBadge {
                                 Layout.preferredWidth: 34
                                 Layout.preferredHeight: 34
-                                shapeRest: 7
-                                shapeActive: 7
+                                shapeRest: "star4"
+                                shapeActive: "star4"
                                 color: Colors.secondary
                                 Icon { anchors.centerIn: parent; size: 16; name: "star"; color: Colors.on_secondary }
                             }
@@ -1250,7 +1268,9 @@ BarPopup {
                             height: parent.height
                             radius: height / 2
                             color: splitBar.empty ? Colors.surface_container_highest : Colors.primary
-                            visible: splitBar.watchOn
+                            opacity: splitBar.watchOn ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             width: splitBar.watchOn && splitBar.readOn ? splitBar.watchW : splitBar.width
                             clip: true
                             Behavior on width { Spring {} }
@@ -1261,7 +1281,9 @@ BarPopup {
                                 Icon { anchors.verticalCenter: parent.verticalCenter; size: 16; name: "movie"; color: splitBar.empty ? Colors.on_surface_variant : Colors.on_primary }
                                 StyledText {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    visible: watchBar.width >= 140
+                                    opacity: watchBar.width >= 140 ? 1 : 0
+                                    visible: opacity > 0
+                                    Behavior on opacity { Fade {} }
                                     role: "labelLarge"
                                     emphasized: true
                                     color: splitBar.empty ? Colors.on_surface_variant : Colors.on_primary
@@ -1269,7 +1291,9 @@ BarPopup {
                                 }
                                 RollingDigits {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    visible: watchBar.width >= 70
+                                    opacity: watchBar.width >= 70 ? 1 : 0
+                                    visible: opacity > 0
+                                    Behavior on opacity { Fade {} }
                                     pixelSize: 14
                                     color: splitBar.empty ? Colors.on_surface_variant : Colors.on_primary
                                     text: Immersion.fmt(Immersion.todayWatch)
@@ -1281,7 +1305,9 @@ BarPopup {
                             height: parent.height
                             radius: height / 2
                             color: splitBar.empty ? Colors.surface_container_highest : Colors.tertiary
-                            visible: splitBar.readOn
+                            opacity: splitBar.readOn ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             x: splitBar.watchOn ? watchBar.width + 4 : 0
                             width: Math.max(0, splitBar.watchOn ? splitBar.width - watchBar.width - 4 : splitBar.width)
                             clip: true
@@ -1292,7 +1318,9 @@ BarPopup {
                                 Icon { anchors.verticalCenter: parent.verticalCenter; size: 16; name: "auto_stories"; color: splitBar.empty ? Colors.on_surface_variant : Colors.on_tertiary }
                                 StyledText {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    visible: readBar.width >= 140
+                                    opacity: readBar.width >= 140 ? 1 : 0
+                                    visible: opacity > 0
+                                    Behavior on opacity { Fade {} }
                                     role: "labelLarge"
                                     emphasized: true
                                     color: splitBar.empty ? Colors.on_surface_variant : Colors.on_tertiary
@@ -1300,7 +1328,9 @@ BarPopup {
                                 }
                                 RollingDigits {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    visible: readBar.width >= 70
+                                    opacity: readBar.width >= 70 ? 1 : 0
+                                    visible: opacity > 0
+                                    Behavior on opacity { Fade {} }
                                     pixelSize: 14
                                     color: splitBar.empty ? Colors.on_surface_variant : Colors.on_tertiary
                                     text: Immersion.fmt(Immersion.todayRead)
@@ -1309,22 +1339,26 @@ BarPopup {
                         }
                     }
                     // characters read today, and how fast
-                    RowLayout {
+                    Collapse {
+                        open: Immersion.charsToday > 0
                         Layout.fillWidth: true
                         Layout.leftMargin: 4
                         Layout.rightMargin: 4
-                        visible: Immersion.charsToday > 0
-                        StyledText {
-                            role: "labelLarge"
-                            color: Colors.on_surface_variant
-                            text: Math.round(Immersion.charsToday).toLocaleString(Qt.locale(), "f", 0) + " characters"
-                        }
-                        Item { Layout.fillWidth: true }
-                        StyledText {
-                            role: "labelLarge"
-                            color: Colors.on_surface_variant
-                            visible: Immersion.charsPerHour > 0
-                            text: Immersion.charsPerHour.toLocaleString(Qt.locale(), "f", 0) + " / h"
+                        RowLayout {
+                            StyledText {
+                                role: "labelLarge"
+                                color: Colors.on_surface_variant
+                                text: Math.round(Immersion.charsToday).toLocaleString(Qt.locale(), "f", 0) + " characters"
+                            }
+                            Item { Layout.fillWidth: true }
+                            StyledText {
+                                role: "labelLarge"
+                                color: Colors.on_surface_variant
+                                opacity: Immersion.charsPerHour > 0 ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
+                                text: Immersion.charsPerHour.toLocaleString(Qt.locale(), "f", 0) + " / h"
+                            }
                         }
                     }
                 }
@@ -1359,17 +1393,19 @@ BarPopup {
                     leadingIcon: "auto_stories"
                     onAccepted: charsField.forceActiveFocus()
                 }
-                Flow {
+                Collapse {
+                    open: win.recentTitles.length > 0
                     Layout.fillWidth: true
-                    spacing: 6
-                    visible: win.recentTitles.length > 0
-                    Repeater {
-                        model: win.recentTitles
-                        delegate: Chip {
-                            required property string modelData
-                            kind: "suggestion"
-                            text: modelData.length > 22 ? modelData.slice(0, 21) + "…" : modelData
-                            onClicked: titleField.text = modelData
+                    Flow {
+                        spacing: 6
+                        Repeater {
+                            model: win.recentTitles
+                            delegate: Chip {
+                                required property string modelData
+                                kind: "suggestion"
+                                text: modelData.length > 22 ? modelData.slice(0, 21) + "…" : modelData
+                                onClicked: titleField.text = modelData
+                            }
                         }
                     }
                 }
@@ -1465,16 +1501,19 @@ BarPopup {
                     }
                     // the day picked on the heatmap: up here, beside the range it belongs to, where the Recent / Series
                     // row has no room for it
-                    Chip {
-                        id: dayChip
-                        visible: win.dayFilter !== ""
-                        kind: "input"
-                        icon: "check"
-                        trailingIcon: "close"
-                        text: win.dayFilter !== "" ? win.dayLabel(win.dayFilter) : ""
-                        onTrailingClicked: win.dayFilter = ""
-                        onClicked: win.dayFilter = ""
-                        Appear { shown: dayChip.visible; lift: 0; from: 0.7 }
+                    Collapse {
+                        horizontal: true
+                        open: win.dayFilter !== ""
+                        Chip {
+                            id: dayChip
+                            kind: "input"
+                            icon: "check"
+                            trailingIcon: "close"
+                            text: win.dayFilter !== "" ? win.dayLabel(win.dayFilter) : ""
+                            onTrailingClicked: win.dayFilter = ""
+                            onClicked: win.dayFilter = ""
+                            Appear { shown: dayChip.visible; lift: 0; from: 0.7 }
+                        }
                     }
                     IconButton { icon: "chevron_left"; style: "tonal"; size: "xs"; onClicked: win.back += 1 }
                     IconButton { icon: "chevron_right"; style: "tonal"; size: "xs"; enabled: win.back > 0; onClicked: win.back -= 1 }
@@ -1548,14 +1587,17 @@ BarPopup {
                     }
                     Item { Layout.fillWidth: true }
                     // the source the context points at
-                    Chip {
-                        visible: win.ctxFilter !== ""
-                        kind: "input"
-                        icon: win.ctxFilter === "mpv" ? "play_arrow" : win.ctxFilter === "kavita" ? "menu_book" : "auto_stories"
-                        trailingIcon: "close"
-                        text: win.ctxFilter === "kavita" ? "Kavita" : win.ctxFilter
-                        onTrailingClicked: win.ctxFilter = ""
-                        onClicked: win.ctxFilter = ""
+                    Collapse {
+                        horizontal: true
+                        open: win.ctxFilter !== ""
+                        Chip {
+                            kind: "input"
+                            icon: win.ctxFilter === "mpv" ? "play_arrow" : win.ctxFilter === "kavita" ? "menu_book" : "auto_stories"
+                            trailingIcon: "close"
+                            text: win.ctxFilter === "kavita" ? "Manga" : win.ctxFilter
+                            onTrailingClicked: win.ctxFilter = ""
+                            onClicked: win.ctxFilter = ""
+                        }
                     }
                 }
 
@@ -1577,7 +1619,9 @@ BarPopup {
                     StyledText {
                         parent: list
                         anchors.centerIn: parent
-                        visible: win.rows.length === 0
+                        opacity: win.rows.length === 0 ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { Fade {} }
                         horizontalAlignment: Text.AlignHCenter
                         role: "bodyMedium"
                         color: Colors.on_surface_variant
@@ -1631,7 +1675,7 @@ BarPopup {
                                 Layout.preferredHeight: 40
                                 readonly property bool hasCover: !!row.r && !!row.r.cover
                                 readonly property bool book: !!row.r && (row.r.kind === "read" || row.r.kind === "book" || row.r.kind === "manga")
-                                shapeRest: book ? 1 : 5
+                                shapeRest: book ? "cookie9" : "cookie4"
                                 active: rowHover.hovered
                                 spinning: active && visible
                                 color: book ? Colors.tertiary_container : Colors.primary_container
@@ -1703,26 +1747,35 @@ BarPopup {
                                 text: row.r ? (row.r.est ? "~" : "") + Immersion.fmt(row.r.minutes) : ""
                             }
                             // series: continue it, or flip whether it counts
-                            IconButton {
-                                visible: row.isSeries && !!row.r && row.r.kind !== "book" && row.r.kind !== "manga"
-                                size: "xs"
-                                style: "tonal"
-                                icon: "play_arrow"
-                                onClicked: if (row.r) Mpv.resume(row.r.path)
+                            Collapse {
+                                horizontal: true
+                                open: row.isSeries && !!row.r && row.r.kind !== "book" && row.r.kind !== "manga"
+                                IconButton {
+                                    size: "xs"
+                                    style: "tonal"
+                                    icon: "play_arrow"
+                                    onClicked: if (row.r) Mpv.resume(row.r.path)
+                                }
                             }
-                            Switch {
-                                visible: row.isSeries
-                                checked: !!row.r && row.r.counted
-                                onToggled: if (row.r) Immersion.setCounted(row.r.key, !row.r.counted)
+                            Collapse {
+                                horizontal: true
+                                open: row.isSeries
+                                Switch {
+                                    checked: !!row.r && row.r.counted
+                                    onToggled: if (row.r) Immersion.setCounted(row.r.key, !row.r.counted)
+                                }
                             }
                             // sessions: remove (undo from the snackbar)
-                            IconButton {
-                                visible: !row.isSeries
-                                size: "xs"
-                                icon: "delete"
-                                opacity: rowHover.hovered ? 1 : 0
-                                Behavior on opacity { Fade {} }
-                                onClicked: if (row.r) Immersion.removeRow(row.r)
+                            Collapse {
+                                horizontal: true
+                                open: !row.isSeries
+                                IconButton {
+                                    size: "xs"
+                                    icon: "delete"
+                                    opacity: rowHover.hovered ? 1 : 0
+                                    Behavior on opacity { Fade {} }
+                                    onClicked: if (row.r) Immersion.removeRow(row.r)
+                                }
                             }
                         }
                     }

@@ -219,7 +219,7 @@ Item {
                                         anchors.centerIn: parent
                                         width: 22
                                         height: 22
-                                        shape: [1, 5, 4, 2, 0][slot.index % 5]
+                                        shape: ["cookie4", "flower", "clover4", "gem", "softBurst", "cookie9", "clover8", "sunny"][slot.index % 8]
                                         fromShape: shape
                                         color: view.failed ? Colors.on_error_container : Colors.primary
                                         opacity: slot.active ? 1 : 0

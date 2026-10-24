@@ -15,28 +15,56 @@ Scope {
     id: root
 
     property bool open: false
+    // cards built after the opening stagger (by scrolling) appear at rest
+    property bool cardsSettled: false
+    function _restage() {
+        cardsSettled = false;
+        settleTimer.restart();
+    }
+    onFilterChanged: _restage()
+    onShowKeyChanged: _restage()
+    Timer { id: settleTimer; interval: 600; onTriggered: root.cardsSettled = true }
+    property bool pinned: false   // stays open when the pointer leaves
     property string filter: "all" // all | video (shown as Anime) | book | manga
     readonly property bool hovering: edgeHover.hovered || panelHover.hovered
 
     // overlays inside the panel: "" | "fix" (pick another AniList entry) | "connect"
     property string sheet: ""
+    // the sheet that was last up: its contents stay while the card fades out, instead of emptying first
+    property string lastSheet: ""
     property var target: null     // the series being fixed or acted on
     property string menu: ""      // "" | "card" | "account"
     // a show with several seasons/movies opens as its own shelf of parts
     property string showKey: ""
-    readonly property var show: showKey === "" ? null : (Immersion.seriesList.find(s => s.key === showKey) || null)
+    readonly property var show: showKey === "" ? null : (Immersion.shelfList.find(s => s.key === showKey) || null)
     property real menuX: 0
     property real menuY: 0
-    onMenuChanged: if (menu === "" && open && !hovering) leaveTimer.restart()
-    onSheetChanged: if (sheet === "" && open && !hovering) leaveTimer.restart()
+    // the menu keeps its entries while the exit animation plays
+    property string menuShown: ""
+    onMenuChanged: {
+        if (menu !== "")
+            menuShown = menu;
+        else if (open && !hovering)
+            leaveTimer.restart();
+    }
+    onSheetChanged: {
+        if (sheet !== "")
+            lastSheet = sheet;
+        else if (open && !hovering)
+            leaveTimer.restart();
+    }
     property string pinKey: ""
     property bool targetPinned: false
+    // the card the menu was opened on, for "Remove from shelf"
+    property var menuItem: null
     onOpenChanged: {
         if (open) {
+            _restage();
             Immersion.rescanCovers();
         } else {
             sheet = "";
             menu = "";
+            pinned = false;
         }
     }
     Connections {
@@ -60,8 +88,10 @@ Scope {
         AniList.search(searchTerm(s));
     }
 
-    readonly property var items: Immersion.seriesList.filter(s => filter === "all" || kindOf(s) === filter)
-    readonly property var shown: show ? show.parts : items
+    readonly property var items: Immersion.shelfList.filter(s => (filter === "all" || kindOf(s) === filter) && Immersion.onShelf(s.key, s.last))
+    // inside a show, pinned parts lead (newest pin first); the rest keep their season/volume order
+    readonly property var shown: show ? show.parts.filter(p => Immersion.onShelf(Immersion.partId(p), p.last)).map((p, i) => ({ p: p, i: i, r: Immersion.pins.indexOf(Immersion.partId(p)) }))
+        .sort((a, b) => (b.r >= 0 ? 1 : 0) - (a.r >= 0 ? 1 : 0) || (a.r >= 0 ? a.r - b.r : a.i - b.i)).map(x => x.p) : items
     readonly property string showTitle: {
         if (!show)
             return "";
@@ -105,9 +135,12 @@ Scope {
         const k = kindOf(s);
         if (k === "video")
             Mpv.resume(s.path);
+        else if (k === "manga")
+            Manga.show(s.mangaVol !== undefined ? s.mangaVol : -1);
         else
-            Quickshell.execDetached(["librewolf", "--new-window", k === "book" ? (s.url || "https://reader.ttsu.app/") : (s.url || "http://localhost:5000/")]);
-        open = false;
+            Quickshell.execDetached(["firefoxpwa", "site", "launch", k === "book" ? "01M5F7S7MNGA0WFV86QGD8QGH2" : "01M5F5Z39BPG6NBAW4YSZQFAB8"].concat(s.url ? ["--url", s.url] : []));
+        if (!pinned)
+            open = false;
     }
 
     onHoveringChanged: {
@@ -122,8 +155,8 @@ Scope {
         }
     }
     // a short rest in the corner opens it, so a pointer passing through doesn't
-    Timer { id: dwellTimer; interval: 200; onTriggered: if (root.hovering) root.open = true }
-    Timer { id: leaveTimer; interval: 1200; onTriggered: if (!root.hovering && root.menu === "" && root.sheet === "") root.open = false }
+    Timer { id: dwellTimer; interval: 400; onTriggered: if (root.hovering) root.open = true }
+    Timer { id: leaveTimer; interval: 1200; onTriggered: if (!root.hovering && !root.pinned && root.menu === "" && root.sheet === "") root.open = false }
 
     IpcHandler {
         target: "shelf"
@@ -153,7 +186,8 @@ Scope {
         WlrLayershell.namespace: "quickshell:shelf"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: root.sheet !== "" ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
-        visible: root.open || panel.opacity > 0
+        // stays mapped while closed (the panel hides instead): remapping the surface cost a ~80 ms frame
+        // right as the slide-in started
         anchors { top: true; right: true; bottom: true }
         margins.top: 64
         exclusionMode: ExclusionMode.Ignore
@@ -169,11 +203,13 @@ Scope {
             radius: panel.radius
             level: 3
             opacity: panel.opacity
+            visible: panel.visible
         }
 
         Rectangle {
             id: panel
             y: 0
+            visible: root.open || opacity > 0
             width: 380
             height: parent.height - 8
             radius: Motion.shapeExtraLarge
@@ -188,65 +224,92 @@ Scope {
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 16
-                spacing: 12
+                spacing: 0
 
                 RowLayout {
                     Layout.fillWidth: true
-                    IconButton {
-                        visible: root.show !== null
-                        icon: "arrow_back"
-                        onClicked: root.showKey = ""
+                    spacing: 0
+                    Collapse {
+                        id: backCollapse
+                        horizontal: true
+                        open: root.show !== null
+                        IconButton {
+                            icon: "arrow_back"
+                            onClicked: root.showKey = ""
+                        }
                     }
-                    StyledText {
-                        Layout.leftMargin: 4
+                    SwapText {
+                        // the type style changes with the words, at the hidden point of the swap, not before
+                        property bool sub: false
+                        Layout.leftMargin: 4 + 5 * backCollapse._r
+                        Layout.rightMargin: 0
                         Layout.fillWidth: true
-                        jp: root.show !== null
-                        role: root.show ? "titleLarge" : "headlineSmall"
+                        jp: sub
+                        role: sub ? "titleLarge" : "headlineSmall"
                         emphasized: true
-                        text: root.show ? root.showTitle : "Shelf"
+                        value: root.show ? root.showTitle : "Shelf"
+                        onTextChanged: sub = root.show !== null
                         elide: Text.ElideRight
                         color: Colors.on_surface
                     }
-                    Button {
-                        id: account
-                        visible: root.show === null
-                        size: "xs"
-                        style: "tonal"
-                        icon: "sync"
-                        text: AniList.connected ? AniList.viewer.name : "AniList"
-                        highlighted: root.menu === "account"
-                        onClicked: {
-                            if (!AniList.connected) {
-                                root.sheet = "connect";
-                                return;
+                    Collapse {
+                        horizontal: true
+                        gap: 5
+                        open: root.show === null
+                        IconButton {
+                            icon: "push_pin"
+                            checkable: true
+                            checked: root.pinned
+                            onClicked: root.pinned = !root.pinned
+                        }
+                    }
+                    Collapse {
+                        horizontal: true
+                        gap: 5
+                        open: root.show === null
+                        Button {
+                            id: account
+                            size: "xs"
+                            style: "tonal"
+                            icon: "sync"
+                            text: AniList.connected ? AniList.viewer.name : "AniList"
+                            highlighted: root.menu === "account"
+                            onClicked: {
+                                if (!AniList.connected) {
+                                    root.sheet = "connect";
+                                    return;
+                                }
+                                const p = account.mapToItem(panel, 0, account.height + 4);
+                                root.menuX = Math.min(p.x, panel.width - 188);
+                                root.menuY = p.y;
+                                root.menu = "account";
                             }
-                            const p = account.mapToItem(panel, 0, account.height + 4);
-                            root.menuX = Math.min(p.x, panel.width - 188);
-                            root.menuY = p.y;
-                            root.menu = "account";
                         }
                     }
                 }
 
-                Row {
-                    visible: root.show === null
-                    spacing: 2
-                    Repeater {
-                        model: [
-                            { id: "all", text: "All", icon: "apps" },
-                            { id: "video", text: "Anime", icon: "movie" },
-                            { id: "book", text: "Book", icon: "menu_book" },
-                            { id: "manga", text: "Manga", icon: "auto_stories" }
-                        ]
-                        ConnectedButton {
-                            required property var modelData
-                            required property int index
-                            height: 36
-                            text: modelData.text
-                            icon: modelData.icon
-                            position: index === 0 ? "first" : index === 3 ? "last" : "middle"
-                            selected: root.filter === modelData.id
-                            onClicked: root.filter = modelData.id
+                Collapse {
+                    open: root.show === null
+                    gap: 12
+                    Row {
+                        spacing: 2
+                        Repeater {
+                            model: [
+                                { id: "all", text: "All", icon: "apps" },
+                                { id: "video", text: "Anime", icon: "movie" },
+                                { id: "book", text: "Book", icon: "menu_book" },
+                                { id: "manga", text: "Manga", icon: "auto_stories" }
+                            ]
+                            ConnectedButton {
+                                required property var modelData
+                                required property int index
+                                height: 36
+                                text: modelData.text
+                                icon: modelData.icon
+                                position: index === 0 ? "first" : index === 3 ? "last" : "middle"
+                                selected: root.filter === modelData.id
+                                onClicked: root.filter = modelData.id
+                            }
                         }
                     }
                 }
@@ -254,8 +317,10 @@ Scope {
                 GridView {
                     id: grid
                     Layout.fillWidth: true
+                    Layout.topMargin: 12
                     Layout.fillHeight: true
                     clip: true
+                    cacheBuffer: height
                     cellWidth: width / 2
                     // three full rows always fit the opened shelf; the cover absorbs the height
                     cellHeight: Math.floor(height / 3)
@@ -277,16 +342,20 @@ Scope {
                             pressedRadius: Motion.shapeMedium
                             color: Colors.surface_container_high
                             contentColor: Colors.on_surface
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                             onClicked: m => {
                                 if (m.button === Qt.RightButton) {
                                     const p = tile.mapToItem(panel, m.x, m.y);
                                     root.target = root.partOf(cell.modelData);
-                                    root.pinKey = root.show ? "" : cell.modelData.key;
+                                    root.pinKey = root.show ? Immersion.partId(cell.modelData) : cell.modelData.key;
                                     root.targetPinned = !!cell.modelData.pinned;
+                                    root.menuItem = cell.modelData;
                                     root.menuX = Math.min(p.x, panel.width - 188);
-                                    root.menuY = Math.min(p.y, panel.height - 150);
+                                    root.menuY = Math.min(p.y, panel.height - 186);
                                     root.menu = "card";
+                                } else if (m.button === Qt.MiddleButton) {
+                                    // straight to the part the card shows
+                                    root.launch(cell.modelData.face || cell.modelData);
                                 } else if (m.button === Qt.LeftButton) {
                                     if (cell.modelData.partCount > 1)
                                         root.showKey = cell.modelData.key;
@@ -297,38 +366,46 @@ Scope {
 
                             Appear {
                                 shown: root.open
+                                instant: root.cardsSettled
                                 delay: Math.min(cell.index, 8) * 30
                             }
 
                             ColumnLayout {
                                 anchors.fill: parent
-                                anchors.margins: 8
+                                anchors.margins: 6
                                 spacing: 6
 
-                                ClippingRectangle {
+                                Item {
                                     id: art
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
-                                    radius: Motion.shapeMedium
-                                    color: Colors.secondary_container
 
-                                    Image {
-                                        id: coverImg
+                                    // one step below the card's corners, so they nest
+                                    ClippingRectangle {
                                         anchors.fill: parent
-                                        visible: status === Image.Ready
-                                        source: cell.modelData.cover ? "file://" + cell.modelData.cover : ""
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        sourceSize.width: 240
+                                        radius: tile.pressed ? Motion.shapeSmall : Motion.shapeMedium
+                                        Behavior on radius { Spring {} }
+                                        color: "transparent"
+                                        Image {
+                                            id: coverImg
+                                            anchors.fill: parent
+                                            source: cell.modelData.cover ? "file://" + cell.modelData.cover : ""
+                                            sourceSize.width: 240
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            opacity: status === Image.Ready ? 1 : 0
+                                            Behavior on opacity { Fade {} }
+                                        }
                                     }
                                     ShapeBadge {
                                         anchors { top: parent.top; right: parent.right; margins: 6 }
                                         width: 28
                                         height: 28
-                                        visible: !!cell.modelData.pinned
+                                        badgeScale: cell.modelData.pinned ? 1 : 0
+                                        visible: badgeScale > 0.02
                                         z: 2
-                                        shapeRest: 7
-                                        shapeActive: 4
+                                        shapeRest: "star4"
+                                        shapeActive: "sunny"
                                         active: tile.hovered
                                         spinning: tile.hovered
                                         color: Colors.tertiary_container
@@ -337,8 +414,10 @@ Scope {
                                         anchors.centerIn: parent
                                         width: 56
                                         height: 56
-                                        visible: !cell.modelData.cover || coverImg.status === Image.Error
-                                        shapeRest: 5
+                                        opacity: !cell.modelData.cover || coverImg.status === Image.Error ? 1 : 0
+                                        visible: opacity > 0
+                                        Behavior on opacity { Fade {} }
+                                        shapeRest: root.kindOf(cell.modelData) === "video" ? "clover4" : root.kindOf(cell.modelData) === "manga" ? "pentagon" : "cookie4"
                                         spinning: root.open && tile.hovered
                                         color: Colors.primary_container
                                         Icon {
@@ -350,14 +429,16 @@ Scope {
                                     }
                                 }
 
-                                WavyProgress {
+                                Collapse {
+                                    open: cell.modelData.progress !== null && cell.modelData.progress !== undefined
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 8
-                                    visible: cell.modelData.progress !== null && cell.modelData.progress !== undefined
-                                    value: cell.modelData.progress || 0
-                                    thickness: 4
-                                    amplitude: 1.5
-                                    wavelength: 16
+                                    WavyProgress {
+                                        implicitHeight: 8
+                                        value: cell.modelData.progress || 0
+                                        thickness: 4
+                                        amplitude: 1.5
+                                        wavelength: 16
+                                    }
                                 }
 
                                 StyledText {
@@ -384,7 +465,11 @@ Scope {
 
                     ColumnLayout {
                         anchors.centerIn: parent
-                        visible: root.shown.length === 0
+                        opacity: root.shown.length === 0 ? 1 : 0
+                        scale: root.shown.length === 0 ? 1 : 0.9
+                        visible: opacity > 0
+                        Behavior on opacity { Fade { speed: "default" } }
+                        Behavior on scale { Spring { speed: "default" } }
                         spacing: 8
                         Icon {
                             Layout.alignment: Qt.AlignHCenter
@@ -408,15 +493,47 @@ Scope {
                 acceptedButtons: Qt.AllButtons
                 onClicked: root.menu = ""
             }
+            Elevation {
+                anchors.fill: menuCard
+                radius: menuCard.radius
+                level: 2
+                visible: menuCard.visible
+                opacity: menuCard.opacity
+                scale: menuCard.scale
+                transformOrigin: menuCard.transformOrigin
+            }
             Rectangle {
                 id: menuCard
-                visible: root.menu !== ""
+                visible: root.menu !== "" || opacity > 0
                 x: root.menuX
                 y: root.menuY
+                Behavior on x { Spring { speed: "fast" } }
+                Behavior on y { Spring { speed: "fast" } }
                 width: 180
                 height: menuCol.implicitHeight + 16
                 radius: Motion.shapeLarge
                 color: Colors.surface_container_highest
+                transformOrigin: Item.TopLeft
+                opacity: 0
+                scale: 0.9
+
+                states: State {
+                    name: "open"
+                    when: root.menu !== ""
+                    PropertyChanges { menuCard.opacity: 1; menuCard.scale: 1 }
+                }
+                transitions: [
+                    Transition {
+                        to: "open"
+                        Spring { property: "scale"; speed: "default" }
+                        Fade { property: "opacity"; speed: "default" }
+                    },
+                    Transition {
+                        from: "open"
+                        NumberAnimation { property: "scale"; duration: Motion.short4; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.emphasizedAccelerate }
+                        NumberAnimation { property: "opacity"; duration: Motion.short3; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.standardAccelerate }
+                    }
+                ]
 
                 Column {
                     id: menuCol
@@ -424,23 +541,31 @@ Scope {
                     anchors.margins: 8
                     spacing: 2
                     Repeater {
-                        model: root.menu === "card" ? [
+                        model: root.menuShown === "card" ? [
                             { id: "pin", text: root.targetPinned ? "Unpin" : "Pin", icon: "push_pin", on: root.pinKey !== "" },
                             { id: "open", text: "Open on AniList", icon: "open_in_new", on: !!AniList.entryFor(root.target ? root.target.key : "", root.target ? root.target.season : 1) && root.kindOf(root.target) === "video" },
                             { id: "fix", text: "Fix match…", icon: "edit", on: root.kindOf(root.target) === "video" },
-                            { id: "unlink", text: "Unlink", icon: "link_off", on: root.kindOf(root.target) === "video" }
-                        ] : root.menu === "account" ? [
+                            { id: "unlink", text: "Unlink", icon: "link_off", on: root.kindOf(root.target) === "video" },
+                            { id: "remove", text: "Remove from shelf", icon: "delete", on: root.pinKey !== "" }
+                        ] : root.menuShown === "account" ? [
                             { id: "sync", text: "Sync now", icon: "sync", on: true },
                             { id: "out", text: "Disconnect", icon: "logout", on: true }
                         ] : []
                         Button {
                             required property var modelData
+                            required property int index
                             width: menuCol.width
                             size: "xs"
                             style: "text"
                             enabled: modelData.on
                             text: modelData.text
                             icon: modelData.icon
+                            Appear {
+                                shown: root.menu !== ""
+                                delay: index * 18
+                                lift: 6
+                                from: 0.96
+                            }
                             onClicked: {
                                 const t = root.target;
                                 root.menu = "";
@@ -452,6 +577,11 @@ Scope {
                                     root.openFix(t);
                                 else if (modelData.id === "unlink")
                                     AniList.pin(t.key, t.season, null, root.searchTerm(t));
+                                else if (modelData.id === "remove") {
+                                    const c = root.menuItem;
+                                    const part = root.kindOf(c) === "video" ? root.partLabel(c) : c.name;
+                                    Immersion.removeFromShelf(root.pinKey, c.last, root.show ? root.showTitle + " " + part : (c.title || c.name));
+                                }
                                 else if (modelData.id === "sync")
                                     AniList.syncProgress();
                                 else
@@ -488,7 +618,7 @@ Scope {
                             Layout.fillWidth: true
                             role: "titleLarge"
                             emphasized: true
-                            text: root.sheet === "fix" ? "Pick the right anime" : "Connect AniList"
+                            text: root.lastSheet === "fix" ? "Pick the right anime" : "Connect AniList"
                             color: Colors.on_surface
                         }
                     }
@@ -496,7 +626,7 @@ Scope {
                     // fix match
                     TextField {
                         Layout.fillWidth: true
-                        visible: root.sheet === "fix"
+                        visible: root.lastSheet === "fix"
                         label: "Search AniList"
                         leadingIcon: "search"
                         text: root.target ? root.searchTerm(root.target) : ""
@@ -505,7 +635,7 @@ Scope {
                     ListView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: root.sheet === "fix"
+                        visible: root.lastSheet === "fix"
                         clip: true
                         spacing: 6
                         model: AniList.searchResults
@@ -527,18 +657,12 @@ Scope {
                                 anchors.fill: parent
                                 anchors.margins: 8
                                 spacing: 10
-                                ClippingRectangle {
+                                ShapeMask {
                                     Layout.fillHeight: true
                                     Layout.preferredWidth: 46
-                                    radius: Motion.shapeSmall
-                                    color: Colors.secondary_container
-                                    Image {
-                                        anchors.fill: parent
-                                        source: hit.modelData.cover
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        sourceSize.width: 120
-                                    }
+                                    source: hit.modelData.cover
+                                    sourceWidth: 120
+                                    shape: "cookie4"
                                 }
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -581,7 +705,7 @@ Scope {
                     // connect
                     StyledText {
                         Layout.fillWidth: true
-                        visible: root.sheet === "connect"
+                        visible: root.lastSheet === "connect"
                         role: "bodyMedium"
                         wrapMode: Text.Wrap
                         color: Colors.on_surface_variant
@@ -590,14 +714,14 @@ Scope {
                     TextField {
                         id: clientField
                         Layout.fillWidth: true
-                        visible: root.sheet === "connect"
+                        visible: root.lastSheet === "connect"
                         label: "Client ID"
                         leadingIcon: "key"
                         text: AniList.clientId
                         onAccepted: t => AniList.saveClient(t)
                     }
                     Button {
-                        visible: root.sheet === "connect"
+                        visible: root.lastSheet === "connect"
                         style: "tonal"
                         icon: "open_in_new"
                         text: "Authorize on AniList"
@@ -610,26 +734,26 @@ Scope {
                     TextField {
                         id: tokenField
                         Layout.fillWidth: true
-                        visible: root.sheet === "connect"
+                        visible: root.lastSheet === "connect"
                         label: "Token"
                         leadingIcon: "lock"
                         password: true
                         onAccepted: t => AniList.login(t.trim(), clientField.text.trim())
                     }
                     StyledText {
-                        visible: root.sheet === "connect" && AniList.loginFailed
+                        visible: root.lastSheet === "connect" && AniList.loginFailed
                         role: "labelMedium"
                         text: "AniList didn't accept that token"
                         color: Colors.error
                     }
                     Button {
-                        visible: root.sheet === "connect"
+                        visible: root.lastSheet === "connect"
                         icon: "check"
                         text: "Connect"
                         enabled: tokenField.text.trim() !== ""
                         onClicked: AniList.login(tokenField.text.trim(), clientField.text.trim())
                     }
-                    Item { Layout.fillHeight: true; visible: root.sheet === "connect" }
+                    Item { Layout.fillHeight: true; visible: root.lastSheet === "connect" }
                 }
             }
         }

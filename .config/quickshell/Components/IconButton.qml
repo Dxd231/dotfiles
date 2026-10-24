@@ -18,6 +18,8 @@ Clickable {
     // for callers that spin or pop the glyph (e.g. play/pause)
     property real iconRotation: 0
     property real iconScale: 1
+    // false where the caller kicks the glyph itself (play/pause), so it doesn't pop twice
+    property bool iconKick: true
 
     // [height, icon, narrowPad, defaultPad, widePad, squareRadius, pressedRadius]
     readonly property var _tokens: ({
@@ -77,6 +79,7 @@ Clickable {
         rotation: button.iconRotation
         scale: button.iconScale
         color: button.contentColor
-        Behavior on color { ColorFade {} }
+        fadeColor: false
+        kick: button.iconKick
     }
 }

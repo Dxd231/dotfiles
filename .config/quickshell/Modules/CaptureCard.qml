@@ -84,7 +84,9 @@ Scope {
         Rectangle {
             id: card
             width: 580
-            height: body.implicitHeight + 32
+            property real h: body.implicitHeight + 32
+            Behavior on h { Spring { speed: "default" } }
+            height: Math.max(0, h)
             anchors.horizontalCenter: parent.horizontalCenter
             radius: Motion.shapeExtraLarge
             color: Colors.surface_container_high
@@ -112,7 +114,9 @@ Scope {
                     ClippingRectangle {
                         id: thumb
                         property real popv: 1
-                        Layout.preferredWidth: win.r && win.r.w > 0 && win.r.h > 0 ? Math.max(72, Math.min(184, 84 * win.r.w / win.r.h)) : 120
+                        property real w: win.r && win.r.w > 0 && win.r.h > 0 ? Math.max(72, Math.min(184, 84 * win.r.w / win.r.h)) : 120
+                        Behavior on w { Spring { speed: "fast" } }
+                        Layout.preferredWidth: Math.max(0, w)
                         Layout.preferredHeight: 84
                         radius: 20
                         color: win.failed ? Colors.error_container : Colors.surface_container_highest
@@ -124,7 +128,9 @@ Scope {
                         }
                         Image {
                             anchors.fill: parent
-                            visible: !win.failed
+                            opacity: win.failed ? 0 : 1
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             source: win.r && win.r.thumb ? "file://" + win.r.thumb : ""
                             fillMode: Image.PreserveAspectCrop
                             cache: false
@@ -133,18 +139,24 @@ Scope {
                         }
                         Icon {
                             anchors.centerIn: parent
-                            visible: win.failed
+                            opacity: win.failed ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             size: 28
                             name: "error"
                             color: Colors.on_error_container
                         }
                         // a recording: a play shape over the first frame
                         ShapeBadge {
-                            visible: win.video && !win.failed
+                            readonly property bool on: win.video && !win.failed
+                            badgeScale: on ? 1 : 0.3
+                            opacity: on ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             anchors.centerIn: parent
                             width: 40
                             height: 40
-                            shapeRest: 1
+                            shapeRest: "cookie9"
                             color: Qt.alpha(Colors.surface_container_high, 0.9)
                             Icon {
                                 anchors.centerIn: parent
@@ -184,50 +196,57 @@ Scope {
                                 return parts.join("  ·  ");
                             }
                         }
-                        StyledText {
+                        Collapse {
+                            open: !win.failed
                             Layout.fillWidth: true
-                            visible: !win.failed
-                            role: "labelSmall"
-                            color: Colors.on_surface_variant
-                            elide: Text.ElideMiddle
-                            text: win.r && win.r.path ? win.r.path.replace(/^.*\//, "") : ""
+                            StyledText {
+                                role: "labelSmall"
+                                color: Colors.on_surface_variant
+                                elide: Text.ElideMiddle
+                                text: win.r && win.r.path ? win.r.path.replace(/^.*\//, "") : ""
+                            }
                         }
                     }
                     IconButton { icon: "close"; size: "xs"; onClicked: Capture.dismissCard() }
                 }
 
-                RowLayout {
+                Collapse {
+                    open: !win.failed
                     Layout.fillWidth: true
-                    spacing: 8
-                    visible: !win.failed
-                    Button {
-                        size: "xs"
-                        style: "filled"
-                        icon: "content_copy"
-                        text: win.video ? "Copy file" : "Copy"
-                        onClicked: Capture.copyLast()
-                    }
-                    Button {
-                        visible: !win.video
-                        size: "xs"
-                        style: "tonal"
-                        icon: "edit"
-                        text: "Edit"
-                        onClicked: {
-                            Capture.editLast();
-                            Capture.dismissCard();
+                    RowLayout {
+                        spacing: 8
+                        Button {
+                            size: "xs"
+                            style: "filled"
+                            icon: "content_copy"
+                            text: win.video ? "Copy file" : "Copy"
+                            onClicked: Capture.copyLast()
                         }
+                        Collapse {
+                            horizontal: true
+                            open: !win.video
+                            Button {
+                                size: "xs"
+                                style: "tonal"
+                                icon: "edit"
+                                text: "Edit"
+                                onClicked: {
+                                    Capture.editLast();
+                                    Capture.dismissCard();
+                                }
+                            }
+                        }
+                        Button {
+                            size: "xs"
+                            style: "tonal"
+                            icon: "open_in_new"
+                            text: "Open"
+                            onClicked: Capture.openLast()
+                        }
+                        Item { Layout.fillWidth: true }
+                        IconButton { icon: "folder_open"; style: "tonal"; size: "xs"; onClicked: Capture.folderLast() }
+                        IconButton { icon: "delete"; style: "tonal"; size: "xs"; onClicked: Capture.deleteLast() }
                     }
-                    Button {
-                        size: "xs"
-                        style: "tonal"
-                        icon: "open_in_new"
-                        text: "Open"
-                        onClicked: Capture.openLast()
-                    }
-                    Item { Layout.fillWidth: true }
-                    IconButton { icon: "folder_open"; style: "tonal"; size: "xs"; onClicked: Capture.folderLast() }
-                    IconButton { icon: "delete"; style: "tonal"; size: "xs"; onClicked: Capture.deleteLast() }
                 }
             }
         }
@@ -264,8 +283,8 @@ Scope {
                 y: 8
                 width: 156
                 height: 156
-                shapeRest: 0
-                shapeActive: 4
+                shapeRest: "softBurst"
+                shapeActive: "sunny"
                 active: Capture.count % 2 === 0
                 color: Capture.mode === "video" ? Colors.error_container : Colors.primary_container
                 scale: countdown.on ? 1 : 0
@@ -320,7 +339,10 @@ Scope {
         WlrLayershell.namespace: "quickshell:captureframe"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-        visible: Capture.hasRegionFrame
+        // the brackets spring in and out toward their corners (always away from the recorded area)
+        property real k: Capture.hasRegionFrame ? 1 : 0
+        Behavior on k { Spring { speed: "default" } }
+        visible: Capture.hasRegionFrame || k > 0.01
         mask: Region {}
 
         // a bracket sits just outside each corner, so nothing of it lands in the video
@@ -335,6 +357,7 @@ Scope {
                 readonly property real cy: frame.rect ? frame.rect.y - frame.oy + (atBottom ? frame.rect.h : 0) : 0
                 opacity: Capture.recPaused ? 0.4 : 1
                 Behavior on opacity { Fade {} }
+                transform: Scale { origin.x: corner.cx; origin.y: corner.cy; xScale: Math.max(0, frame.k); yScale: Math.max(0, frame.k) }
                 SequentialAnimation on opacity {
                     running: Capture.hasRegionFrame && !Capture.recPaused
                     loops: Animation.Infinite

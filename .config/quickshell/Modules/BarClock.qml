@@ -103,7 +103,13 @@ Rectangle {
                 spacing: 4
 
                 Icon {
-                    visible: Alarm.active || Alarm.ringing
+                    // slides in beside the digits, which shift over to make room
+                    property real grow: Alarm.active || Alarm.ringing ? 1 : 0
+                    Behavior on grow { Spring { speed: "fast" } }
+                    visible: grow > 0.01
+                    width: 16 * Math.max(0, Math.min(1, grow))
+                    opacity: Math.max(0, Math.min(1, grow))
+                    scale: Math.max(0, grow)
                     anchors.verticalCenter: parent.verticalCenter
                     name: "alarm"
                     size: 16

@@ -17,7 +17,9 @@ Clickable {
     Behavior on _inner { Spring {} }
 
     implicitHeight: 32
-    implicitWidth: row.implicitWidth + 24
+    implicitWidth: Math.max(0, _w)
+    property real _w: row.implicitWidth + 24
+    Behavior on _w { Spring { speed: "fast" } }
     restRadius: _outer
     pressedRadius: _outer
     topLeftRadius: position === "first" || position === "only" ? _outer : _inner
@@ -37,6 +39,7 @@ Clickable {
             name: segment.selected ? "check" : segment.icon
             size: 18
             color: segment.contentColor
+            fadeColor: false
         }
         StyledText {
             visible: segment.text !== ""
@@ -44,6 +47,7 @@ Clickable {
             role: "labelLarge"
             text: segment.text
             color: segment.contentColor
+            fadeColor: false
         }
     }
 }

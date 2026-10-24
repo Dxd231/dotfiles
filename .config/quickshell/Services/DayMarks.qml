@@ -21,7 +21,7 @@ Singleton {
     // the whole object is replaced on a change so bindings re-evaluate
     property var marks: ({})
     // rest days allowed per month
-    property int restsPerMonth: 2
+    property int restsPerMonth: 6
 
     function markOf(key) { return marks[key] || ""; }
     function isBusy(key) { return marks[key] === "busy"; }

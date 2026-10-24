@@ -29,6 +29,8 @@ Item {
         x: marquee.scrolling || !marquee.centered ? 0 : (marquee.width - implicitWidth) / 2
         onTextChanged: {
             scroll.stop();
+            // stop() drops the binding on `running`; without this a changed title never scrolls again
+            scroll.running = Qt.binding(() => marquee.scrolling && marquee.running);
             x = Qt.binding(() => marquee.scrolling || !marquee.centered ? 0 : (marquee.width - implicitWidth) / 2);
         }
     }

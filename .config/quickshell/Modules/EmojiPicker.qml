@@ -171,7 +171,9 @@ Scope {
                             }
 
                             StyledText {
-                                visible: searchField.text.length === 0
+                                opacity: searchField.text.length === 0 ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 anchors.verticalCenter: parent.verticalCenter
                                 role: "bodyLarge"
                                 color: Colors.on_surface_variant
@@ -216,7 +218,9 @@ Scope {
                         radius: Motion.shapeLarge
                         color: Colors.secondary_container
                         y: list.currentItem ? list.currentItem.y : 0
-                        visible: list.count > 0
+                        opacity: list.count > 0 ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { Fade {} }
                         Behavior on y { Spring {} }
                     }
 
@@ -255,7 +259,9 @@ Scope {
 
                     StyledText {
                         anchors.centerIn: parent
-                        visible: list.count === 0
+                        opacity: list.count === 0 ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { Fade {} }
                         role: "bodyLarge"
                         color: Colors.on_surface_variant
                         text: "No emoji found"

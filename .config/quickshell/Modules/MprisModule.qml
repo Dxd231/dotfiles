@@ -54,8 +54,8 @@ BarChip {
         // equalizer badge: a turning shape while playing, the sunny shape while the popup is open
         ShapeBadge {
             anchors.verticalCenter: parent.verticalCenter
-            shapeRest: 1
-            shapeActive: 4
+            shapeRest: "softBurst"
+            shapeActive: "flower"
             active: mpris.checked
             spinning: mpris.playing
             badgeScale: mpris.pressed ? 0.85 : mpris.playing ? 1 : 0.9
@@ -74,6 +74,7 @@ BarChip {
                         radius: 1.5
                         height: 4
                         color: mpris.playing ? Colors.on_primary : Colors.on_primary_container
+                        Behavior on color { ColorFade {} }
 
                         SequentialAnimation on height {
                             running: mpris.playing
@@ -88,7 +89,13 @@ BarChip {
         }
 
         Icon {
-            visible: mpris.hasPlayer && mpris.player.loopState === MprisLoopState.Track
+            // grows in beside the title, which makes way for it
+            property real grow: mpris.hasPlayer && mpris.player.loopState === MprisLoopState.Track ? 1 : 0
+            Behavior on grow { Spring { speed: "fast" } }
+            visible: grow > 0.01
+            width: 18 * Math.max(0, Math.min(1, grow))
+            opacity: Math.max(0, Math.min(1, grow))
+            scale: Math.max(0, grow)
             anchors.verticalCenter: parent.verticalCenter
             name: "repeat_one"
             size: 18

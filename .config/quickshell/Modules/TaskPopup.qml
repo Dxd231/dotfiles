@@ -486,7 +486,6 @@ BarPopup {
                     thickness: 8
                     value: Tasks.dueCount > 0 ? (Tasks.dueCount - Tasks.pendingCount) / Tasks.dueCount : 0
                     activeColor: Tasks.pendingCount === 0 && Tasks.dueCount > 0 ? Colors.tertiary : Colors.primary
-                    Behavior on activeColor { ColorFade {} }
                     opacity: listHeader.opacity
                 }
 
@@ -527,15 +526,18 @@ BarPopup {
                         height: Math.max(8, bottomE - topE)
                         radius: Motion.shapeLarge
                         color: Colors.secondary_container
-                        visible: list.selIndex >= 0
-                        opacity: Math.max(0, Math.min(1, win.stage / 3))
+                        visible: opacity > 0.01
+                        opacity: Math.max(0, Math.min(1, win.stage / 3)) * (list.selIndex >= 0 ? 1 : 0)
+                        Behavior on opacity { Fade {} }
                     }
 
                     // nothing archived
                     StyledText {
                         parent: list
                         anchors.centerIn: parent
-                        visible: win.viewArchived && Tasks.archivedList.length === 0
+                        opacity: win.viewArchived && Tasks.archivedList.length === 0 ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { Fade {} }
                         role: "bodyMedium"
                         color: Colors.on_surface_variant
                         text: "Archived tasks keep their history\nand come back with one click."
@@ -647,38 +649,50 @@ BarPopup {
                                             ? Tasks.countOf(row.t, Tasks.todayKey) + "/" + Tasks.targetOf(row.t) + " today"
                                             : row.streak > 0 ? row.streak + (row.streak === 1 ? " day" : " days") : "No streak"
                                     }
-                                    Icon {
-                                        visible: !!row.t && Tasks.remindsOf(row.t).length > 0
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        size: 14
-                                        name: "schedule"
-                                        color: row.selected ? Colors.on_secondary_container : Colors.on_surface_variant
+                                    Collapse {
+                                        horizontal: true
+                                        open: !!row.t && Tasks.remindsOf(row.t).length > 0
+                                        Icon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            size: 14
+                                            name: "schedule"
+                                            color: row.selected ? Colors.on_secondary_container : Colors.on_surface_variant
+                                        }
                                     }
-                                    StyledText {
-                                        visible: !!row.t && Tasks.remindsOf(row.t).length > 0
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        role: "bodyMedium"
-                                        color: row.selected ? Colors.on_secondary_container : Colors.on_surface_variant
-                                        text: row.t && Tasks.remindsOf(row.t).length > 0 ? Tasks.remindsOf(row.t)[0] + (Tasks.remindsOf(row.t).length > 1 ? " +" + (Tasks.remindsOf(row.t).length - 1) : "") : ""
+                                    Collapse {
+                                        horizontal: true
+                                        open: !!row.t && Tasks.remindsOf(row.t).length > 0
+                                        StyledText {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            role: "bodyMedium"
+                                            color: row.selected ? Colors.on_secondary_container : Colors.on_surface_variant
+                                            text: row.t && Tasks.remindsOf(row.t).length > 0 ? Tasks.remindsOf(row.t)[0] + (Tasks.remindsOf(row.t).length > 1 ? " +" + (Tasks.remindsOf(row.t).length - 1) : "") : ""
+                                        }
                                     }
                                 }
                             }
                             // today's check: round while open, squarer once done (checkable shape morph)
-                            IconButton {
-                                visible: !win.viewArchived
-                                icon: "check"
-                                style: "filled"
-                                checkable: true
-                                checked: row.isDone
-                                color: row.isDone ? Tasks.accentFor(row.t) : Colors.surface_container_highest
-                                contentColor: row.isDone ? Tasks.onAccentFor(row.t) : Colors.on_surface_variant
-                                onClicked: if (row.t) Tasks.toggleDone(row.t.id, Tasks.todayKey)
+                            Collapse {
+                                horizontal: true
+                                open: !win.viewArchived
+                                IconButton {
+                                    icon: "check"
+                                    style: "filled"
+                                    checkable: true
+                                    checked: row.isDone
+                                    color: row.isDone ? Tasks.accentFor(row.t) : Colors.surface_container_highest
+                                    contentColor: row.isDone ? Tasks.onAccentFor(row.t) : Colors.on_surface_variant
+                                    onClicked: if (row.t) Tasks.toggleDone(row.t.id, Tasks.todayKey)
+                                }
                             }
-                            IconButton {
-                                visible: win.viewArchived
-                                icon: "unarchive"
-                                style: "tonal"
-                                onClicked: if (row.t) Tasks.archive(row.t.id, false)
+                            Collapse {
+                                horizontal: true
+                                open: win.viewArchived
+                                IconButton {
+                                    icon: "unarchive"
+                                    style: "tonal"
+                                    onClicked: if (row.t) Tasks.archive(row.t.id, false)
+                                }
                             }
                         }
                     }
@@ -690,13 +704,16 @@ BarPopup {
                     Layout.fillWidth: true
                     Layout.leftMargin: 4
                     spacing: 8
-                    Chip {
-                        visible: Tasks.archivedList.length > 0 || win.viewArchived
-                        kind: "filter"
-                        icon: "inventory_2"
-                        text: win.viewArchived ? "Back to tasks" : "Archived (" + Tasks.archivedList.length + ")"
-                        selected: win.viewArchived
-                        onClicked: win.viewArchived = !win.viewArchived
+                    Collapse {
+                        horizontal: true
+                        open: Tasks.archivedList.length > 0 || win.viewArchived
+                        Chip {
+                            kind: "filter"
+                            icon: "inventory_2"
+                            text: win.viewArchived ? "Back to tasks" : "Archived (" + Tasks.archivedList.length + ")"
+                            selected: win.viewArchived
+                            onClicked: win.viewArchived = !win.viewArchived
+                        }
                     }
                     Item { Layout.fillWidth: true }
                     Icon {
@@ -729,11 +746,14 @@ BarPopup {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    IconButton {
-                        visible: Tasks.count > 0
-                        icon: "arrow_back"
-                        style: "tonal"
-                        onClicked: win.page = "list"
+                    Collapse {
+                        horizontal: true
+                        open: Tasks.count > 0
+                        IconButton {
+                            icon: "arrow_back"
+                            style: "tonal"
+                            onClicked: win.page = "list"
+                        }
                     }
                     StyledText {
                         Layout.fillWidth: true
@@ -892,12 +912,15 @@ BarPopup {
                                     onTrailingClicked: win.removeTime(index)
                                 }
                             }
-                            Chip {
-                                kind: "assist"
-                                icon: "add"
-                                text: "Add time"
-                                visible: win.formReminds.length < 4
-                                onClicked: win.addTime()
+                            Collapse {
+                                horizontal: true
+                                open: win.formReminds.length < 4
+                                Chip {
+                                    kind: "assist"
+                                    icon: "add"
+                                    text: "Add time"
+                                    onClicked: win.addTime()
+                                }
                             }
                         }
 
@@ -1017,7 +1040,7 @@ BarPopup {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: 88
                     Layout.preferredHeight: 88
-                    shapeRest: 1
+                    shapeRest: "cookie9"
                     spinning: !win.task && win.isOpen
                     color: Colors.tertiary_container
                     Icon { anchors.centerIn: parent; size: 36; name: "local_fire_department"; color: Colors.on_tertiary_container }
@@ -1075,7 +1098,7 @@ BarPopup {
                                 readonly property real dist: 30 + 46 * win.partyP
                                 width: 10
                                 height: 10
-                                shape: index % 3 === 0 ? 4 : index % 3 === 1 ? 1 : 5
+                                shape: index % 3 === 0 ? "sunny" : index % 3 === 1 ? "cookie9" : "cookie4"
                                 fromShape: shape
                                 color: index % 2 === 0 ? Colors.tertiary : Colors.primary
                                 x: 28 + Math.cos(ang) * dist - 5
@@ -1134,7 +1157,6 @@ BarPopup {
                         style: "tonal"
                         color: win.confirmDelete ? Colors.error : Colors.secondary_container
                         contentColor: win.confirmDelete ? Colors.on_error : Colors.on_secondary_container
-                        Behavior on implicitWidth { Spring {} }
                         onClicked: win.armDelete()
                     }
                 }
@@ -1171,7 +1193,7 @@ BarPopup {
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: 32
                                     height: 32
-                                    shapeRest: tile.modelData.tone === 0 ? 4 : tile.modelData.tone === 1 ? 5 : 1
+                                    shapeRest: tile.modelData.tone === 0 ? "sunny" : tile.modelData.tone === 1 ? "cookie4" : "cookie9"
                                     spinning: tile.modelData.tone === 0 && tile.modelData.value > 0 && win.isOpen
                                     color: tile.modelData.tone === 0 ? Colors.tertiary_container : tile.modelData.tone === 1 ? Colors.primary_container : Colors.secondary_container
                                     Icon {
@@ -1222,16 +1244,19 @@ BarPopup {
                             : ""
                     }
                     // the day picked on the heatmap, as on the immersion panel
-                    Chip {
-                        id: dayChip
-                        visible: win.dayPick !== ""
-                        kind: "input"
-                        icon: "check"
-                        trailingIcon: "close"
-                        text: win.dayPick !== "" ? Qt.formatDate(Tasks.dateOf(win.dayPick), "ddd d MMM") : ""
-                        onTrailingClicked: win.dayPick = ""
-                        onClicked: win.dayPick = ""
-                        Appear { shown: dayChip.visible; lift: 0; from: 0.7 }
+                    Collapse {
+                        horizontal: true
+                        open: win.dayPick !== ""
+                        Chip {
+                            id: dayChip
+                            kind: "input"
+                            icon: "check"
+                            trailingIcon: "close"
+                            text: win.dayPick !== "" ? Qt.formatDate(Tasks.dateOf(win.dayPick), "ddd d MMM") : ""
+                            onTrailingClicked: win.dayPick = ""
+                            onClicked: win.dayPick = ""
+                            Appear { shown: dayChip.visible; lift: 0; from: 0.7 }
+                        }
                     }
                     IconButton { icon: "chevron_left"; style: "tonal"; size: "xs"; onClicked: win.back += 1 }
                     IconButton { icon: "chevron_right"; style: "tonal"; size: "xs"; enabled: win.back > 0; onClicked: win.back -= 1 }
@@ -1267,6 +1292,7 @@ BarPopup {
                         function onStageChanged() { if (win.stage === 3) heat.replay(); }
                     }
                     opacity: win.stage >= 3 ? 1 : 0
+                    Behavior on opacity { Fade { speed: "default" } }
                 }
 
                 // the days, newest first, or the one picked above; each can be ticked here
@@ -1278,24 +1304,27 @@ BarPopup {
                     heat: heat
                     selectedKey: win.dayPick
                     opacity: win.stage >= 3 ? 1 : 0
+                    Behavior on opacity { Fade { speed: "default" } }
                 }
 
-                Button {
-                    id: markBtn
-                    visible: !!win.task && !win.task.archived
+                Collapse {
+                    open: !!win.task && !win.task.archived
                     Layout.fillWidth: true
-                    size: "m"
-                    style: win.doneToday ? "tonal" : "filled"
-                    icon: win.doneToday ? "check" : "add_task"
-                    text: !win.task ? "" : win.doneToday ? (Tasks.targetOf(win.task) > 1 ? "Done · " + Tasks.countOf(win.task, Tasks.todayKey) + " of " + Tasks.targetOf(win.task) : "Done today")
-                        : Tasks.targetOf(win.task) > 1 ? "Add one · " + Tasks.countOf(win.task, Tasks.todayKey) + " of " + Tasks.targetOf(win.task) : "Mark today done"
-                    color: win.doneToday ? Colors.secondary_container : Tasks.accentFor(win.task)
-                    contentColor: win.doneToday ? Colors.on_secondary_container : Tasks.onAccentFor(win.task)
-                    property real appear: win.stage >= 4 ? 1 : 0
-                    Behavior on appear { Spring { speed: "default" } }
-                    opacity: Math.max(0, Math.min(1, appear * 1.6))
-                    scale: 0.9 + 0.1 * appear
-                    onClicked: win.markToday()
+                    Button {
+                        id: markBtn
+                        size: "m"
+                        style: win.doneToday ? "tonal" : "filled"
+                        icon: win.doneToday ? "check" : "add_task"
+                        text: !win.task ? "" : win.doneToday ? (Tasks.targetOf(win.task) > 1 ? "Done · " + Tasks.countOf(win.task, Tasks.todayKey) + " of " + Tasks.targetOf(win.task) : "Done today")
+                            : Tasks.targetOf(win.task) > 1 ? "Add one · " + Tasks.countOf(win.task, Tasks.todayKey) + " of " + Tasks.targetOf(win.task) : "Mark today done"
+                        color: win.doneToday ? Colors.secondary_container : Tasks.accentFor(win.task)
+                        contentColor: win.doneToday ? Colors.on_secondary_container : Tasks.onAccentFor(win.task)
+                        property real appear: win.stage >= 4 ? 1 : 0
+                        Behavior on appear { Spring { speed: "default" } }
+                        opacity: Math.max(0, Math.min(1, appear * 1.6))
+                        scale: 0.9 + 0.1 * appear
+                        onClicked: win.markToday()
+                    }
                 }
             }
 
@@ -1454,6 +1483,9 @@ BarPopup {
                 visible: win.dayOpen || opacity > 0.02
                 Behavior on opacity { Fade {} }
                 Behavior on scale { Spring {} }
+                // opening another day while one is up glides across (the first open lands in place)
+                Behavior on x { enabled: dayPop.opacity > 0.5; Spring { speed: "fast" } }
+                Behavior on y { enabled: dayPop.opacity > 0.5; Spring { speed: "fast" } }
 
                 MouseArea { anchors.fill: parent }
 
@@ -1484,41 +1516,43 @@ BarPopup {
                     }
 
                     // count tasks: step the day's count
-                    RowLayout {
+                    Collapse {
+                        open: win.dayCount
                         Layout.fillWidth: true
-                        visible: win.dayCount
-                        spacing: 8
-                        StyledText {
-                            Layout.fillWidth: true
-                            role: "bodyMedium"
-                            text: "Count"
-                        }
-                        IconButton {
-                            icon: "remove"
-                            style: "tonal"
-                            size: "xs"
-                            enabled: !!win.task && Tasks.countOf(win.task, win.dayKey) > 0
-                            onClicked: Tasks.setCount(win.task.id, win.dayKey, Tasks.countOf(win.task, win.dayKey) - 1)
-                        }
-                        RollingDigits {
-                            Layout.preferredWidth: implicitWidth + 4
-                            pixelSize: 18
-                            text: win.task ? String(Tasks.countOf(win.task, win.dayKey)) : "0"
-                        }
-                        StyledText {
-                            role: "bodyMedium"
-                            color: Colors.on_surface_variant
-                            text: win.task ? "of " + Tasks.targetOf(win.task) : ""
-                        }
-                        IconButton {
-                            icon: "add"
-                            style: "tonal"
-                            size: "xs"
-                            onClicked: Tasks.setCount(win.task.id, win.dayKey, Tasks.countOf(win.task, win.dayKey) + 1)
+                        RowLayout {
+                            spacing: 8
+                            StyledText {
+                                Layout.fillWidth: true
+                                role: "bodyMedium"
+                                text: "Count"
+                            }
+                            IconButton {
+                                icon: "remove"
+                                style: "tonal"
+                                size: "xs"
+                                enabled: !!win.task && Tasks.countOf(win.task, win.dayKey) > 0
+                                onClicked: Tasks.setCount(win.task.id, win.dayKey, Tasks.countOf(win.task, win.dayKey) - 1)
+                            }
+                            RollingDigits {
+                                Layout.preferredWidth: implicitWidth + 4
+                                pixelSize: 18
+                                text: win.task ? String(Tasks.countOf(win.task, win.dayKey)) : "0"
+                            }
+                            StyledText {
+                                role: "bodyMedium"
+                                color: Colors.on_surface_variant
+                                text: win.task ? "of " + Tasks.targetOf(win.task) : ""
+                            }
+                            IconButton {
+                                icon: "add"
+                                style: "tonal"
+                                size: "xs"
+                                onClicked: Tasks.setCount(win.task.id, win.dayKey, Tasks.countOf(win.task, win.dayKey) + 1)
+                            }
                         }
                     }
 
-                    // a rest day keeps the streak alive (a couple per month)
+                    // a rest day keeps the streak alive (a few per month)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10

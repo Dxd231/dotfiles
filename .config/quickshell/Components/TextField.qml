@@ -41,10 +41,10 @@ Rectangle {
     Icon {
         id: lead
         visible: field.leadingIcon !== ""
+        color: Colors.on_surface_variant
         anchors.verticalCenter: parent.verticalCenter
         x: 12
         name: field.leadingIcon
-        color: Colors.on_surface_variant
     }
 
     readonly property real _textX: leadingIcon !== "" ? 52 : 16
@@ -52,8 +52,12 @@ Rectangle {
     StyledText {
         id: labelText
         x: field._textX
-        role: field.floated ? "bodySmall" : "bodyLarge"
-        y: field.floated ? 8 : (field.height - height) / 2
+        // one font size, scaled down as the label floats, so it shrinks smoothly instead of snapping
+        role: "bodyLarge"
+        transformOrigin: Item.TopLeft
+        scale: field.floated ? Typography.size("bodySmall") / Typography.size("bodyLarge") : 1
+        Behavior on scale { Spring { expressive: false } }
+        y: field.floated ? 6 : (field.height - height) / 2
         color: field.focused ? Colors.primary : Colors.on_surface_variant
         text: field.label
         Behavior on y { Spring { expressive: false } }

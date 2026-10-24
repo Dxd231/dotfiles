@@ -78,12 +78,12 @@ BarPopup {
             Layout.fillWidth: true
             spacing: 0
             StyledText { role: "titleLarge"; text: "Sound" }
-            StyledText {
+            SwapText {
                 Layout.fillWidth: true
                 role: "bodyMedium"
                 color: Colors.on_surface_variant
                 elide: Text.ElideRight
-                text: win.sink ? (win.sink.description || win.sink.name || "") : "No output device"
+                value: win.sink ? (win.sink.description || win.sink.name || "") : "No output device"
             }
         }
         IconButton {
@@ -113,22 +113,29 @@ BarPopup {
                     parent.audio.volume = v;
             }
         }
-        StyledText {
+        Item {
             Layout.preferredWidth: 40
-            horizontalAlignment: Text.AlignRight
-            role: "labelLarge"
-            color: Colors.on_surface_variant
-            text: Math.round((parent.audio ? parent.audio.volume : 0) * 100) + "%"
+            Layout.preferredHeight: mainPct.implicitHeight
+            RollingDigits {
+                id: mainPct
+                anchors.right: parent.right
+                pixelSize: 14
+                weight: Font.Medium
+                color: Colors.on_surface_variant
+                text: Math.round((parent.parent.audio ? parent.parent.audio.volume : 0) * 100) + "%"
+            }
         }
     }
 
-    StyledText {
-        visible: win.streams.length > 0
+    Collapse {
+        open: win.streams.length > 0
         Layout.leftMargin: 4
         Layout.topMargin: 4
-        role: "labelLarge"
-        color: Colors.primary
-        text: "Apps"
+        StyledText {
+            role: "labelLarge"
+            color: Colors.primary
+            text: "Apps"
+        }
     }
 
     ColumnLayout {
@@ -148,6 +155,7 @@ BarPopup {
                 last: index === win.streams.length - 1
                 Layout.fillWidth: true
                 implicitHeight: itemRow.implicitHeight + 12
+                Appear { delay: 60 + item.index * 50 }
 
                 RowLayout {
                     id: itemRow
@@ -195,8 +203,9 @@ BarPopup {
                                 elide: Text.ElideRight
                                 text: win.appName(item.modelData)
                             }
-                            StyledText {
-                                role: "labelMedium"
+                            RollingDigits {
+                                pixelSize: 12
+                                weight: Font.Medium
                                 color: Colors.on_surface_variant
                                 text: Math.round((item.audio ? item.audio.volume : 0) * 100) + "%"
                             }

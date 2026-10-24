@@ -40,8 +40,8 @@ BarChip {
         ring: false
         // nothing mined yet today
         nudging: Anki.fresh && Anki.minedToday === 0
-        shapeRest: 1
-        shapeActive: 7
+        shapeRest: "cookie9"
+        shapeActive: "star4"
         active: chip.checked || chip.nudge
         spinning: Anki.overGoal && chip.visible
         spinSpeed: 80

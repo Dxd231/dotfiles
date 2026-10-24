@@ -48,7 +48,7 @@ Clickable {
         width: 20
         height: 20
         shapeRest: chip.modeShapes[Pomodoro.mode]
-        shapeActive: 4
+        shapeActive: "sunny"
         active: chip.checked
         property real turn: Pomodoro.running ? 40 : 0
         property real turnNow: turn

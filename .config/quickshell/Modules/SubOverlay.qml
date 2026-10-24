@@ -18,8 +18,8 @@ Scope {
     property string mpvMonitor: ""
 
     // ---- the word card ----
-    // opens ~120 ms after the pointer rests on a word (swapping at once while one is open), closes 250 ms after
-    // it leaves both the word and the card; a click pins it. Words of the live line pause playback while the
+    // opens ~120 ms after the pointer rests on a word (swapping to another line word after 380 ms), closes 600 ms
+    // after it leaves both the word and the card; words under the card are ignored while it is hovered; a click pins it. Words of the live line pause playback while the
     // card is up, words of the transcript do not.
     property var popTok: null
     property string popFrom: ""
@@ -29,6 +29,33 @@ Scope {
     property bool popOpen: false
     property bool popPinned: false
     property var _cand: null
+    property bool popHovered: false
+    // after another meaning is chosen the line is cut again; the card follows its word to the new token
+    property string _retarget: ""
+    Connections {
+        target: Lexicon
+        function onRowsChanged() {
+            const sf = root._retarget;
+            if (sf === "" || !root.popOpen)
+                return;
+            root._retarget = "";
+            const old = root.popCtx;
+            for (const row of Lexicon.rows) {
+                const i = row.findIndex(t => t.k === "word" && t.s === sf);
+                if (i < 0)
+                    continue;
+                const j = row.map(t => t.s);
+                const c = { prefix: j.slice(0, i).join(""), suffix: j.slice(i + 1).join(""), flat: old ? old.flat : "",
+                            start: old ? old.start : -1, toks: row, index: i };
+                root.popCtx = c;
+                root.popTok = row[i];
+                Lexicon.focusTok = row[i];
+                Lexicon.focusCtx = c;
+                return;
+            }
+            root.closeWord();
+        }
+    }
 
     // the card appears only once its dictionary entry is in, so it is placed for its final size and never
     // resizes or moves afterwards; a slow lookup gives up waiting after 450 ms and shows its spinner
@@ -54,14 +81,37 @@ Scope {
         }
     }
     property var popAnchorFn: null
+    property var _swapC: null
+    property bool _swapClaimed: false
+    signal swapRequested(var apply)
     function _commit(c) {
         capTimer.stop();
         _pending = null;
+        // the card is already up over another word: it fades out, changes unseen and fades back in
+        if (popOpen && popTok && popTok.key !== c.tok.key) {
+            _swapC = c;
+            _swapClaimed = false;
+            const apply = () => {
+                if (root._swapC === c) {
+                    root._swapC = null;
+                    root._apply(c);
+                }
+            };
+            swapRequested(apply);
+            // no screen is showing the card: nothing to fade
+            if (!_swapClaimed)
+                apply();
+            return;
+        }
+        _apply(c);
+    }
+    function _apply(c) {
         popTok = c.tok;
         popFrom = c.from;
         popAnchorFn = c.fn || null;
         popAnchor = _anchorOf(c);
         popCtx = c.ctx;
+        Lexicon.recheck(c.tok);
         Lexicon.focusTok = c.tok;
         Lexicon.focusCtx = c.ctx;
         popOpen = true;
@@ -77,6 +127,7 @@ Scope {
         openTimer.stop();
         closeTimer.stop();
         _cand = null;
+        _swapC = null;
         popOpen = false;
         popPinned = false;
         Lexicon.focusTok = null;
@@ -86,6 +137,9 @@ Scope {
     property var _hoverTok: null
     function wordEnter(tok, from, anchor, ctx, fn) {
         _hoverTok = tok;
+        // the pointer is on the card (it sits just above the line): words it brushes on the way must not steal it
+        if (popHovered && popOpen && from === "line")
+            return;
         if (!popOpen) {
             Lexicon.focusTok = tok;
             Lexicon.focusCtx = ctx;
@@ -94,10 +148,11 @@ Scope {
             return;
         closeTimer.stop();
         const c = { tok: tok, from: from, anchor: anchor, ctx: ctx, fn: fn };
-        if (popOpen) {
-            showWord(c);
-            return;
-        }
+        // a card is already up over the line: a word the pointer merely crosses on its way to the card (the upper
+        // line when the card belongs to the lower one) must not steal it, so switching waits for a real dwell
+        // the transcript is a dense list the pointer sweeps across, so its words wait a little longer
+        const same = popOpen && popTok && popTok.key === tok.key;
+        openTimer.interval = same ? 0 : from === "panel" ? 300 : popOpen ? 380 : 120;
         _cand = c;
         openTimer.restart();
     }
@@ -109,9 +164,10 @@ Scope {
         _cand = null;
         if (!popOpen && !_pending)
             Lexicon.focusTok = null;
-        if (popOpen && !popPinned)
-            closeTimer.restart();
-        else if (_pending && !popOpen)
+        if (popOpen && !popPinned) {
+            if (!popHovered)
+                closeTimer.restart();
+        } else if (_pending && !popOpen)
             closeWord();
     }
     function wordClick(tok, from, anchor, ctx, fn) {
@@ -141,8 +197,8 @@ Scope {
     }
     Timer {
         id: closeTimer
-        interval: 250
-        onTriggered: root.closeWord()
+        interval: 600
+        onTriggered: if (!root.popHovered) root.closeWord()
     }
     // ModernX lifts mpv's subtitles (sub-pos) while its controls are up, and the line follows at once. It drops
     // back only once the pointer is off the line and the card, after a pause, so the line can be reached.
@@ -200,7 +256,9 @@ Scope {
 
     function findMonitor() {
         Hyprland.refreshToplevels();
-        const t = Hyprland.toplevels.values.find(x => x.lastIpcObject && x.lastIpcObject.class === "mpv");
+        const mine = x => x.lastIpcObject && x.lastIpcObject.class === "mpv";
+        const t = Hyprland.toplevels.values.find(x => mine(x) && x.lastIpcObject.pid === Mpv.pid)
+                  || Hyprland.toplevels.values.find(mine);
         const id = t ? t.lastIpcObject.monitor : -1;
         const m = Hyprland.monitors.values.find(x => x.id === id) || Hyprland.focusedMonitor;
         mpvMonitor = m ? m.name : "";
@@ -296,7 +354,7 @@ Scope {
             color: "transparent"
             WlrLayershell.namespace: "quickshell:subs"
             WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            WlrLayershell.keyboardFocus: Lexicon.panelSearch ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
             visible: here
             // only what is drawn takes the pointer; a part that is away has no size, so mpv gets every click
             mask: Region {
@@ -343,6 +401,8 @@ Scope {
                 x: win.vx + (win.rightEdge - win.vx - width) / 2
                 y: win.bottomY - height + pad
                 Behavior on y { Spring { speed: "default" } }
+                // the top of the drawn text (a long line is shrunk from its bottom), which the card sits on
+                readonly property real textTop: y + height - pad - lines.height * lines.scale
                 opacity: Mpv.subLive ? 1 : 0
                 HoverHandler { onHoveredChanged: root.lineHover = hovered }
                 Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -473,17 +533,53 @@ Scope {
                                         font.pixelSize: win.fontPx
                                         font.letterSpacing: Mpv.subSpacing * win.unit
                                     }
+                                    // a leech (many lapses) gets a wavy underline, any other marked word a straight one
+                                    readonly property bool leech: status === "learning" && modelData.leech === true
+                                    readonly property bool due: status === "learning" && modelData.due === true
+                                    readonly property real ulH: Math.max(3, Math.round(win.fontPx * 0.075))
                                     Rectangle {
-                                        visible: word.marked
+                                        opacity: word.marked && !word.leech ? 1 : 0
+                                        visible: opacity > 0
+                                        Behavior on opacity { Fade {} }
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
                                         anchors.bottomMargin: -win.fontPx * 0.02
                                         anchors.leftMargin: win.fontPx * 0.04
                                         anchors.rightMargin: win.fontPx * 0.04
-                                        height: Math.max(3, Math.round(win.fontPx * 0.075))
+                                        height: word.ulH
                                         radius: height / 2
                                         color: word.status === "learning" ? Colors.secondary : Colors.tertiary
+                                        Behavior on color { ColorFade {} }
+                                    }
+                                    WavyUnderline {
+                                        opacity: word.leech ? 1 : 0
+                                        visible: opacity > 0
+                                        Behavior on opacity { Fade {} }
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.bottomMargin: -win.fontPx * 0.02 - amplitude
+                                        anchors.leftMargin: win.fontPx * 0.04
+                                        anchors.rightMargin: win.fontPx * 0.04
+                                        thickness: word.ulH
+                                        amplitude: word.ulH * 0.5
+                                        wavelength: win.fontPx * 0.32
+                                        color: Colors.secondary
+                                    }
+                                    // due today: a dot at the top right, clear of the readings
+                                    Rectangle {
+                                        opacity: word.due ? 1 : 0
+                                        scale: word.due ? 1 : 0.3
+                                        visible: opacity > 0
+                                        Behavior on opacity { Fade {} }
+                                        Behavior on scale { Spring { speed: "fast" } }
+                                        x: parent.width - width * 0.6
+                                        y: word.rubyH - height * 0.3
+                                        width: Math.max(6, Math.round(win.fontPx * 0.13))
+                                        height: width
+                                        radius: width / 2
+                                        color: Colors.secondary
                                     }
                                     HoverHandler {
                                         id: hover
@@ -525,23 +621,33 @@ Scope {
             WordPopup {
                 id: popup
 
+                Connections {
+                    target: root
+                    function onSwapRequested(apply) {
+                        if (!popup.visible)
+                            return;
+                        root._swapClaimed = true;
+                        popup.swapTo(apply);
+                    }
+                }
+
                 readonly property rect a: root.popAnchor
                 readonly property bool fromPanel: root.popFrom === "panel"
-                readonly property real roomAbove: a.y - win.vy - 20
-                readonly property real roomBelow: win.vy + win.vh - (a.y + a.height) - 20
+                // line words: the card always sits on top of the whole subtitle block, whichever line the word is on
+                readonly property real roomAbove: box.textTop - win.vy - 20
 
                 tok: root.popTok
                 ctx: root.popCtx
+                onKanjiOpened: root.popPinned = true
                 shown: root.popOpen && win.here
                 pinned: root.popPinned
-                // a card that cannot fit above the word goes below it
-                below: !fromPanel && roomAbove < 300 && roomBelow > roomAbove
+                below: false
                 width: Math.min(380, Math.max(240, win.vw - 32))
-                maxBodyH: Math.max(120, Math.min(420, (fromPanel ? win.height - 24 : below ? roomBelow : roomAbove) - 260))
+                maxBodyH: Math.max(120, Math.min(420, (fromPanel ? win.height - 24 : roomAbove) - 260))
                 x: fromPanel ? Math.max(12, panel.x - width - 12)
                              : Math.max(win.vx + 12, Math.min(a.x + a.width / 2 - width / 2, win.vx + win.vw - width - 12))
                 y: fromPanel ? Math.max(12, Math.min(a.y + a.height / 2 - height / 2, win.height - height - 12))
-                             : below ? a.y + a.height + 8 : a.y - height - 8
+                             : Math.max(win.vy + 12, box.textTop - height - 12)
 
                 onPinToggled: {
                     if (root.popPinned)
@@ -551,10 +657,19 @@ Scope {
                 }
                 onPicked: s => Lexicon.mark(popup.tok, s)
                 onCloseRequested: root.closeWord()
+                onRetargetRequested: surface => {
+                    if (root.popFrom === "line")
+                        root._retarget = surface;
+                    else
+                        root.closeWord();
+                }
                 onHoveredChanged: {
-                    if (hovered)
+                    root.popHovered = hovered;
+                    if (hovered) {
+                        openTimer.stop();
+                        root._cand = null;
                         closeTimer.stop();
-                    else if (root.popOpen && !root.popPinned)
+                    } else if (root.popOpen && !root.popPinned)
                         closeTimer.restart();
                 }
             }

@@ -9,7 +9,8 @@ import qs.Services
 // it is, the current subtitle line, and the transport commands. Reconnects by itself when mpv is
 // started or closed. The immersion panel's player pane is built on this.
 //
-// One socket path serves one mpv: a second mpv takes the path over, and when it leaves the first one is
+// One socket path serves one mpv: a second mpv takes the path over (for new connections only: a link that
+// is already up stays on the first mpv, see `pid`), and when it leaves the first one is
 // left listening on a socket nobody can reach. Then `viaScript` takes over: the tracker script in mpv
 // writes what is playing to live.json, so the card can still show the file (read-only, no controls). The
 // script also re-binds its socket when the shell leaves a `heal-<pid>` request (see immersion.lua), which
@@ -22,6 +23,8 @@ Singleton {
     property bool watching: false
 
     property bool connected: false
+    // pid of the mpv this link is on (observed); Lexicon compares it with the focused window's pid
+    property int pid: 0
     // the external subtitle file in use ("" for an embedded track or none)
     property string subFile: ""
     property bool paused: true
@@ -203,7 +206,7 @@ Singleton {
                        "playlist-pos", "playlist-count", "vid", "fullscreen", "sub-end", "osd-dimensions",
                        "sub-delay", "sub-font-size", "sub-scale", "sub-pos", "sub-margin-y", "sub-border-size",
                        "sub-shadow-offset", "sub-spacing", "sub-bold", "sub-font", "sub-color", "sub-border-color",
-                       "sub-shadow-color", "current-tracks/sub/external-filename"];
+                       "sub-shadow-color", "current-tracks/sub/external-filename", "pid"];
         names.forEach((n, i) => sock.write(JSON.stringify({ command: ["observe_property", i + 1, n] }) + "\n"));
         sock.write(JSON.stringify({ command: ["get_property", "time-pos"], request_id: 10 }) + "\n");
     }
@@ -219,6 +222,7 @@ Singleton {
         if (o.event === "property-change") {
             const d = o.data;
             switch (o.name) {
+            case "pid": pid = Number(d) || 0; break;
             case "pause": paused = !!d; break;
             case "duration": duration = d > 0 ? d : 0; break;
             case "media-title": title = d || ""; break;
@@ -352,6 +356,7 @@ Singleton {
                 mpv.paused = true;
                 mpv.position = 0;
                 mpv.duration = 0;
+                mpv.pid = 0;
                 mpv.connected = false;
             }
         }

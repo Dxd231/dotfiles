@@ -53,12 +53,12 @@ PanelWindow {
     property int slideDir: 1                 // 1 sends the old text left, -1 right
     property int nextDir: 1                  // set by "previous" so the next change slides the other way
     readonly property var discLobes: [12, 9, 7, 10, 8]
-    readonly property var haloShapes: [1, 4, 0, 5, 2]
+    readonly property var haloShapes: ["cookie4", "flower", "softBurst", "clover4", "gem", "cookie9"]
     property int trackCount: 0
     property int lobes: 12
     property int fromLobes: 12
-    property int haloShape: 1
-    property int haloFrom: 1
+    property var haloShape: "cookie9"
+    property var haloFrom: "cookie9"
     property real shapeMorph: 1
     property bool shapeSpring: true
     property real haloSpin: 0
@@ -422,7 +422,9 @@ PanelWindow {
                             anchors.fill: parent
                             z: 5
                             color: Colors.primary_container
-                            visible: discImage.target === ""
+                            opacity: discImage.target === "" ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             Icon {
                                 anchors.centerIn: parent
                                 name: "music_note"
@@ -842,7 +844,9 @@ PanelWindow {
                             }
                             Rectangle {
                                 anchors.verticalCenter: parent.verticalCenter
-                                visible: discMouseArea.isAtBoundary || Math.abs(discMouseArea.seekDeltaSec) >= 1
+                                opacity: (discMouseArea.isAtBoundary || Math.abs(discMouseArea.seekDeltaSec) >= 1) ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 height: 20
                                 width: deltaLabel.implicitWidth + 12
                                 radius: height / 2
@@ -906,7 +910,9 @@ PanelWindow {
                 }
                 Marquee {
                     width: parent.width
-                    visible: win.shownArtist !== ""
+                    opacity: win.shownArtist !== "" ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     role: "bodyLarge"
                     jp: true
                     running: win.isOpen
@@ -1135,6 +1141,7 @@ PanelWindow {
                     width: transport.widthFor(1, 96)
                     Behavior on width { Spring {} }
                     property bool spinSpring: true
+                    iconKick: false
                     Behavior on iconRotation { enabled: play.spinSpring; Spring {} }
                     Behavior on iconScale { enabled: play.spinSpring; Spring {} }
                     opacity: win.stage >= 5 ? 1 : 0

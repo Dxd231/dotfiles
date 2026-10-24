@@ -1,3 +1,4 @@
 singleton Colors Colors.qml
 singleton Motion Motion.qml
 singleton Typography Typography.qml
+singleton Shapes Shapes.qml

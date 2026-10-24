@@ -39,7 +39,7 @@ Singleton {
     // evening nudge for streaks that would otherwise end tonight
     property int nudgeMinute: 21 * 60
     // rest days allowed per task per month
-    property int freezesPerMonth: 2
+    property int freezesPerMonth: 6
     // Sunday recap goes out from this hour
     property int recapHour: 20
     readonly property bool weeklyRecap: adapter.weeklyRecap
@@ -54,7 +54,7 @@ Singleton {
     readonly property int topStreak: active.reduce((m, t) => Math.max(m, streak(t)), 0)
 
     // shapes (MorphShape indices) and accents handed out to tasks in turn
-    readonly property var shapes: [1, 5, 4, 2, 0]
+    readonly property var shapes: ["cookie4", "sunny", "clover4", "flower"]
     function shapeFor(t) { return shapes[(t && t.style || 0) % shapes.length]; }
     function accentFor(t) { return [Colors.primary, Colors.tertiary, Colors.secondary][(t && t.style || 0) % 3]; }
     function onAccentFor(t) { return [Colors.on_primary, Colors.on_tertiary, Colors.on_secondary][(t && t.style || 0) % 3]; }
@@ -322,7 +322,7 @@ Singleton {
         _change(id, key, { count: next }, msg);
     }
     function toggleDone(id, key) { tick(id, key, true); }
-    // a plain on/off (notification button, IPC): to the full target, or back to nothing
+    // a plain on/off (IPC): to the full target, or back to nothing
     function setDone(id, key, on) {
         const t = byId(id);
         if (t)
@@ -504,7 +504,10 @@ Singleton {
         if (action === "open") {
             Quickshell.execDetached(["qs", "ipc", "call", "tasks", "open"]);
         } else if (action === "done") {
-            setDone(id, todayKey, true);
+            // one reminder answered is one of the day's target, never the whole count
+            const t = byId(id);
+            if (t)
+                setCount(id, todayKey, Math.min(targetOn(t, todayKey), countOf(t, todayKey) + 1));
         } else if (action === "snooze10" || action === "snooze60") {
             const s = Object.assign({}, adapter.snoozed);
             s[id] = Date.now() + (action === "snooze10" ? 10 : 60) * 60000;

@@ -15,6 +15,8 @@ ShellRoot {
     Component.onCompleted: {
         Capture.toast = copyToast;
         Session.toast = copyToast;
+        Health.refresh();   // singletons load on first use; this one only serves `qs ipc call health ...`
+        Manga.request({ op: "ping" });   // wakes the manga helper: it scans the library and writes manga.json for the shelf and heatmap
     }
 
     // Preferred player first, otherwise any playing/paused one.
@@ -157,6 +159,8 @@ ShellRoot {
     WallpaperSwitcher {}
 
     ShelfPanel {}
+
+    MangaReader {}
 
     OnScreenDisplay {
         volumePopup: volumePopup

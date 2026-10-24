@@ -34,6 +34,9 @@ Item {
     readonly property real trackHeight: _t[0]
     readonly property real gap: 6
     readonly property real handleWidth: pressed ? 2 : 4
+    // the tracks follow the handle as it narrows, instead of jumping a pixel on press
+    property real _hw: handleWidth
+    Behavior on _hw { Spring {} }
     readonly property real fraction: Math.max(0, Math.min(1, (value - from) / (to - from)))
 
     property real _visual: fraction
@@ -56,7 +59,7 @@ Item {
         id: active
         anchors.verticalCenter: parent.verticalCenter
         height: slider.trackHeight
-        width: Math.max(0, slider._handleX - slider.handleWidth / 2 - slider.gap)
+        width: Math.max(0, slider._handleX - slider._hw / 2 - slider.gap)
         visible: width > 0.5
         color: slider.enabled ? slider.activeColor : Qt.alpha(Colors.on_surface, Motion.disabledContent)
         topLeftRadius: slider._t[2]
@@ -72,7 +75,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         anchors.right: parent.right
         height: slider.trackHeight
-        width: Math.max(0, slider.width - slider._handleX - slider.handleWidth / 2 - slider.gap)
+        width: Math.max(0, slider.width - slider._handleX - slider._hw / 2 - slider.gap)
         visible: width > 0.5
         color: slider.enabled ? slider.inactiveColor : Qt.alpha(Colors.on_surface, 0.12)
         topLeftRadius: 2
@@ -89,19 +92,26 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.right: parent.right
             anchors.rightMargin: slider.trackHeight / 2 - 2
-            visible: parent.width > slider.trackHeight
+            opacity: parent.width > slider.trackHeight ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             color: slider.enabled ? slider.activeColor : Qt.alpha(Colors.on_surface, Motion.disabledContent)
+            Behavior on color { ColorFade {} }
         }
     }
 
     // Inset icon: inside the active track when it fits, otherwise at the start of the inactive one
     Icon {
         readonly property bool inActive: active.width >= size + 20
+        // springs across the handle when it changes side; otherwise it rides the track as it is dragged
+        onInActiveChanged: flip.restart()
+        Timer { id: flip; interval: 450 }
+        Behavior on x { enabled: flip.running; Spring { speed: "fast" } }
         visible: slider.icon !== "" && slider._t[3] > 0
         name: slider.icon
         size: slider._t[3]
         anchors.verticalCenter: parent.verticalCenter
-        x: inActive ? 10 : active.width + slider.handleWidth + slider.gap * 2 + 10
+        x: inActive ? 10 : active.width + slider._hw + slider.gap * 2 + 10
         color: inActive ? Colors.on_primary : Colors.on_secondary_container
     }
 
@@ -109,11 +119,11 @@ Item {
     Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         x: slider._handleX - width / 2
-        width: slider.handleWidth
+        width: Math.max(0, slider._hw)
         height: slider._t[1]
         radius: width / 2
         color: slider.enabled ? slider.activeColor : Qt.alpha(Colors.on_surface, Motion.disabledContent)
-        Behavior on width { Spring {} }
+        Behavior on color { ColorFade {} }
     }
 
     // Value indicator
@@ -122,7 +132,9 @@ Item {
         opacity: slider.pressed ? 1 : 0
         scale: slider.pressed ? 1 : 0.6
         transformOrigin: Item.Bottom
-        width: Math.max(48, valueLabel.implicitWidth + 24)
+        property real _w: Math.max(48, valueLabel.implicitWidth + 24)
+        Behavior on _w { Spring { speed: "fast" } }
+        width: Math.max(0, _w)
         height: 44
         radius: height / 2
         x: slider._handleX - width / 2

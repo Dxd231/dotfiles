@@ -222,7 +222,8 @@ Singleton {
             ready = true;
             return;
         }
-        items = missing.map(a => Object.assign({ done: false }, a));
+        // `key` is stable across the copies made as windows are placed, so the card keeps each row
+        items = missing.map((a, k) => Object.assign({ done: false, key: k }, a));
         offering = true;
     }
 

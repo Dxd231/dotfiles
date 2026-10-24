@@ -159,8 +159,8 @@ BarPopup {
 
         Repeater {
             model: [
-                { icon: "local_fire_department", label: "Streak", value: Anki.streak, shape: 4, first: true },
-                { icon: "bolt", label: "Best", value: Anki.best, shape: 7, first: false }
+                { icon: "local_fire_department", label: "Streak", value: Anki.streak, shape: "flower", first: true },
+                { icon: "bolt", label: "Best", value: Anki.best, shape: "star4", first: false }
             ]
             delegate: Rectangle {
                 id: tile
@@ -227,66 +227,68 @@ BarPopup {
     }
 
     // ---- latest words ----
-    ColumnLayout {
+    Collapse {
+        open: Anki.words.length > 0
         Layout.fillWidth: true
-        spacing: 3
-        visible: Anki.words.length > 0
-        property real appear: win.stage >= 4 ? 1 : 0
-        Behavior on appear { Spring { speed: "default" } }
-        opacity: Math.max(0, Math.min(1, appear * 1.6))
+        ColumnLayout {
+            spacing: 3
+            property real appear: win.stage >= 4 ? 1 : 0
+            Behavior on appear { Spring { speed: "default" } }
+            opacity: Math.max(0, Math.min(1, appear * 1.6))
 
-        StyledText {
-            Layout.leftMargin: 4
-            Layout.bottomMargin: 2
-            role: "labelLarge"
-            emphasized: true
-            color: Colors.on_surface_variant
-            text: "Latest words"
-        }
-        Repeater {
-            model: Anki.words.slice(0, 5)
-            delegate: Rectangle {
-                id: row
-                required property var modelData
-                required property int index
-                readonly property int last: Math.min(5, Anki.words.length) - 1
-                Layout.fillWidth: true
-                Layout.preferredHeight: 52
-                color: Colors.surface_container_high
-                topLeftRadius: index === 0 ? 20 : 4
-                topRightRadius: index === 0 ? 20 : 4
-                bottomLeftRadius: index === last ? 20 : 4
-                bottomRightRadius: index === last ? 20 : 4
+            StyledText {
+                Layout.leftMargin: 4
+                Layout.bottomMargin: 2
+                role: "labelLarge"
+                emphasized: true
+                color: Colors.on_surface_variant
+                text: "Latest words"
+            }
+            Repeater {
+                model: Anki.words.slice(0, 5)
+                delegate: Rectangle {
+                    id: row
+                    required property var modelData
+                    required property int index
+                    readonly property int last: Math.min(5, Anki.words.length) - 1
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 52
+                    color: Colors.surface_container_high
+                    topLeftRadius: index === 0 ? 20 : 4
+                    topRightRadius: index === 0 ? 20 : 4
+                    bottomLeftRadius: index === last ? 20 : 4
+                    bottomRightRadius: index === last ? 20 : 4
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 16
-                    spacing: 8
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        StyledText {
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        spacing: 8
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            jp: true
-                            role: "titleMedium"
-                            emphasized: true
-                            elide: Text.ElideRight
-                            text: row.modelData.expression + (row.modelData.reading && row.modelData.reading !== row.modelData.expression ? "  " + row.modelData.reading : "")
+                            spacing: 0
+                            StyledText {
+                                Layout.fillWidth: true
+                                jp: true
+                                role: "titleMedium"
+                                emphasized: true
+                                elide: Text.ElideRight
+                                text: row.modelData.expression + (row.modelData.reading && row.modelData.reading !== row.modelData.expression ? "  " + row.modelData.reading : "")
+                            }
+                            StyledText {
+                                Layout.fillWidth: true
+                                jp: true
+                                role: "bodySmall"
+                                color: Colors.on_surface_variant
+                                elide: Text.ElideRight
+                                text: row.modelData.sentence
+                            }
                         }
                         StyledText {
-                            Layout.fillWidth: true
-                            jp: true
                             role: "bodySmall"
                             color: Colors.on_surface_variant
-                            elide: Text.ElideRight
-                            text: row.modelData.sentence
+                            text: win.when(row.modelData)
                         }
-                    }
-                    StyledText {
-                        role: "bodySmall"
-                        color: Colors.on_surface_variant
-                        text: win.when(row.modelData)
                     }
                 }
             }

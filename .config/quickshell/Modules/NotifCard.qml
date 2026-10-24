@@ -17,6 +17,8 @@ Item {
     property string appName: ""
     property string timeText: ""
     property string iconSource: ""
+    // the notification's own picture (screenshot, cover art), not a theme icon: it fills the avatar
+    property bool iconIsImage: false
     property string desktopEntry: ""
     property string appIcon: ""
     property string url: ""
@@ -37,14 +39,11 @@ Item {
     Behavior on pop { enabled: card.slideIn; Spring { speed: "default" } }
     property real shakeX: 0
 
-    // the same app always gets the same shape; critical ones are the soft burst in error colours
-    readonly property int avatarShape: {
+    // a calm cookie; critical ones are a boom in error colours
+    readonly property var avatarShape: {
         if (critical)
-            return 0;
-        let h = 0;
-        for (let i = 0; i < appName.length; i++)
-            h = (h * 31 + appName.charCodeAt(i)) >>> 0;
-        return [1, 4, 5, 2, 0][h % 5];
+            return "boom";
+        return "cookie4";
     }
 
     property bool expanded: false
@@ -222,7 +221,9 @@ Item {
 
                 StyledText {
                     anchors.centerIn: parent
-                    visible: iconImage.status !== Image.Ready
+                    opacity: iconImage.status !== Image.Ready ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     role: "titleMedium"
                     color: card.critical ? Colors.on_error_container : Colors.on_primary_container
                     text: card.appName.length > 0 ? card.appName.charAt(0).toUpperCase() : "?"
@@ -232,11 +233,24 @@ Item {
                     anchors.centerIn: parent
                     width: 28
                     height: 28
-                    visible: status === Image.Ready
+                    opacity: status === Image.Ready && !card.iconIsImage ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     source: card.iconSource
                     sourceSize: Qt.size(56, 56)
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
+                }
+                // a picture is cropped to a still cookie over the badge (masks never spin); it springs
+                // in when it loads and puffs to a sunny on hover
+                ShapeMask {
+                    anchors.fill: parent
+                    visible: card.iconIsImage
+                    source: card.iconIsImage ? card.iconSource : ""
+                    sourceWidth: 80
+                    shape: "cookie4"
+                    activeShape: "sunny"
+                    active: card.hovered
                 }
             }
 

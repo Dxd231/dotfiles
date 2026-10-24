@@ -15,13 +15,13 @@ Item {
 
     // x, y: centre as a share of the field; size: share of its height
     readonly property var _spec: [
-        { x: 0.07, y: 0.14, size: 0.42, role: 0, cycle: [7, 4, 1], speed: 9, every: 7000 },
-        { x: 0.94, y: 0.17, size: 0.34, role: 1, cycle: [5, 0, 2], speed: -12, every: 6000 },
-        { x: 0.11, y: 0.90, size: 0.36, role: 2, cycle: [3, 6, 4], speed: -8, every: 8200 },
-        { x: 0.91, y: 0.88, size: 0.46, role: 0, cycle: [1, 7, 5], speed: 14, every: 5600 },
-        { x: 0.235, y: 0.47, size: 0.13, role: 3, cycle: [4, 7], speed: 18, every: 5200 },
-        { x: 0.775, y: 0.45, size: 0.15, role: 1, cycle: [0, 2, 5], speed: -16, every: 6800 },
-        { x: 0.72, y: 0.04, size: 0.2, role: 2, cycle: [6, 5, 3], speed: 11, every: 7600 }
+        { x: 0.07, y: 0.14, size: 0.42, role: 0, cycle: ["star4", "flower", "clover4"], speed: 9, every: 7000 },
+        { x: 0.94, y: 0.17, size: 0.34, role: 1, cycle: ["gem", "softBurst", "clover8"], speed: -12, every: 6000 },
+        { x: 0.11, y: 0.90, size: 0.36, role: 2, cycle: ["pill", "cookie4", "flower"], speed: -8, every: 8200 },
+        { x: 0.91, y: 0.88, size: 0.46, role: 0, cycle: ["cookie9", "boom", "gem"], speed: 14, every: 5600 },
+        { x: 0.235, y: 0.47, size: 0.13, role: 3, cycle: ["sunny", "clover8"], speed: 18, every: 5200 },
+        { x: 0.775, y: 0.45, size: 0.15, role: 1, cycle: ["softBurst", "pentagon", "clover4"], speed: -16, every: 6800 },
+        { x: 0.72, y: 0.04, size: 0.2, role: 2, cycle: ["oval", "cookie4", "pill"], speed: 11, every: 7600 }
     ]
     readonly property var _fill: [Colors.primary_container, Colors.tertiary_container, Colors.secondary_container, Colors.primary]
 
@@ -80,7 +80,7 @@ Item {
 
             ShapeBadge {
                 anchors.fill: parent
-                shapeRest: slot.spec.cycle[0]
+                shapeRest: slot.spec.cycle["softBurst"]
                 cycle: slot.spec.cycle
                 cycleInterval: slot.spec.every
                 spinning: true

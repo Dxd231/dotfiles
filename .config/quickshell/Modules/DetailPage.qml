@@ -54,24 +54,28 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
-                StyledText {
+                SwapText {
                     Layout.fillWidth: true
                     role: "titleLarge"
                     elide: Text.ElideRight
-                    text: page.title
+                    value: page.title
                 }
-                StyledText {
+                SwapText {
                     Layout.fillWidth: true
                     role: "bodyMedium"
                     color: Colors.on_surface_variant
                     elide: Text.ElideRight
-                    text: page.subtitle
+                    value: page.subtitle
                 }
             }
             LoadingIndicator {
-                visible: page.busy && page.checked
+                // opens a slot beside the switch and fades in, rather than popping and shoving the title
+                property real on: page.busy && page.checked ? 1 : 0
+                Behavior on on { Spring { expressive: false } }
+                visible: on > 0.01
+                opacity: Math.min(1, on)
                 running: visible
-                Layout.preferredWidth: 24
+                Layout.preferredWidth: 24 * Math.max(0, on)
                 Layout.preferredHeight: 24
                 scale: 0.5
             }
@@ -105,6 +109,8 @@ Item {
                     width: flick.width
                     spacing: 16
                     bottomPadding: 16
+                    // sections glide to their new place when one above them opens or closes
+                    move: Transition { Spring { property: "y"; speed: "default"; expressive: false } }
                 }
             }
 
@@ -122,8 +128,8 @@ Item {
                     Layout.bottomMargin: 8
                     Layout.preferredWidth: 112
                     Layout.preferredHeight: 112
-                    shapeRest: 1
-                    shapeActive: 4
+                    shapeRest: "cookie4"
+                    shapeActive: "clover4"
                     active: !page.checked
                     spinning: !page.checked && page.shown
                     badgeScale: page.checked ? 0.6 : 1
@@ -164,8 +170,14 @@ Item {
             Layout.fillWidth: true
             Layout.leftMargin: 16
             Layout.rightMargin: 16
-            Layout.bottomMargin: 16
-            visible: page.checked && children.length > 0
+            Layout.bottomMargin: 16 * footerSlot.reveal
+            readonly property bool open: page.checked && children.length > 0
+            property real reveal: open ? 1 : 0
+            Behavior on reveal { Spring { speed: "default"; expressive: false } }
+            Layout.preferredHeight: implicitHeight * Math.max(0, Math.min(1, reveal))
+            visible: open || reveal > 0.01
+            opacity: Math.max(0, Math.min(1, reveal))
+            clip: true
         }
     }
 }

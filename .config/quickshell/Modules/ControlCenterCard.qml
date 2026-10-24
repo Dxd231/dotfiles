@@ -23,7 +23,8 @@ Rectangle {
     radius: Motion.shapeExtraLarge
     color: Colors.surface_container
     clip: true
-    Behavior on height { Spring { speed: "default" } }
+    // settles without overshoot while a page shrinks back into its tile
+    Behavior on height { Spring { speed: "default"; expressive: !ccCard.revealClosing } }
 
     ColumnLayout {
         id: mainCol
@@ -79,7 +80,7 @@ Rectangle {
                 Layout.preferredWidth: 1
                 appear: ccCard.stage >= 2 ? 1 : 0
                 live: ccCard.live
-                shapeOn: 4
+                shapeOn: "sunny"
                 title: "Internet"
                 subtitle: ccCard.cc ? ccCard.cc.activeSsid : ""
                 icon: ccCard.cc && ccCard.cc.wifiOn ? "wifi" : "wifi_off"
@@ -94,7 +95,7 @@ Rectangle {
                 Layout.preferredWidth: 1
                 appear: ccCard.stage >= 3 ? 1 : 0
                 live: ccCard.live
-                shapeOn: 5
+                shapeOn: "cookie4"
                 title: "Bluetooth"
                 subtitle: !ccCard.cc ? "" : ccCard.cc.activeBtDevice ? (ccCard.cc.activeBtDevice.name || "Connected") : ccCard.cc.bluetoothOn ? "On" : "Off"
                 icon: ccCard.cc && ccCard.cc.bluetoothOn ? (ccCard.cc.activeBtDevice ? "bluetooth_connected" : "bluetooth") : "bluetooth_disabled"
@@ -109,7 +110,7 @@ Rectangle {
                 Layout.preferredWidth: 1
                 appear: ccCard.stage >= 4 ? 1 : 0
                 live: ccCard.live
-                shapeOn: 2
+                shapeOn: "pentagon"
                 title: "Night light"
                 subtitle: ccCard.cc && ccCard.cc.sunsetActive ? ccCard.cc.sunsetGamma + "%" : "Off"
                 icon: "nightlight"
@@ -122,7 +123,7 @@ Rectangle {
                 Layout.preferredWidth: 1
                 appear: ccCard.stage >= 5 ? 1 : 0
                 live: ccCard.live
-                shapeOn: 0
+                shapeOn: "softBurst"
                 title: "Do not disturb"
                 subtitle: ccCard.cc && ccCard.cc.dnd ? "On" : "Off"
                 icon: "do_not_disturb_on"
@@ -135,7 +136,7 @@ Rectangle {
                 Layout.preferredWidth: 1
                 appear: ccCard.stage >= 6 ? 1 : 0
                 live: ccCard.live
-                shapeOn: 1
+                shapeOn: "cookie9"
                 title: "Power mode"
                 subtitle: ccCard.cc ? ccCard.cc.currentProfileText : ""
                 icon: !ccCard.cc ? "eco" : ccCard.cc.currentProfile === "performance" ? "bolt" : ccCard.cc.currentProfile === "power-saver" ? "energy_savings_leaf" : "balance"
@@ -148,7 +149,7 @@ Rectangle {
                 Layout.preferredWidth: 1
                 appear: ccCard.stage >= 7 ? 1 : 0
                 live: ccCard.live
-                shapeOn: 4
+                shapeOn: "sunny"
                 title: "Keep awake"
                 subtitle: !ccCard.cc || !ccCard.cc.keepAwake ? "Off" : ccCard.cc.inhibitModule && ccCard.cc.inhibitModule.timed ? ccCard.cc.inhibitModule.remainingText : "On"
                 icon: "coffee"
@@ -172,14 +173,17 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 StyledText { Layout.fillWidth: true; role: "titleSmall"; text: "Night light strength" }
-                Button {
-                    size: "xs"
-                    style: "text"
-                    text: "Reset"
-                    visible: !!ccCard.cc && ccCard.cc.sunsetGamma !== 100
-                    onClicked: {
-                        ccCard.cc.setSunsetGamma(100);
-                        ccCard.cc.applyGamma();
+                Collapse {
+                    horizontal: true
+                    open: !!ccCard.cc && ccCard.cc.sunsetGamma !== 100
+                    Button {
+                        size: "xs"
+                        style: "text"
+                        text: "Reset"
+                        onClicked: {
+                            ccCard.cc.setSunsetGamma(100);
+                            ccCard.cc.applyGamma();
+                        }
                     }
                 }
             }
@@ -210,18 +214,28 @@ Rectangle {
     property color fromC: Colors.surface_container_highest
     property bool revealOpen: false
     property bool revealSpring: false
+    property bool revealClosing: false
+    property string lastPage: ""
 
     function tileFor(p) {
         return p === "wifi" ? internetTile : p === "bluetooth" ? bluetoothTile : null;
+    }
+    // the tile's resting box: its layout slot (not its press squish, nor the column's slide) and
+    // rest radius, so the reveal lands exactly on the tile it hands back to
+    function measureTile(t) {
+        const pt = t.parent.mapToItem(mainCol, t.x, t.y);
+        fromX = mainCol.x + pt.x; fromY = mainCol.y + pt.y; fromW = t.width; fromH = t.height;
+        fromR = t.restRadius; fromC = t.color;
     }
     function syncReveal() {
         const p = cc ? cc.page : "";
         if (p !== "") {
             const t = tileFor(p);
             if (!revealOpen && t) {
-                const pt = t.mapToItem(ccCard, 0, 0);
-                fromX = pt.x; fromY = pt.y; fromW = t.width; fromH = t.height; fromR = t.radius; fromC = t.color;
+                measureTile(t);
                 revealHide.stop();
+                revealSettle.stop();
+                revealClosing = false;
                 revealSpring = false;
                 reveal.x = fromX; reveal.y = fromY; reveal.width = fromW; reveal.height = fromH;
                 reveal.radius = fromR; reveal.color = fromC;
@@ -233,31 +247,43 @@ Rectangle {
             revealOpen = true;
         } else if (revealOpen) {
             revealOpen = false;
+            revealClosing = true;
+            const t = tileFor(lastPage);
+            if (t)
+                measureTile(t);
             reveal.x = fromX; reveal.y = fromY; reveal.width = fromW; reveal.height = fromH;
             reveal.radius = fromR; reveal.color = fromC;
             revealHide.restart();
+            revealSettle.restart();
         }
+        lastPage = p;
     }
     Connections {
         target: ccCard.cc
         function onPageChanged() { ccCard.syncReveal(); }
     }
+    // cross-fade into the tile as the box lands, rather than holding it over the tile's content
     Timer {
         id: revealHide
-        interval: 420
+        interval: 220
         onTriggered: reveal.opacity = 0
+    }
+    Timer {
+        id: revealSettle
+        interval: 600
+        onTriggered: ccCard.revealClosing = false
     }
     Rectangle {
         id: reveal
         opacity: 0
         visible: opacity > 0
-        Behavior on x { enabled: ccCard.revealSpring; Spring { speed: "default" } }
-        Behavior on y { enabled: ccCard.revealSpring; Spring { speed: "default" } }
-        Behavior on width { enabled: ccCard.revealSpring; Spring { speed: "default" } }
-        Behavior on height { enabled: ccCard.revealSpring; Spring { speed: "default" } }
-        Behavior on radius { enabled: ccCard.revealSpring; Spring { speed: "default" } }
+        Behavior on x { enabled: ccCard.revealSpring; Spring { speed: "default"; expressive: !ccCard.revealClosing } }
+        Behavior on y { enabled: ccCard.revealSpring; Spring { speed: "default"; expressive: !ccCard.revealClosing } }
+        Behavior on width { enabled: ccCard.revealSpring; Spring { speed: "default"; expressive: !ccCard.revealClosing } }
+        Behavior on height { enabled: ccCard.revealSpring; Spring { speed: "default"; expressive: !ccCard.revealClosing } }
+        Behavior on radius { enabled: ccCard.revealSpring; Spring { speed: "default"; expressive: !ccCard.revealClosing } }
         Behavior on color { enabled: ccCard.revealSpring; ColorFade {} }
-        Behavior on opacity { Fade { speed: "fast" } }
+        Behavior on opacity { Fade { speed: "default" } }
     }
 
     // ---- detail pages (each fades / slides in over the card while its page is open) ----

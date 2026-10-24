@@ -62,8 +62,8 @@ Item {
                     y: parent.height - 14
                     width: 14
                     height: 14
-                    shapeRest: 7
-                    shapeActive: 7
+                    shapeRest: "star4"
+                    shapeActive: "star4"
                     color: Colors.on_surface
                     scale: sw.pinned && slot.here ? 1 : 0
                     visible: scale > 0.02
@@ -75,15 +75,15 @@ Item {
                     y: 3
                     width: 11
                     height: 11
-                    shapeRest: 4
-                    shapeActive: 4
+                    shapeRest: "sunny"
+                    shapeActive: "sunny"
                     color: slot.here ? slot.modelData.on : slot.modelData.c
                     scale: slot.modelData.live ? 1 : 0
                     visible: scale > 0.02
                     Behavior on scale { Spring { speed: "fast" } }
                     spinning: slot.modelData.live
                     spinSpeed: 40
-                    cycle: [4, 5, 0]
+                    cycle: ["sunny", "cookie4", "softBurst"]
                     cycleInterval: 1700
                 }
             }

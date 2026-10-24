@@ -31,7 +31,10 @@ Clickable {
     opacity: Math.max(0, Math.min(1, appear * 1.6))
     scale: 0.94 + 0.06 * appear
     transform: Translate { y: (1 - row.appear) * 14 }
-    onVisibleChanged: {
+    // a row that turns up while its page is already open (a scan result) rises in on its own
+    Component.onCompleted: if (visible) _enter()
+    onVisibleChanged: _enter()
+    function _enter() {
         snap = true;
         appear = 0;
         snap = false;
@@ -54,9 +57,14 @@ Clickable {
 
     restRadius: Motion.shapeExtraSmall
     pressedRadius: Motion.shapeMedium
-    topLeftRadius: first ? Motion.shapeLarge : radius
+    // the outer corners spring as rows are added, removed or reordered around this one
+    property real _top: first ? Motion.shapeLarge : radius
+    property real _bottom: last ? Motion.shapeLarge : radius
+    Behavior on _top { Spring {} }
+    Behavior on _bottom { Spring {} }
+    topLeftRadius: Math.max(0, _top)
     topRightRadius: topLeftRadius
-    bottomLeftRadius: last ? Motion.shapeLarge : radius
+    bottomLeftRadius: Math.max(0, _bottom)
     bottomRightRadius: bottomLeftRadius
     color: highlighted ? Colors.secondary_container : Colors.surface_container_highest
     contentColor: _fg
@@ -79,8 +87,8 @@ Clickable {
             ShapeBadge {
                 Layout.preferredWidth: 40
                 Layout.preferredHeight: 40
-                shapeRest: 1
-                shapeActive: 4
+                shapeRest: "cookie4"
+                shapeActive: "clover4"
                 active: row.highlighted
                 spinning: row.highlighted && row.visible
                 color: row.highlighted ? Colors.primary : Colors.secondary_container
@@ -90,7 +98,11 @@ Clickable {
                     name: row.icon
                     color: row.highlighted ? Colors.on_primary : Colors.on_secondary_container
                     Icon {
-                        visible: row.badgeIcon !== ""
+                        opacity: row.badgeIcon !== "" ? 1 : 0
+                        scale: row.badgeIcon !== "" ? 1 : 0.3
+                        visible: opacity > 0
+                        Behavior on opacity { Fade {} }
+                        Behavior on scale { Spring { speed: "fast" } }
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         anchors.margins: -3
@@ -104,26 +116,29 @@ Clickable {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
-                StyledText {
+                SwapText {
                     Layout.fillWidth: true
                     role: "bodyLarge"
                     color: row._fg
                     elide: Text.ElideRight
-                    text: row.title
+                    value: row.title
                 }
-                StyledText {
+                SwapText {
                     Layout.fillWidth: true
                     role: "bodyMedium"
                     color: row._fgVariant
                     elide: Text.ElideRight
-                    text: row.subtitle
+                    value: row.subtitle
                 }
             }
 
             LoadingIndicator {
-                visible: row.busy
+                property real on: row.busy ? 1 : 0
+                Behavior on on { Spring { expressive: false } }
+                visible: on > 0.01
+                opacity: Math.min(1, on)
                 running: visible
-                Layout.preferredWidth: 24
+                Layout.preferredWidth: 24 * Math.max(0, on)
                 Layout.preferredHeight: 24
                 scale: 0.5
             }

@@ -67,10 +67,10 @@ Singleton {
     readonly property bool busy: phase === "capturing" || phase === "warming" || phase === "running"
 
     // ---- which engine ----
-    // manga when Kavita is the focused window (or the context we are in while no media window has
+    // manga when the manga reader is open or Kavita is the focused window (or the context we are in while no media window has
     // focus), or when the selection is a tall narrow strip; everything else is general text
     function pick(w, h) {
-        if (startKind === "kavita")
+        if (Manga.open || startKind === "kavita")
             return "manga";
         if (startKind === "" && Immersion.context === "kavita")
             return "manga";
@@ -230,6 +230,9 @@ Singleton {
         return m ? Number(m[1]) : 1e9;
     }
     function _makeRoom(e) {
+        // page reading holds about 2 GB: it steps aside when the engine would not fit next to it
+        if (_freeKb() < 2.5 * 1024 * 1024)
+            Manga.ocrYield();
         const other = e === "manga" ? "paddle" : "manga";
         if (other === "paddle" && detecting)
             return;

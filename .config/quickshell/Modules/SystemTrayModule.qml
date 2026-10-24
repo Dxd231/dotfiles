@@ -15,10 +15,19 @@ Rectangle {
     required property var barWindow
 
     implicitHeight: 32
-    implicitWidth: items.implicitWidth + 4
+    // the pill opens as the first icon turns up and closes after the last one leaves, the icons springing
+    // the width in between
+    property real _w: itemRepeater.count > 0 ? items.implicitWidth + 4 : 0
+    Behavior on _w { Spring {} }
+    implicitWidth: Math.max(0, _w)
     radius: 16
     color: Colors.surface_container_high
-    visible: itemRepeater.count > 0
+    opacity: itemRepeater.count > 0 ? 1 : 0
+    scale: itemRepeater.count > 0 ? 1 : 0.8
+    Behavior on opacity { Fade {} }
+    Behavior on scale { Spring { speed: "fast" } }
+    visible: opacity > 0 || _w > 0.5
+    clip: true
 
     Row {
         id: items
@@ -31,6 +40,8 @@ Rectangle {
             delegate: Clickable {
                 id: trayItem
                 required property SystemTrayItem modelData
+                required property int index
+                Appear { delay: trayItem.index * 40; lift: 4 }
                 readonly property bool menuOpen: menu.isOpen && menu.forItem === modelData
                 readonly property bool tintIcon: {
                     const id = (modelData.id || modelData.icon || "").toLowerCase();

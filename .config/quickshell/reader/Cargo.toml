@@ -1,0 +1,22 @@
+[package]
+name = "qs-manga"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+crossbeam-channel = "0.5"
+rusqlite = { version = "0.32", features = ["bundled"] }
+imagesize = "0.13"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+notify = "6"
+natord = "1"
+unicode-normalization = "0.1"
+sha1 = "0.10"
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

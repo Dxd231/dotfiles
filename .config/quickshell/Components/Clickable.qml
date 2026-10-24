@@ -24,6 +24,8 @@ Rectangle {
     property bool highlighted: false
     // set to receive `scrolled`; otherwise wheel events pass through to what's below
     property bool wheelEnabled: false
+    // false snaps shape and colour changes (a card that is still being placed)
+    property bool animate: true
 
     signal clicked(var mouse)
     signal scrolled(var wheel)
@@ -32,8 +34,9 @@ Rectangle {
     color: "transparent"
     antialiasing: true
 
-    Behavior on radius { Spring {} }
-    Behavior on color { ColorFade {} }
+    Behavior on radius { enabled: control.animate; Spring {} }
+    Behavior on color { enabled: control.animate; ColorFade {} }
+    Behavior on contentColor { enabled: control.animate; ColorFade {} }
 
     StateLayer {
         tint: control.contentColor

@@ -26,7 +26,7 @@ ColumnLayout {
         Layout.alignment: Qt.AlignHCenter
         Layout.preferredWidth: 96
         Layout.preferredHeight: 96
-        shapeRest: empty.accent === "secondary" ? 5 : 1
+        shapeRest: empty.accent === "secondary" ? "cookie4" : "cookie9"
         spinning: empty.active
         color: empty.container
         Icon { anchors.centerIn: parent; size: 40; name: empty.icon; color: empty.textOnContainer }

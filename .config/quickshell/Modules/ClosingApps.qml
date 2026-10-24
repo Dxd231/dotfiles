@@ -21,7 +21,7 @@ Scope {
     readonly property color fullColor: role === "error" ? Colors.error : role === "tertiary" ? Colors.tertiary : Colors.primary
     readonly property color onFull: role === "error" ? Colors.on_error : role === "tertiary" ? Colors.on_tertiary : Colors.on_primary
     // the same shapes the power menu gives these actions
-    readonly property int heroShape: Power.kind === "poweroff" ? 0 : Power.kind === "logout" ? 4 : 1
+    readonly property var heroShape: Power.kind === "poweroff" ? "softBurst" : Power.kind === "logout" ? "sunny" : "cookie9"
     readonly property bool closing: Power.phase === "closing"
     readonly property bool leaving: Power.phase === "leaving"
 
@@ -170,7 +170,6 @@ Scope {
                         morph: 1
                         spin: root.spin
                         color: root.heroColor
-                        Behavior on color { ColorFade {} }
                     }
                     Icon {
                         anchors.centerIn: parent
@@ -231,7 +230,7 @@ Scope {
                     spacing: 0
                     Appear { visible: false; shown: root.closing; delay: 150; lift: 10 }
                     Repeater {
-                        model: root.rows.slice(0, root.maxRows)
+                        model: ScriptModel { values: root.rows.slice(0, root.maxRows); objectProp: "t" }
                         delegate: Item {
                             id: row
                             required property var modelData
@@ -254,7 +253,9 @@ Scope {
                                     Layout.preferredHeight: 28
                                     Image {
                                         anchors.fill: parent
-                                        visible: row.modelData.icon !== "" && !row.modelData.gone
+                                        opacity: row.modelData.icon !== "" && !row.modelData.gone ? 1 : 0
+                                        visible: opacity > 0
+                                        Behavior on opacity { Fade {} }
                                         source: row.modelData.icon
                                         sourceSize: Qt.size(56, 56)
                                         fillMode: Image.PreserveAspectFit
@@ -262,7 +263,11 @@ Scope {
                                     }
                                     Icon {
                                         anchors.centerIn: parent
-                                        visible: row.modelData.icon === "" || row.modelData.gone
+                                        opacity: row.modelData.icon === "" || row.modelData.gone ? 1 : 0
+                                        scale: row.modelData.gone ? 1 : 0.9
+                                        visible: opacity > 0
+                                        Behavior on opacity { Fade {} }
+                                        Behavior on scale { Spring { speed: "fast" } }
                                         name: row.modelData.gone ? "check_circle" : "web_asset"
                                         size: 24
                                         color: row.modelData.gone ? root.fullColor : Colors.on_surface_variant
@@ -310,13 +315,14 @@ Scope {
                             }
                         }
                     }
-                    StyledText {
-                        visible: root.rows.length > root.maxRows
+                    Collapse {
+                        open: root.rows.length > root.maxRows
                         Layout.topMargin: 4
-                        role: "bodySmall"
-                        color: Colors.on_surface_variant
-                        text: "+" + (root.rows.length - root.maxRows) + " more"
-                        Appear { shown: root.rows.length > root.maxRows; lift: 4 }
+                        StyledText {
+                            role: "bodySmall"
+                            color: Colors.on_surface_variant
+                            text: "+" + Math.max(0, root.rows.length - root.maxRows) + " more"
+                        }
                     }
                 }
 

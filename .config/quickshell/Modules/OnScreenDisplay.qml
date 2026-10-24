@@ -123,13 +123,19 @@ Scope {
                     onPressedChanged: if (!pressed) hideTimer.restart()
                 }
 
-                StyledText {
+                Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 48
-                    horizontalAlignment: Text.AlignHCenter
-                    role: "labelLarge"
-                    color: Colors.on_surface_variant
-                    text: osd.muted ? "Off" : Math.round(osd.volume * 100)
+                    height: pct.implicitHeight
+                    // the digits roll as the volume moves
+                    RollingDigits {
+                        id: pct
+                        anchors.centerIn: parent
+                        pixelSize: 14
+                        weight: Font.Medium
+                        color: Colors.on_surface_variant
+                        text: osd.muted ? "Off" : String(Math.round(osd.volume * 100))
+                    }
                 }
 
                 IconButton {

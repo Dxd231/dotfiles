@@ -8,6 +8,8 @@ Item {
     id: group
 
     property string current: "unknown"
+    // false snaps the segments to the status (a card that is still being placed)
+    property bool animate: true
     signal picked(string status)
 
     readonly property var items: [
@@ -30,10 +32,11 @@ Item {
                 readonly property bool here: group.current === modelData.k
                 property real _inner: here ? 12 : pressed ? 2 : 4
                 property real _outer: here ? 12 : height / 2
-                Behavior on _inner { Spring { speed: "fast" } }
-                Behavior on _outer { Spring { speed: "fast" } }
+                Behavior on _inner { enabled: group.animate; Spring { speed: "fast" } }
+                Behavior on _outer { enabled: group.animate; Spring { speed: "fast" } }
                 width: Math.max(0, (group.width - 6) / 4)
                 height: 40
+                animate: group.animate
                 restRadius: 12
                 pressedRadius: 12
                 topLeftRadius: Math.max(0, index === 0 ? _outer : _inner)
@@ -50,7 +53,6 @@ Item {
                     emphasized: true
                     text: seg.modelData.t
                     color: seg.contentColor
-                    Behavior on color { ColorFade {} }
                 }
             }
         }

@@ -15,6 +15,8 @@ Item {
     property color dropColor: Colors.tertiary
     property real cell: 24
     property int textSize: 15
+    // false snaps size and position changes (a card that is still being placed)
+    property bool animate: true
 
     // small kana and the long-vowel mark belong to the mora before them
     readonly property var morae: {
@@ -54,11 +56,17 @@ Item {
 
     readonly property string patternName: !known ? "" : pos === 0 ? "平板" : pos === 1 ? "頭高" : pos === n ? "尾高" : "中高"
 
-    implicitWidth: (n + (known ? 1 : 0)) * cell
-    implicitHeight: (known ? lowY + 8 : 0) + textSize + 8
+    property real _w: (n + (known ? 1 : 0)) * cell
+    property real _h: (known ? lowY + 8 : 0) + textSize + 8
+    Behavior on _w { enabled: graph.animate; Spring { speed: "fast" } }
+    Behavior on _h { enabled: graph.animate; Spring { speed: "fast" } }
+    implicitWidth: Math.max(0, _w)
+    implicitHeight: Math.max(0, _h)
 
     Shape {
-        visible: graph.known
+        opacity: graph.known ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { Fade { speed: "default" } }
         anchors.fill: parent
         preferredRendererType: Shape.CurveRenderer
         ShapePath {
@@ -72,24 +80,34 @@ Item {
     }
     Repeater {
         model: graph.known ? graph.n + 1 : 0
-        Rectangle {
+        Item {
+            id: dotSlot
             required property int index
             width: 7
             height: 7
-            radius: 3.5
             x: (index + 0.5) * graph.cell - width / 2
             y: (graph.isHigh(index) ? graph.highY : graph.lowY) - height / 2
-            color: index === graph.dropAt ? graph.dropColor : graph.color
-            // the last dot is the particle: it only shows where the pitch goes next
-            opacity: index === graph.n ? 0.45 : 1
+            Behavior on y { enabled: graph.animate; Spring { speed: "fast" } }
+            Appear { delay: 40 + dotSlot.index * 35; lift: 4; from: 0.4 }
+            Rectangle {
+                anchors.fill: parent
+                radius: 3.5
+                color: dotSlot.index === graph.dropAt ? graph.dropColor : graph.color
+                Behavior on color { ColorFade {} }
+                // the last dot is the particle: it only shows where the pitch goes next
+                opacity: dotSlot.index === graph.n ? 0.45 : 1
+            }
         }
     }
     Row {
         y: graph.known ? graph.lowY + 8 : 0
+        Behavior on y { enabled: graph.animate; Spring { speed: "fast" } }
         Repeater {
             model: graph.morae
             StyledText {
                 required property string modelData
+                required property int index
+                Appear { delay: index * 30; lift: 4 }
                 width: graph.cell
                 horizontalAlignment: Text.AlignHCenter
                 jp: true

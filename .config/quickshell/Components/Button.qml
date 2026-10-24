@@ -27,7 +27,7 @@ Clickable {
 
     color: {
         if (!enabled)
-            return style === "text" ? "transparent" : Qt.alpha(Colors.on_surface, Motion.disabledContainer);
+            return style === "text" ? Qt.alpha(Colors.on_surface, 0) : Qt.alpha(Colors.on_surface, Motion.disabledContainer);
         switch (style) {
         case "filled":
             return checkable && !checked ? Colors.surface_container : Colors.primary;
@@ -37,8 +37,8 @@ Clickable {
             return checkable && checked ? Colors.primary : Colors.surface_container_low;
         case "outlined": // rendered without a border (design preference): tonal surface fill
             return checkable && checked ? Colors.inverse_surface : Colors.surface_container_highest;
-        default:
-            return "transparent";
+        default: // same hue as the label so fading in and out never passes through black
+            return Qt.alpha(Colors.primary, 0);
         }
     }
     contentColor: {
@@ -59,7 +59,9 @@ Clickable {
     }
 
     implicitHeight: _t.height
-    implicitWidth: row.implicitWidth + _t.pad * 2
+    implicitWidth: Math.max(0, _w)
+    property real _w: row.implicitWidth + _t.pad * 2
+    Behavior on _w { enabled: button.animate; Spring { speed: "fast" } }
 
     restRadius: square ? _t.square : height / 2
     pressedRadius: _t.pressed
@@ -78,17 +80,28 @@ Clickable {
         spacing: button._t.gap
 
         Icon {
-            visible: button.icon !== ""
+            id: lead
+            // grows in and out when a caller adds or drops the icon
+            property real grow: button.icon !== "" ? 1 : 0
+            Behavior on grow { enabled: button.animate; Spring { speed: "fast" } }
+            property string _last: button.icon
+            Connections { target: button; function onIconChanged() { if (button.icon !== "") lead._last = button.icon; } }
+            visible: grow > 0.01
+            width: button._t.icon * Math.max(0, Math.min(1, grow))
+            opacity: Math.max(0, Math.min(1, grow))
+            scale: Math.max(0, grow)
             anchors.verticalCenter: parent.verticalCenter
-            name: button.icon
+            name: button.icon !== "" ? button.icon : _last
             size: button._t.icon
             color: button.contentColor
+            fadeColor: false
         }
-        StyledText {
+        SwapText {
             anchors.verticalCenter: parent.verticalCenter
-            text: button.text
+            value: button.text
             role: button._t.role
             color: button.contentColor
+            fadeColor: false
         }
     }
 }

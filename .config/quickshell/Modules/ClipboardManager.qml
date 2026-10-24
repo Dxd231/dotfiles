@@ -558,8 +558,8 @@ Item {
                             id: searchBadge
                             Layout.preferredWidth: 40
                             Layout.preferredHeight: 40
-                            shapeRest: 5
-                            shapeActive: 4
+                            shapeRest: "cookie4"
+                            shapeActive: "sunny"
                             active: searchField.text.length > 0
                             spinning: active && panel.openP > 0.5
                             color: active ? Colors.primary : Colors.secondary_container
@@ -567,7 +567,6 @@ Item {
                                 anchors.centerIn: parent
                                 name: searchBadge.active ? "search" : "content_paste"
                                 color: searchBadge.active ? Colors.on_primary : Colors.on_secondary_container
-                                Behavior on color { ColorFade {} }
                             }
                         }
 
@@ -590,7 +589,9 @@ Item {
                             Keys.onEscapePressed: root.isOpenClipB = false
 
                             StyledText {
-                                visible: searchField.text.length === 0
+                                opacity: searchField.text.length === 0 ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 anchors.verticalCenter: parent.verticalCenter
                                 role: "bodyLarge"
                                 color: Colors.on_surface_variant
@@ -598,20 +599,26 @@ Item {
                             }
                         }
 
-                        IconButton {
-                            visible: searchField.text.length > 0
-                            icon: "close"
-                            onClicked: {
-                                searchField.text = "";
-                                searchField.forceActiveFocus();
+                        Collapse {
+                            horizontal: true
+                            open: searchField.text.length > 0
+                            IconButton {
+                                icon: "close"
+                                onClicked: {
+                                    searchField.text = "";
+                                    searchField.forceActiveFocus();
+                                }
                             }
                         }
-                        Button {
-                            visible: root.entries.length > 0
-                            style: "text"
-                            icon: "delete_sweep"
-                            text: "Clear all"
-                            onClicked: root.wipeAll()
+                        Collapse {
+                            horizontal: true
+                            open: root.entries.length > 0
+                            Button {
+                                style: "text"
+                                icon: "delete_sweep"
+                                text: "Clear all"
+                                onClicked: root.wipeAll()
+                            }
                         }
                     }
                 }
@@ -783,8 +790,8 @@ Item {
                                     ShapeBadge {
                                         Layout.preferredWidth: 38
                                         Layout.preferredHeight: 38
-                                        shapeRest: entryRow.modelData.isImage ? 5 : 1
-                                        shapeActive: 4
+                                        shapeRest: entryRow.modelData.isImage ? "cookie4" : "cookie9"
+                                        shapeActive: "sunny"
                                         active: entryRow.selected
                                         spinning: entryRow.selected && entryRow.visible
                                         color: entryRow.selected ? Colors.primary : Colors.surface_container_highest
@@ -793,7 +800,6 @@ Item {
                                             name: entryRow.modelData.isImage ? "image" : "notes"
                                             size: 20
                                             color: entryRow.selected ? Colors.on_primary : Colors.on_surface_variant
-                                            Behavior on color { ColorFade {} }
                                         }
                                     }
                                     ColumnLayout {
@@ -832,7 +838,7 @@ Item {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: 88
                                 Layout.preferredHeight: 88
-                                shapeRest: root.query ? 0 : 1
+                                shapeRest: root.query ? "softBurst" : "cookie9"
                                 spinning: emptyList.shown && emptyList.visible
                                 color: Colors.secondary_container
                                 Icon {
@@ -874,7 +880,7 @@ Item {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: 88
                                 Layout.preferredHeight: 88
-                                shapeRest: 2
+                                shapeRest: "pentagon"
                                 spinning: noPreview.shown && noPreview.visible
                                 color: Colors.secondary_container
                                 Icon { anchors.centerIn: parent; size: 36; name: "content_paste"; color: Colors.on_secondary_container }
@@ -911,7 +917,9 @@ Item {
                             anchors.fill: parent
                             anchors.margins: 16
                             anchors.bottomMargin: 72
-                            visible: root.previewMode === "text"
+                            opacity: root.previewMode === "text" ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             contentWidth: width
                             contentHeight: previewText.implicitHeight
                             clip: true
@@ -938,7 +946,9 @@ Item {
                             anchors.fill: parent
                             anchors.margins: 16
                             anchors.bottomMargin: 72
-                            visible: root.previewMode === "image" && root.previewImagePath !== ""
+                            opacity: root.previewMode === "image" && root.previewImagePath !== "" ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
 
                             Image {
                                 id: probe

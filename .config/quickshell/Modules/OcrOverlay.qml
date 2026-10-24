@@ -187,7 +187,16 @@ PanelWindow {
                 radius: 10
                 color: Qt.alpha(Colors.primary, lit ? 0.3 : 0.14)
                 Behavior on color { ColorFade {} }
-                scale: lit ? 1.015 : 1
+                // the blocks come up one after another, left to right in reading order
+                property real born: 0
+                Behavior on born { Spring { speed: "default" } }
+                Timer {
+                    interval: 30 + Math.min(blk.index, 20) * 25
+                    running: true
+                    onTriggered: blk.born = 1
+                }
+                opacity: Math.max(0, Math.min(1, blk.born * 1.6))
+                scale: (lit ? 1.015 : 1) * (0.9 + 0.1 * blk.born)
                 Behavior on scale { Spring { speed: "fast" } }
                 Rectangle {
                     visible: !!blk.b && blk.b.dialogue
@@ -218,7 +227,9 @@ PanelWindow {
             height: win.dh
             radius: 18
             color: "transparent"
-            visible: win.hasSel
+            opacity: win.hasSel ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             Image {
                 x: -box.x
                 y: -box.y
@@ -242,7 +253,7 @@ PanelWindow {
                 height: 16
                 radius: 8
                 color: Colors.primary
-                visible: win.hasSel
+                visible: scale > 0.01
                 x: win.dx + (index % 2) * win.dw - 8
                 y: win.dy + Math.floor(index / 2) * win.dh - 8
                 scale: win.hasSel ? (win.dragging ? 1.25 : 1) : 0
@@ -251,7 +262,9 @@ PanelWindow {
         }
         // size readout
         Rectangle {
-            visible: win.hasSel
+            opacity: win.hasSel ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             x: win.dx + 10
             y: Math.max(8, win.dy - height - 8)
             height: 26
@@ -525,11 +538,14 @@ PanelWindow {
                 }
             }
             // finding the text blocks
-            LoadingIndicator {
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
-                visible: Ocr.detecting
-                running: visible
+            Collapse {
+                horizontal: true
+                open: Ocr.detecting
+                LoadingIndicator {
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    running: visible
+                }
             }
             IconButton { icon: "check"; style: "filled"; size: "s"; onClicked: win.confirm() }
             IconButton { icon: "close"; style: "tonal"; size: "s"; onClicked: Ocr.cancel() }

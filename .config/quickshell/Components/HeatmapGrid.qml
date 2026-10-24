@@ -347,13 +347,16 @@ Item {
             visible: grid.todayIndex >= 0
             width: grid.cell + 10
             height: grid.cell + 10
-            shape: 0
-            fromShape: 0
+            shape: "softBurst"
+            fromShape: "softBurst"
             color: Qt.alpha(grid.accent, 0.3)
             x: grid.todayIndex >= 0 ? grid.cells[grid.todayIndex].col * grid.step - 5 : 0
             y: grid.todayIndex >= 0 ? grid.cells[grid.todayIndex].row * grid.step - 5 : 0
+            Behavior on x { Spring { speed: "fast" } }
+            Behavior on y { Spring { speed: "fast" } }
             scale: 0.55 + 0.45 * grid.backOut(Math.min(1, grid.phase * 1.4))
             opacity: grid.ghost ? 0 : 1
+            Behavior on opacity { Fade {} }
         }
 
         // the selected day: a soft shape behind its cell. It lands on the first cell it is given, glides
@@ -373,8 +376,8 @@ Item {
             visible: opacity > 0.02
             width: grid.cell + 12
             height: grid.cell + 12
-            shape: 4
-            fromShape: 4
+            shape: "sunny"
+            fromShape: "sunny"
             color: Qt.alpha(Colors.tertiary, 0.45)
             x: cellAt ? cellAt.col * grid.step - 6 : 0
             y: cellAt ? cellAt.row * grid.step - 6 : 0
@@ -427,18 +430,28 @@ Item {
                 Behavior on pop { Spring { speed: "fast" } }
 
                 MorphShape {
-                    visible: cd.star && day.isDone
+                    // pops in and out with a spring as the day's state changes
+                    opacity: (cd.star && day.isDone) ? 1 : 0
+                    scale: (cd.star && day.isDone) ? 1 : 0.4
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring { speed: "fast" } }
                     anchors.centerIn: parent
                     width: grid.cell + 6
                     height: grid.cell + 6
-                    shape: 7
-                    fromShape: 7
+                    shape: "star4"
+                    fromShape: "star4"
                     spin: grid.starSpin
                     color: day.doneColor
                 }
                 // days the task doesn't repeat on (or that predate it) are just a dot
                 Rectangle {
-                    visible: cd.state === "off" || cd.state === "before"
+                    // pops in and out with a spring as the day's state changes
+                    opacity: (cd.state === "off" || cd.state === "before") ? 1 : 0
+                    scale: (cd.state === "off" || cd.state === "before") ? 1 : 0.4
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring { speed: "fast" } }
                     anchors.centerIn: parent
                     width: 4
                     height: 4
@@ -448,16 +461,29 @@ Item {
 
                 // count tasks: a part-way day shows how far it got
                 Rectangle {
-                    visible: cd.state === "partial"
+                    // pops in and out with a spring as the day's state changes
+                    opacity: (cd.state === "partial") ? 1 : 0
+                    scale: (cd.state === "partial") ? 1 : 0.4
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring { speed: "fast" } }
                     anchors.centerIn: parent
-                    width: 4 + 8 * (cd.target > 0 ? cd.count / cd.target : 0)
+                    property real fill: cd.target > 0 ? cd.count / cd.target : 0
+                    Behavior on fill { Spring { speed: "fast" } }
+                    width: Math.max(0, 4 + 8 * fill)
                     height: width
                     radius: width / 2
                     color: grid.accent
+                    Behavior on color { ColorFade {} }
                 }
                 // rest day: a short dash
                 Rectangle {
-                    visible: cd.state === "skipped"
+                    // pops in and out with a spring as the day's state changes
+                    opacity: (cd.state === "skipped") ? 1 : 0
+                    scale: (cd.state === "skipped") ? 1 : 0.4
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring { speed: "fast" } }
                     anchors.centerIn: parent
                     width: grid.cell * 0.62
                     height: 4
@@ -466,7 +492,12 @@ Item {
                 }
                 // busy day: a small dot
                 Rectangle {
-                    visible: cd.state === "busy"
+                    // pops in and out with a spring as the day's state changes
+                    opacity: (cd.state === "busy") ? 1 : 0
+                    scale: (cd.state === "busy") ? 1 : 0.4
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring { speed: "fast" } }
                     anchors.centerIn: parent
                     width: 7
                     height: 7
@@ -475,13 +506,19 @@ Item {
                 }
                 // a day with a note
                 Rectangle {
-                    visible: cd.note !== ""
+                    // pops in and out with a spring as the day's state changes
+                    opacity: (cd.note !== "") ? 1 : 0
+                    scale: (cd.note !== "") ? 1 : 0.4
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
+                    Behavior on scale { Spring { speed: "fast" } }
                     x: parent.width - width - 1
                     y: 1
                     width: 5
                     height: 5
                     radius: 2.5
                     color: cd.state === "done" ? Colors.on_primary : Colors.tertiary
+                    Behavior on color { ColorFade {} }
                 }
 
                 onHoveredChanged: {
@@ -536,7 +573,7 @@ Item {
                 readonly property real dist: 6 + 26 * grid.burstP
                 width: 9
                 height: 9
-                shape: index % 2 === 0 ? 4 : 1
+                shape: index % 2 === 0 ? "sunny" : "cookie9"
                 fromShape: shape
                 color: grid.accent
                 x: grid.burstX + Math.cos(ang) * dist - width / 2
@@ -635,7 +672,9 @@ Item {
                 Behavior on radius { Spring { speed: "fast" } }
                 StyledText {
                     anchors.centerIn: parent
-                    visible: !bubble.wraps
+                    opacity: bubble.wraps ? 0 : 1
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     role: "labelMedium"
                     emphasized: true
                     color: Colors.inverse_on_surface
@@ -644,7 +683,9 @@ Item {
                 Column {
                     id: twoLine
                     anchors.centerIn: parent
-                    visible: bubble.wraps
+                    opacity: bubble.wraps ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     width: bubble.maxW - 24
                     spacing: 2
                     StyledText {

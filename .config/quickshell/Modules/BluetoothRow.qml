@@ -58,19 +58,29 @@ DetailRow {
         }
     }
 
-    IconButton {
-        visible: row.pairing
-        icon: "close"
-        onClicked: row.device.cancelPair()
+    // trailing actions open and close in place as the device's state changes
+    Collapse {
+        horizontal: true
+        open: row.pairing
+        IconButton {
+            icon: "close"
+            onClicked: row.device.cancelPair()
+        }
     }
-    IconButton {
-        visible: row.connected && !row.working
-        icon: "link_off"
-        onClicked: row.device.disconnect()
+    Collapse {
+        horizontal: true
+        open: row.connected && !row.working
+        IconButton {
+            icon: "link_off"
+            onClicked: row.device.disconnect()
+        }
     }
-    IconButton {
-        visible: !row.connected && !!row.device?.paired && !row.working
-        icon: "delete"
-        onClicked: row.device.forget()
+    Collapse {
+        horizontal: true
+        open: !row.connected && !!row.device?.paired && !row.working
+        IconButton {
+            icon: "delete"
+            onClicked: row.device.forget()
+        }
     }
 }

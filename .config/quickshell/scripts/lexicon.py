@@ -16,15 +16,24 @@ and given a status from the known-words store (Anki cards + manual marks).
   <- {"id": 4, "op": "sync"}                       pull card status from AnkiConnect
   -> {"id": 4, "known": n, "learning": n}
   <- {"id": 5, "op": "parse_file", "path": "x.ja.srt"}
-  -> {"id": 5, "lines": n, "tokens": n, "known": n, "unknown": n, "pct": 87.1, "newWords": n, "plusOne": n}
+  -> {"id": 5, "lines": n, "tokens": n, "known": n, "unknown": n, "pct": 87.1, "learning": n, "learnPct": 4.2, "newWords": n, "plusOne": n}
+  <- {"id": 12, "op": "learning", "path": "x.ja.srt"}   (path optional)
+  -> {"words": [{term, reading, ivl, lapses, due, leech, note, source: anki|manual, here}], "marks": [{term, reading, status, updated, ivl, lapses, due, leech, note, anki, here}]}
+        words = everything being learned, here = lines it is in; marks = the user's own known/unknown/ignored marks
   <- {"id": 7, "op": "transcript", "path": "x.ja.srt"}
-  -> {"id": 7, "lines": [{start, end, text, toks, unk}], "stats": {..as parse_file..}}
-  <- {"id": 8, "op": "mine", "term", "reading", "surface", "prefix", "body", "suffix", "force"?, "path"?, "start"?}
+  -> {"id": 7, "lines": [{start, end, text, toks, unk, lrn, flag}], "stats": {..as parse_file..}}
+        lrn = learning words in the line, flag = one of them is due or a leech; learning word tokens carry due, leech, ivl, lapses
+  <- {"id": 8, "op": "mine", "term", "reading", "surface", "prefix", "body", "suffix", "force"?, "replace"? (note id to overwrite), "path"?, "start"?}
   -> {"noteId", "span": [a, b], "line": i, "lines": n} | {"dup": true, "noteId"} | {"error": "yomitan-offline|no-entry|..."}
      with path (the subtitle file) and start (the line's file time) the sentence takes in the neighbouring lines it continues into
   <- {"id": 9, "op": "capture", "noteId", "path", "video", "span": [a, b], "line": i}
   -> {"done": bool, "audio"?, "picture"?}   cuts the span's audio and the line's picture with ffmpeg into the note
   <- {"id": 5, "op": "pick", "surface", "base", "term", "reading"}      -> {"ok": true}   which dictionary entry a word means (empty term clears)
+  <- {"id": 8, "op": "recheck", "term", "reading", "rank"}
+  -> {"status", "changed": bool, "noteId"?}   asks Anki again about one word (a deleted or re-graded card), no full sync
+  <- {"id": 10, "op": "span", "path", "start"}
+  -> {"line": i, "auto": [a, b], "lines": [{i, text, start, end}]}   the cue and its neighbours; line -1 when not found
+  <- {"id": 11, "op": "respan", "noteId", "term", ..., "span": [a, b]}   -> {"span", "line", "lines"}   rewrites the sentence of a mined note
   <- {"id": 6, "op": "status"}                     -> {"yomitan": bool, "words": n}
   <- {"quit": true}                                (or close stdin) to exit
 
@@ -40,6 +49,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 _out = os.fdopen(os.dup(1), "w", buffering=1, encoding="utf-8")
@@ -52,6 +62,8 @@ YOMITAN = os.environ.get("QS_YOMITAN_API", "http://127.0.0.1:19633")
 ANKI = os.environ.get("QS_ANKI_URL", "http://127.0.0.1:8765")
 ANKI_QUERY = os.environ.get("QS_LEXICON_QUERY", 'deck:Japanese note:Kiku')
 MATURE_DAYS = 21
+# a word with this many lapses is a leech
+LEECH_LAPSES = int(os.environ.get("QS_LEECH_LAPSES", 4))
 # words at or above this frequency rank (1 = most common) count as known without a card
 KNOWN_FREQ = int(os.environ.get("QS_KNOWN_FREQ", 4500))
 
@@ -86,6 +98,10 @@ class Store:
         self.lock = threading.Lock()
         self.db.execute("create table if not exists manual(term text primary key, reading text, status text, updated real)")
         self.db.execute("create table if not exists anki(term text primary key, reading text, status text)")
+        have = {r[1] for r in self.db.execute("pragma table_info(anki)")}
+        for col in ("ivl", "lapses", "due", "note"):
+            if col not in have:
+                self.db.execute("alter table anki add column %s int default 0" % col)
         self.db.execute("create table if not exists names(surface text primary key, flag int)")
         self.db.execute("create table if not exists cuts(span text primary key, parts text)")
         self.db.execute("create table if not exists picks(surface text, base text, term text, reading text, primary key(surface, base))")
@@ -94,10 +110,15 @@ class Store:
         self.names = {t: f for t, f in self.db.execute("select surface, flag from names")}
         self.cuts = {t: p.split("|") for t, p in self.db.execute("select span, parts from cuts")}
         self.picks = {(s, b): (t, r) for s, b, t, r in self.db.execute("select surface, base, term, reading from picks")}
+        self.readings = {}
         for t, r, s in self.db.execute("select term, reading, status from manual"):
             self.manual[t] = s
-        for t, r, s in self.db.execute("select term, reading, status from anki"):
+            self.readings[t] = r or ""
+        self.card = {}
+        for t, r, s, ivl, lap, due, note in self.db.execute("select term, reading, status, ivl, lapses, due, note from anki"):
             self.anki[t] = s
+            self.readings.setdefault(t, r or "")
+            self.card[t] = {"ivl": ivl or 0, "lapses": lap or 0, "due": bool(due), "note": note or 0}
         self._index_kana()
 
     def _index_kana(self):
@@ -160,13 +181,54 @@ class Store:
     def replace_anki(self, rows):
         with self.lock:
             self.db.execute("delete from anki")
-            self.db.executemany("insert or replace into anki values(?,?,?)", rows)
+            self.db.executemany("insert or replace into anki(term, reading, status, ivl, lapses, due, note) values(?,?,?,?,?,?,?)", rows)
             self.db.commit()
-            self.anki = {t: s for t, _, s in rows}
+            self.anki = {r[0]: r[2] for r in rows}
+            for r in rows:
+                self.readings.setdefault(r[0], r[1] or "")
+            self.card = {r[0]: {"ivl": r[3], "lapses": r[4], "due": bool(r[5]), "note": r[6]} for r in rows}
             self._index_kana()
+
+    def set_anki(self, term, reading, status, card=None):
+        with self.lock:
+            if status:
+                c = card or {}
+                self.db.execute("insert or replace into anki(term, reading, status, ivl, lapses, due, note) values(?,?,?,?,?,?,?)",
+                                (term, reading, status, c.get("ivl", 0), c.get("lapses", 0), int(bool(c.get("due"))), c.get("note", 0)))
+                self.anki[term] = status
+                self.card[term] = {"ivl": c.get("ivl", 0), "lapses": c.get("lapses", 0), "due": bool(c.get("due")), "note": c.get("note", 0)}
+            else:
+                self.db.execute("delete from anki where term=?", (term,))
+                self.anki.pop(term, None)
+                self.card.pop(term, None)
+            self.db.commit()
+            self._index_kana()
+
+    def reading_of(self, term):
+        return self.readings.get(term, "")
+
+    def card_of(self, term, reading=""):
+        """Card facts for a word being learned: the card behind its term, or behind the kana spelling of its reading."""
+        if self.manual.get(term):
+            return None
+        c = self.card.get(term)
+        if c is None and reading and self.kana.get(reading) == "learning":
+            c = self.card.get(reading)
+        return c
 
     def counts(self):
         return len(set(self.manual) | set(self.anki))
+
+    def words_with(self, ch, limit=12):
+        """words with this character that are known or being learned, known first"""
+        seen = {}
+        for t in list(self.manual) + list(self.anki):
+            if ch in t and t not in seen:
+                st = self.manual.get(t) or self.anki.get(t)
+                if st in ("known", "learning"):
+                    seen[t] = st
+        order = sorted(seen.items(), key=lambda kv: (kv[1] != "known", len(kv[0])))
+        return [{"term": t, "status": st} for t, st in order[:limit]]
 
 
 # ------------------------------------------------------------------ segmentation
@@ -320,8 +382,9 @@ def apply_cuts(words, cuts):
 
 class Yomitan:
     def __init__(self):
-        self.path = os.path.join(STATE, "lookups3.json")
+        self.path = os.path.join(STATE, "lookups6.json")
         self.cache = {}
+        self.kanji_cache = {}
         self.up = False
         self.dirty = 0
         try:
@@ -381,7 +444,21 @@ class Yomitan:
         a manual choice in hint["pick"] = (term, reading) beats that."""
         hint = hint or {}
         best, top = None, -1
-        for e in self._matches(surface, entries):
+        cands = list(self._matches(surface, entries))
+        # keep the entries that spell the word the way the subtitle does: a kana surface wants a kana
+        # headword (した -> する, not 下), a kanji one the same written stem (感じてる -> 感じる, not unidic's
+        # older 感ずる). Surfaces with no such entry (はし) keep them all for the scoring.
+        KANA = re.compile(r"[\u3040-\u309f\u30a0-\u30ffー]+")
+        if KANA.fullmatch(surface):
+            # (and read the way unidic reads the word, or a short-causative う would beat 箸 for はし)
+            faithful = [e for e in cands if KANA.fullmatch(e["headwords"][0]["term"])
+                        and (not hint.get("lform") or e["headwords"][0]["reading"] == hint["lform"])]
+        else:
+            faithful = [e for e in cands if re.search(r"[\u3400-\u9fff]", e["headwords"][0]["term"])
+                        and surface.startswith(e["headwords"][0]["term"][:-1] or e["headwords"][0]["term"])]
+        if faithful and not hint.get("pick"):
+            cands = faithful
+        for e in cands:
             h = e["headwords"][0]
             if hint.get("pick"):
                 if (h["term"], h["reading"]) == tuple(hint["pick"]):
@@ -429,6 +506,7 @@ class Yomitan:
                     s = batch[r["index"]]
                     for k, h in need[s].items():
                         e = self._pick(s, r.get("dictionaryEntries", []), h)
+                        e = self._follow(e) if e else e
                         self.cache[k] = self._summary(e) if e else None
                         self.dirty += 1
             self.save()
@@ -454,10 +532,70 @@ class Yomitan:
             h = e["headwords"][0]
             if h["term"] == term and (not reading or h["reading"] == reading):
                 return e
-        return ents[0] if ents else None
+        return self._follow(ents[0]) if ents else None
+
+    def kanji(self, ch):
+        """one summary for a character, merged from the kanji dictionaries (KANJIDIC, JPDB Kanji); kanji data
+        never changes, so it is kept for the session"""
+        if ch in self.kanji_cache:
+            return self.kanji_cache[ch]
+        res = post(YOMITAN + "/kanjiEntries", {"character": ch}, 15)
+        out = None
+        for e in res if isinstance(res, list) else []:
+            name = e.get("dictionary", "")
+            misc = {x["name"]: x["value"] for x in e.get("stats", {}).get("misc", [])}
+            if name.startswith("KANJIDIC"):
+                out = out or {"char": ch}
+                out.update(meanings=e.get("definitions", []), on=e.get("onyomi", []), kun=e.get("kunyomi", []),
+                           strokes=misc.get("strokes", ""), grade=misc.get("grade", ""), jlpt=misc.get("jlpt", ""),
+                           freq=misc.get("freq", ""), jouyou=any(t.get("name") == "jouyou" for t in e.get("tags", [])))
+            elif name.startswith("JPDB Kanji"):
+                out = out or {"char": ch}
+                defs = e.get("definitions", [])
+                cut = defs.index("漢字分解:") if "漢字分解:" in defs else len(defs)
+                out.update(words=[w for w in defs[:cut] if w][:12],
+                           parts=(defs[cut + 1].split() if cut + 1 < len(defs) else []),
+                           share=e.get("kunyomi", []), kentei=misc.get("漢字検定", ""))
+        if out:
+            out.setdefault("meanings", [])
+            out.setdefault("on", [])
+            out.setdefault("kun", [])
+            out.setdefault("words", [])
+            out.setdefault("parts", [])
+            out.setdefault("share", [])
+        self.kanji_cache[ch] = out
+        return out
+
+    def _follow(self, entry):
+        """JMdict lists a spelling variant (降りはじめる) as a stub that only says ⟶降り始める: use the entry it points to."""
+        target = _redirect(entry)
+        if not target:
+            return entry
+        try:
+            ents = post(YOMITAN + "/termEntries", {"term": target}, 15).get("dictionaryEntries", [])
+        except Exception:
+            return entry
+        tail = re.sub(r"[^\u3040-\u309f]", "", entry["headwords"][0]["term"])
+        best = [e for e in ents if e["headwords"][0]["term"] == target]
+        best.sort(key=lambda e: tail not in e["headwords"][0]["reading"])
+        return best[0] if best else entry
 
 
 # ------------------------------------------------------------------ glossary -> html
+
+GLOSS_SEP = "\u2063|\u2063"     # between the senses of one definition; the card dims it, see WordPopup.tidy
+
+
+def _inline_glossary(html):
+    """Anki's rendered glossary lists (data-sc-content="glossary") as one line: a | b | c, the pipes dimmed"""
+    def one(m):
+        items = re.findall(r"<li[^>]*>(.*?)</li>", m.group(1), re.S)
+        if not items:
+            return m.group(0)
+        pipe = '<span style="opacity:0.4"> | </span>'
+        return '<span data-sc-content="glossary">%s</span>' % pipe.join(items)
+    return re.sub(r'<ul[^>]*data-sc-content="glossary"[^>]*>(.*?)</ul>', one, html, flags=re.S)
+
 
 def sc_html(n):
     if n is None:
@@ -473,6 +611,10 @@ def sc_html(n):
         if t == "image":
             return ""
         tag = n.get("tag")
+        if tag in ("ul", "ol") and (n.get("data") or {}).get("content") == "glossary":
+            items = n.get("content")
+            items = items if isinstance(items, list) else [items]
+            return GLOSS_SEP.join(sc_html(i.get("content") if isinstance(i, dict) else i) for i in items) + "<br>"
         inner = sc_html(n.get("content"))
         if tag == "rt":
             return '<span style="font-size:small">(%s)</span>' % inner
@@ -488,6 +630,36 @@ def sc_html(n):
             return inner + " "
         return inner
     return ""
+
+
+def _sc_text(n, links):
+    """plain text of structured content, hrefs collected into links"""
+    if isinstance(n, str):
+        return n
+    if isinstance(n, list):
+        return "".join(_sc_text(x, links) for x in n)
+    if isinstance(n, dict):
+        if n.get("tag") == "a" and n.get("href"):
+            links.append(n["href"])
+        return _sc_text(n.get("content"), links)
+    return ""
+
+
+def _redirect(entry):
+    """the term an entry only points to (every definition is just ⟶ and one link), else None"""
+    target = None
+    defs = entry.get("definitions", [])
+    for d in defs:
+        for g in d.get("entries", []):
+            links = []
+            text = _sc_text(g, links).strip()
+            if not text.startswith("⟶") or len(links) != 1:
+                return None
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(links[0]).query).get("query")
+            if not q or (target and q[0] != target):
+                return None
+            target = q[0]
+    return target
 
 
 def glossary(entry):
@@ -526,8 +698,47 @@ ANKI_SOURCES = [
 ]
 
 
+def _grade(c, kind):
+    if kind == "core":
+        return "known"
+    if c.get("queue") == -1:                     # suspended mined card: no information
+        return None
+    return "known" if c.get("type") == 2 and c.get("interval", 0) >= MATURE_DAYS else "learning"
+
+
+def _card(c, due):
+    return {"ivl": c.get("interval", 0), "lapses": c.get("lapses", 0), "due": c.get("cardId", 0) in due,
+            "note": c.get("note", 0)}
+
+
+def _due_ids(extra=""):
+    ids = anki("findCards", query="(%s) is:due%s" % (ANKI_QUERY, extra))
+    return set(ids or [])
+
+
+def recheck_anki(store, term, reading="", rank=0):
+    """Re-reads the cards of one word, so a card deleted (or suspended, or matured) in Anki is noticed when the
+    word is looked at instead of at the next full sync."""
+    esc = term.replace("\\", "\\\\").replace('"', '\\"').replace("*", "\\*").replace("_", "\\_")
+    best, card = None, None
+    due = _due_ids()
+    for query, wf, rf, kind in ANKI_SOURCES:
+        ids = anki("findCards", query='(%s) "%s:*%s*"' % (query, wf, esc))
+        for c in anki("cardsInfo", cards=ids) if ids else []:
+            if plain(c.get("fields", {}).get(wf, {}).get("value")) != term:
+                continue
+            st = _grade(c, kind)
+            if st and (best is None or RANK[st] > RANK[best]):
+                best, card = st, _card(c, due)
+    before = store.anki.get(term)
+    if best != before or (card and card != store.card.get(term)):
+        store.set_anki(term, reading, best, card)
+    return {"status": store.status(term, reading, rank), "changed": best != before, "noteId": (card or {}).get("note", 0)}
+
+
 def sync_anki(store):
     best = {}
+    due = _due_ids()
     for query, wf, rf, kind in ANKI_SOURCES:
         ids = anki("findCards", query=query)
         for i in range(0, len(ids), 500):
@@ -537,14 +748,15 @@ def sync_anki(store):
                 if not term or len(term) > 20:       # Kaishi's first note is a welcome text
                     continue
                 reading = plain(f.get(rf, {}).get("value"))
-                if kind == "core":
-                    st = "known"
-                elif c.get("queue") == -1:           # suspended mined card: no information
+                st = _grade(c, kind)
+                if not st:                           # suspended mined card: no information
                     continue
-                else:
-                    st = "known" if c.get("type") == 2 and c.get("interval", 0) >= MATURE_DAYS else "learning"
-                if term not in best or RANK[st] > RANK[best[term][2]]:
-                    best[term] = (term, reading, st)
+                k = _card(c, due) if kind != "core" else {"ivl": 0, "lapses": 0, "due": False, "note": 0}
+                old = best.get(term)
+                if old is None or RANK[st] > RANK[old[2]] or (st == old[2] == "learning" and k["ivl"] < old[3]):
+                    best[term] = (term, reading, st, k["ivl"], k["lapses"], int(k["due"]), k["note"])
+                elif st == old[2]:                   # several cards of one word: lapses add up, due if any is
+                    best[term] = old[:4] + (max(old[4], k["lapses"]), int(old[5] or k["due"]), old[6])
     store.replace_anki(list(best.values()))
     return {"known": sum(1 for v in best.values() if v[2] == "known"),
             "learning": sum(1 for v in best.values() if v[2] == "learning")}
@@ -556,9 +768,17 @@ store = Store()
 yom = Yomitan()
 
 
+# ソロ, コンクール: loan words are not tracked (plain, outside the stats) unless a card or a mark of yours says otherwise.
+# QS_TRACK_KATAKANA=1 brings them back.
+KATAKANA_WORD = re.compile(r"[\u30a1-\u30faー・]+")
+TRACK_KATAKANA = os.environ.get("QS_TRACK_KATAKANA", "") == "1"
+
+
 def _status(term, reading, rank, matched):
     st = store.status(term, reading, rank)
-    return "none" if st == "unknown" and not matched else st
+    if st == "unknown" and (not matched or (not TRACK_KATAKANA and KATAKANA_WORD.fullmatch(term) and term not in store.manual)):
+        return "none"
+    return st
 
 
 def hint_of(w):
@@ -570,6 +790,17 @@ def hint_of(w):
     if pick:
         h["pick"] = list(pick)
     return h
+
+
+def flag_card(t):
+    """Marks a word token being learned with what its card says: due today, leech, interval, lapses."""
+    for k in ("due", "leech", "ivl", "lapses"):
+        t.pop(k, None)
+    if t.get("status") != "learning":
+        return
+    c = store.card_of(t["term"], t.get("reading", ""))
+    if c:
+        t.update(due=c["due"], leech=c["lapses"] >= LEECH_LAPSES, ivl=c["ivl"], lapses=c["lapses"])
 
 
 def annotate(texts):
@@ -607,6 +838,7 @@ def annotate(texts):
                            auto=store.is_auto(term, reading, rank))
                 tok["key"] = term + "|" + reading
                 tok["base"] = w.get("base") or w["lemma"]
+                flag_card(tok)
                 if KANJI.search(w["s"]):
                     tok["ruby"] = ruby(w["morph"])
             toks.append(tok)
@@ -643,7 +875,7 @@ def _load(path):
 
 
 def _stats(lines, toks):
-    n_known = n_unknown = n_tokens = plus_one = 0
+    n_known = n_unknown = n_tokens = plus_one = n_learn = 0
     new = set()
     for ts in toks:
         unk_here = set()
@@ -657,6 +889,9 @@ def _stats(lines, toks):
                 continue
             n_tokens += 1
             t["auto"] = store.is_auto(t["term"], t["reading"], t.get("rank", 0))
+            flag_card(t)
+            if t["status"] == "learning":
+                n_learn += 1
             if t["status"] in ("known", "ignored"):
                 n_known += 1
             elif t["status"] == "unknown":
@@ -667,6 +902,7 @@ def _stats(lines, toks):
             plus_one += 1
     return {"lines": len(lines), "tokens": n_tokens, "known": n_known, "unknown": n_unknown,
             "pct": round(100.0 * n_known / n_tokens, 1) if n_tokens else 0.0,
+            "learning": n_learn, "learnPct": round(100.0 * n_learn / n_tokens, 1) if n_tokens else 0.0,
             "newWords": len(new), "plusOne": plus_one}
 
 
@@ -682,8 +918,43 @@ def transcript(path):
     out = []
     for (a, b, text), ts in zip(lines, toks):
         unk = {t["key"] for t in ts if t["k"] == "word" and t["status"] == "unknown"}
-        out.append({"start": a, "end": b, "text": text, "toks": ts, "unk": len(unk)})
+        lrn = {t["key"] for t in ts if t["k"] == "word" and t["status"] == "learning"}
+        flag = any(t.get("due") or t.get("leech") for t in ts if t["k"] == "word")
+        out.append({"start": a, "end": b, "text": text, "toks": ts, "unk": len(unk), "lrn": len(lrn), "flag": flag})
     return {"lines": out, "stats": stats}
+
+
+def learning_list(path=""):
+    """Every word being learned (a card with interval under 21 days, or marked learning by hand), with its card facts
+    and how often it comes up in the subtitle file."""
+    here = {}
+    if path:
+        lines, toks = _load(path)
+        _stats(lines, toks)
+        for ts in toks:
+            seen = set()
+            for t in ts:
+                if t["k"] == "word" and t["term"] not in seen:
+                    seen.add(t["term"])
+                    here[t["term"]] = here.get(t["term"], 0) + 1
+    out = []
+    # a manual mark wins over the card, so a word the user marked known/unknown/ignored is no longer being learned
+    terms = {t for t, s in store.anki.items() if s == "learning" and store.manual.get(t, "learning") == "learning"} | {t for t, s in store.manual.items() if s == "learning"}
+    for term in terms:
+        manual = store.manual.get(term) == "learning"
+        c = {} if manual else store.card.get(term, {})
+        out.append({"term": term, "reading": store.reading_of(term), "ivl": c.get("ivl", 0), "lapses": c.get("lapses", 0),
+                    "due": bool(c.get("due")), "leech": c.get("lapses", 0) >= LEECH_LAPSES, "note": c.get("note", 0),
+                    "source": "manual" if manual else "anki", "here": here.get(term, 0)})
+    marks = []
+    with store.lock:
+        rows = store.db.execute("select term, reading, status, updated from manual where status != 'learning' order by updated desc").fetchall()
+    for term, reading, status, updated in rows:
+        c = store.card.get(term, {})
+        marks.append({"term": term, "reading": reading or "", "status": status, "updated": updated or 0, "ivl": c.get("ivl", 0),
+                      "lapses": c.get("lapses", 0), "due": bool(c.get("due")), "leech": c.get("lapses", 0) >= LEECH_LAPSES,
+                      "note": c.get("note", 0), "anki": store.anki.get(term, ""), "here": here.get(term, 0)})
+    return out, marks
 
 
 # ------------------------------------------------------------------ mining
@@ -717,9 +988,12 @@ def _plain_pitch(html):
     return ",".join(re.findall(r"\d+", re.sub(r"<[^>]+>", " ", html)))
 
 
-def mine(req):
-    """Add the word the way Yomitan's own card format would: the format's field templates are filled from
-    /ankiFields, with the cloze sentence supplied by the caller. mpvacious then adds the line's audio and picture."""
+SPAN_LIMIT = 4       # lines either side of the target the card can be stretched to
+
+
+def _prepare(req):
+    """The note fields for a word: the format's templates filled from /ankiFields, with the cloze sentence taken from
+    the lines the span covers (req["span"], else sentence_span's pick). -> dict, or {"error"}."""
     term, reading, surface = req["term"], req.get("reading", ""), req.get("surface") or req["term"]
     if not yom.alive():
         return {"error": "yomitan-offline"}
@@ -748,6 +1022,9 @@ def mine(req):
             line = _line_at(lines, req["start"])
             if line >= 0:
                 a, b = sentence_span(lines, line)
+                if req.get("span"):
+                    a = min(line, max(line - SPAN_LIMIT, req["span"][0]))
+                    b = max(line, min(line + SPAN_LIMIT, len(lines) - 1, req["span"][1]))
                 span = [a, b]
                 # the caller sent one row of the cue (the live line is drawn row by row): add the rest of the cue
                 cue = nospace(lines[line][2])
@@ -766,7 +1043,32 @@ def mine(req):
     vals["document-title"] = ""
     if "pitch-accent-positions" in vals:
         vals["pitch-accent-positions"] = _plain_pitch(vals["pitch-accent-positions"])
+    for k in vals:
+        if "glossary" in k and isinstance(vals[k], str):
+            vals[k] = _inline_glossary(vals[k])
     fields = {k: re.sub(r"\{([^{}]+)\}", lambda m: str(vals.get(m.group(1), "")), v) for k, v in templates.items()}
+    return {"fmt": fmt, "fields": fields, "templates": templates, "res": res, "vals": vals, "span": span, "line": line}
+
+
+def _blank_derived(note_id, fields, out):
+    """Fields an Anki add-on derives from the sentence (Kiku's furigana) would go stale when `fields` rewrites it:
+    blank them in `out`, Anki then shows the plain sentence."""
+    if "Sentence" not in fields:
+        return
+    have = (anki("notesInfo", notes=[note_id]) or [{}])[0].get("fields", {})
+    for k in ("SentenceFurigana",):
+        if k in have and k not in fields:
+            out[k] = ""
+
+
+def mine(req):
+    """Add the word the way Yomitan's own card format would (see _prepare). The caller then asks `capture` for the
+    sentence's audio and picture."""
+    term, reading = req["term"], req.get("reading", "")
+    p = _prepare(req)
+    if "error" in p:
+        return p
+    fmt, fields, vals, res, span, line = p["fmt"], p["fields"], p["vals"], p["res"], p["span"], p["line"]
 
     # media Yomitan attached: the audio marker holds the [sound:name] tags in the order of audioMedia
     names = re.findall(r"\[sound:([^\]]+)\]", str(vals.get("audio", "")))
@@ -775,6 +1077,13 @@ def mine(req):
     for m in res.get("dictionaryMedia", []):
         if m.get("ankiFilename") and m.get("content"):
             anki("storeMediaFile", filename=m["ankiFilename"], data=m["content"])
+
+    if req.get("replace"):
+        # overwrite the card already in Anki: same note (id, tags, review history), every field rebuilt
+        note_id = req["replace"]
+        _blank_derived(note_id, fields, fields)
+        anki("updateNoteFields", note={"id": note_id, "fields": fields})
+        return {"noteId": note_id, "span": span, "line": line, "lines": span[1] - span[0] + 1 if line >= 0 else 1}
 
     first = next(iter(fields))
     note = {"deckName": fmt["deck"], "modelName": fmt["model"], "fields": fields, "tags": MINE_TAGS,
@@ -788,6 +1097,35 @@ def mine(req):
     if store.manual.get(term) == "unknown":
         store.mark(term, reading, "clear")
     return {"noteId": note_id, "span": span, "line": line, "lines": span[1] - span[0] + 1 if line >= 0 else 1}
+
+
+def span_info(req):
+    """The cue under the word and its neighbours, for the card's sentence preview: `auto` is what mining would take."""
+    try:
+        lines, _toks = _load(req["path"])
+    except (OSError, KeyError):
+        return {"line": -1}
+    line = _line_at(lines, req.get("start", -1)) if req.get("start", -1) >= 0 else -1
+    if line < 0:
+        return {"line": -1}
+    a, b = sentence_span(lines, line)
+    lo, hi = max(0, line - SPAN_LIMIT), min(len(lines) - 1, line + SPAN_LIMIT)
+    return {"line": line, "auto": [a, b],
+            "lines": [{"i": k, "text": _strip_label(re.sub(r"\s+", "", lines[k][2])), "start": lines[k][0], "end": lines[k][1]}
+                      for k in range(lo, hi + 1)]}
+
+
+def respan(req):
+    """Rewrite the sentence of a note already mined, for another set of lines; the caller then re-runs `capture`."""
+    p = _prepare(req)
+    if "error" in p:
+        return p
+    want = {k: v for k, v in p["fields"].items() if re.search(r"\{(cloze-prefix|cloze-suffix|cloze-body|sentence)\}", p["templates"][k])}
+    if want:
+        _blank_derived(req["noteId"], want, want)
+        anki("updateNoteFields", note={"id": req["noteId"], "fields": want})
+    a, b = p["span"]
+    return {"noteId": req["noteId"], "span": p["span"], "line": p["line"], "lines": b - a + 1 if p["line"] >= 0 else 1}
 
 
 # A subtitle cue is often half a sentence. These decide whether the neighbours belong to the target's sentence.
@@ -981,10 +1319,12 @@ def capture(req):
     ts, te = lines[i][0] + delay, lines[i][1] + delay
     try:
         if opt("animated_snapshot_enabled", "no") == "yes":
-            dur = min(6.0, max(0.5, te - ts))
-            pname = show + "_" + _hms(ts) + "_" + _hms(ts + dur) + ".avif"
+            # the clip covers the whole span, so it follows the sentence when a neighbouring line is added
+            cs, ce = lines[a][0] + delay, lines[b][1] + delay
+            dur = min(12.0, max(0.5, ce - cs))
+            pname = show + "_" + _hms(cs) + "_" + _hms(cs + dur) + ".avif"
             ppath = os.path.join(MEDIA_TMP, pname)
-            _ffmpeg(["-ss", "%.3f" % ts, "-t", "%.3f" % dur, "-i", video, "-an", "-sn",
+            _ffmpeg(["-ss", "%.3f" % max(0.0, cs), "-t", "%.3f" % dur, "-i", video, "-an", "-sn",
                      "-vf", "fps=%s,scale=-2:%s" % (opt("animated_snapshot_fps", "24"), opt("animated_snapshot_height", "200")),
                      "-c:v", "libsvtav1", "-crf", str(100 - int(opt("animated_snapshot_quality", "80"))), "-preset", "8", ppath])
         else:
@@ -1026,9 +1366,18 @@ def handle(req):
         s["freqs"] = [{"dict": f["dictionary"], "value": f.get("displayValue") or str(f.get("frequency", ""))}
                       for f in e.get("frequencies", []) if f.get("headwordIndex", 0) == 0]
         s["sections"] = glossary(e)
+        s["uk"] = any(t.get("name") == "uk" for d in e.get("definitions", []) for t in d.get("tags", []))
         s["status"] = store.status(s["term"], s["reading"], s["rank"])
         s["auto"] = store.is_auto(s["term"], s["reading"], s["rank"])
         return s
+    if op == "kanji":
+        if not yom.alive():
+            return {"error": "yomitan-offline"}
+        out = []
+        for ch in req.get("chars", []):
+            k = yom.kanji(ch)
+            out.append(dict(k, mine=store.words_with(ch)) if k else None)
+        return {"kanji": out}
     if op == "mark":
         store.mark(req["term"], req.get("reading", ""), req["status"])
         return {"ok": True, "status": store.status(req["term"], req.get("reading", ""), req.get("rank", 0))}
@@ -1049,12 +1398,21 @@ def handle(req):
         return {"ok": True, "toks": annotate([span])[0]}
     if op == "sync":
         return sync_anki(store)
+    if op == "recheck":
+        return recheck_anki(store, req["term"], req.get("reading", ""), req.get("rank", 0))
+    if op == "learning":
+        words, marks = learning_list(req.get("path", ""))
+        return {"words": words, "marks": marks}
     if op == "parse_file":
         return parse_file(req["path"])
     if op == "transcript":
         return transcript(req["path"])
     if op == "mine":
         return mine(req)
+    if op == "span":
+        return span_info(req)
+    if op == "respan":
+        return respan(req)
     if op == "browse":
         anki("guiBrowse", query="nid:%d" % req["noteId"])
         return {"ok": True}
@@ -1092,7 +1450,7 @@ def main():
         if req.get("quit"):
             break
         # slow ops run on a thread so a long parse_file never blocks hover lookups
-        if req.get("op") in ("parse_file", "transcript", "sync", "mine", "capture"):
+        if req.get("op") in ("parse_file", "transcript", "sync", "mine", "respan", "span", "capture"):
             threading.Thread(target=run, args=(req,), daemon=True).start()
         else:
             run(req)

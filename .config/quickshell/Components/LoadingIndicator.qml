@@ -17,19 +17,8 @@ Item {
     implicitWidth: 48
     implicitHeight: 48
 
-    // polar radius functions, normalised to a max of 1
-    function radiusAt(shape, t) {
-        switch (shape) {
-        case 0: return 1 - 0.06 * (1 - Math.cos(10 * t));          // soft burst
-        case 1: return 1 - 0.07 * (1 - Math.cos(9 * t));           // cookie 9
-        case 2: return 1 - 0.09 * (1 - Math.cos(5 * t));           // pentagon (rounded)
-        case 3: return 1 / Math.pow(Math.pow(Math.abs(Math.cos(t)), 4) + Math.pow(Math.abs(Math.sin(t) / 0.62), 4), 0.25); // pill
-        case 4: return 1 - 0.1 * (1 - Math.cos(8 * t));            // sunny
-        case 5: return 1 - 0.14 * (1 - Math.cos(4 * t));           // cookie 4
-        default: return 1 / Math.sqrt(Math.pow(Math.cos(t), 2) + Math.pow(Math.sin(t) / 0.78, 2)) * 0.95; // oval
-        }
-    }
-
+    // the spec's sequence, by name
+    readonly property var seq: ["softBurst", "cookie9", "pentagon", "pill", "sunny", "cookie4", "oval"]
     property int shape: 0
     property real morph: 1
     property real spin: 0
@@ -72,11 +61,11 @@ Item {
             fillColor: indicator.color
             PathPolyline {
                 path: {
-                    const from = (indicator.shape + 6) % 7, to = indicator.shape, m = indicator.morph;
+                    const seq = indicator.seq, from = (indicator.shape + 6) % 7, to = indicator.shape, m = indicator.morph;
                     const pts = [];
                     for (let i = 0; i <= 96; i++) {
                         const t = i / 96 * Math.PI * 2;
-                        const r = 19 * ((1 - m) * indicator.radiusAt(from, t) + m * indicator.radiusAt(to, t));
+                        const r = 19 * ((1 - m) * Shapes.radius(seq[from], t) + m * Shapes.radius(seq[to], t));
                         pts.push(Qt.point(19 + r * Math.cos(t), 19 + r * Math.sin(t)));
                     }
                     return pts;

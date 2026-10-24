@@ -393,7 +393,9 @@ Item {
 
         // connected button group: earlier / later
         Row {
-            visible: root.synced && root.lines.length > 0
+            opacity: root.synced && root.lines.length > 0 ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             spacing: 2
             ConnectedButton { position: "first"; icon: "remove"; text: "0.5s"; onClicked: { root.timingOffset -= 0.5; root.updateActiveIndex(); } }
             ConnectedButton { position: "last"; icon: "add"; text: "0.5s"; onClicked: { root.timingOffset += 0.5; root.updateActiveIndex(); } }
@@ -539,7 +541,7 @@ Item {
                     color: lineDelegate.isCurrent ? Colors.on_secondary_container : Colors.on_surface
                     opacity: (lineDelegate.isCurrent ? 1 : lineMouse.containsMouse ? 0.85 : lineDelegate.isPast ? 0.38 : 0.6) * Math.max(0, Math.min(1, lineDelegate.appear * 1.6))
                     Behavior on opacity { Fade { speed: "default" } }
-                    Behavior on color { ColorFade { speed: "default" } }
+                    colorSpeed: "default"
                 }
 
                 // an instrumental gap: three dots that bounce in turn while it is the current line
@@ -561,6 +563,7 @@ Item {
                             opacity: lineDelegate.isCurrent ? 1 : 0.4
                             scale: lineDelegate.isCurrent ? 1 : 0.7
                             Behavior on opacity { Fade { speed: "default" } }
+                            Behavior on scale { Spring { speed: "fast" } }
                             Behavior on color { ColorFade { speed: "default" } }
                             transform: Translate { id: hop }
                             SequentialAnimation {

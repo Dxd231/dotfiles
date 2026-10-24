@@ -16,12 +16,12 @@ BarPopup {
     padding: 12
     spacing: 4
 
-    StyledText {
+    SwapText {
         Layout.leftMargin: 6
         Layout.bottomMargin: 4
         role: "titleMedium"
         emphasized: true
-        text: Tasks.dueCount === 0 ? "Nothing due today" : (Tasks.dueCount - Tasks.pendingCount) + " of " + Tasks.dueCount + " done today"
+        value: Tasks.dueCount === 0 ? "Nothing due today" : (Tasks.dueCount - Tasks.pendingCount) + " of " + Tasks.dueCount + " done today"
     }
 
     Repeater {
@@ -35,6 +35,7 @@ BarPopup {
 
             Layout.fillWidth: true
             implicitHeight: 56
+            Appear { shown: menu.isOpen; delay: 40 + row.index * 50 }
             restRadius: Motion.shapeLarge
             pressedRadius: Motion.shapeSmall
             color: row.isDone ? Colors.secondary_container : "transparent"
@@ -63,10 +64,10 @@ BarPopup {
                         elide: Text.ElideRight
                         text: row.t ? row.t.name : ""
                     }
-                    StyledText {
+                    SwapText {
                         role: "bodySmall"
                         color: row.isDone ? Colors.on_secondary_container : Colors.on_surface_variant
-                        text: !row.t ? "" : Tasks.targetOf(row.t) > 1
+                        value: !row.t ? "" : Tasks.targetOf(row.t) > 1
                             ? Tasks.countOf(row.t, Tasks.todayKey) + " of " + Tasks.targetOf(row.t) + " today"
                             : Tasks.streak(row.t) > 0 ? Tasks.streak(row.t) + "-day streak" : "No streak yet"
                     }

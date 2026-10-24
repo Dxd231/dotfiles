@@ -16,6 +16,8 @@ Item {
     property real digitWidth: 0
     property real colonWidth: 0
 
+    Behavior on color { ColorFade {} }
+
     implicitWidth: row.implicitWidth
     implicitHeight: probe.implicitHeight
 

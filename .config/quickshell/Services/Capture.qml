@@ -10,7 +10,8 @@ import qs.Services
 // focused monitor. `open()` freezes the monitor (grim), reads the windows and workspaces from
 // hyprctl and lets CaptureOverlay pick a target; the quick actions skip the overlay.
 //
-//   photo  region / screen   crop of the frozen frame (exact), or a live grim after a delay / with the pointer
+//   photo  region / screen   crop of the frozen frame (exact; with the pointer, of a second frame grabbed with
+//                            the cursor at the same moment), or a live grim after a delay
 //          window            the window itself through screencopy (works for windows that are scrolled
 //                            off-screen or on another workspace), grabbed by CaptureGrabber
 //          workspace         a panorama of every window of the workspace at its layout position
@@ -61,6 +62,9 @@ Singleton {
     property string phase: "idle"
     readonly property bool busy: phase !== "idle"
     property string frozen: ""
+    // the same moment with the cursor drawn in (only while `pointer` is on): shots are cut from it, so panels
+    // that close when the picker is clicked (focus grabs) are still in the picture
+    property string frozenPointer: ""
     // ws: the monitor's workspace, special: the special workspace shown over it (0 for none),
     // visible: what is actually on screen
     property var mon: ({ name: "", x: 0, y: 0, w: 1920, h: 1080, scale: 1, ws: 1, special: 0, specialName: "", visible: 1 })
@@ -186,20 +190,25 @@ Singleton {
         _dropFrozen();
         const m = Hyprland.focusedMonitor;
         const name = m ? m.name : "";
-        frozen = runDir + "/qs-capture-frozen-" + Date.now() + ".png";
+        const stamp = Date.now();
+        frozen = runDir + "/qs-capture-frozen-" + stamp + ".png";
+        frozenPointer = pointer ? runDir + "/qs-capture-frozen-pointer-" + stamp + ".png" : "";
         Hyprland.refreshToplevels();
         phase = "capturing";
         // the monitor is the focused one; before Hyprland has reported any focus (a fresh shell) ask hyprctl
         snap.command = ["sh", "-c",
             'h="$3"; m="$1"; [ -n "$m" ] || m=$("$h" monitors -j | python3 -c "import json,sys; ms=json.load(sys.stdin); print(next((x[\'name\'] for x in ms if x[\'focused\']), ms[0][\'name\']))"); ' +
-            'grim -o "$m" "$2" || { echo FAIL; exit 1; }; "$h" clients -j; echo @@@; "$h" workspaces -j; echo @@@; "$h" monitors -j; echo @@@; awww query 2>/dev/null; echo @@@; "$h" getoption decoration:rounding -j; echo "@@@$m"',
-            "sh", name, frozen, hyprctl];
+            'grim -o "$m" "$2" || { echo FAIL; exit 1; }; [ -z "$4" ] || grim -c -o "$m" "$4"; "$h" clients -j; echo @@@; "$h" workspaces -j; echo @@@; "$h" monitors -j; echo @@@; awww query 2>/dev/null; echo @@@; "$h" getoption decoration:rounding -j; echo "@@@$m"',
+            "sh", name, frozen, hyprctl, frozenPointer];
         snap.running = true;
     }
     function _dropFrozen() {
         if (frozen !== "")
             Quickshell.execDetached(["rm", "-f", frozen]);
+        if (frozenPointer !== "")
+            Quickshell.execDetached(["rm", "-f", frozenPointer]);
         frozen = "";
+        frozenPointer = "";
     }
     Process {
         id: snap
@@ -343,8 +352,10 @@ Singleton {
             }
         }
     }
-    // what is read from the screen again (after the overlay and countdown are gone) rather than cut from the frozen frame
-    readonly property bool _live: (_action === "overlay" && delay > 0) || pointer
+    // what is read from the screen again (after the overlay and countdown are gone) rather than cut from the frozen
+    // frame: only a delayed shot. The pointer comes from `frozenPointer`, else (a frame made before it was turned on)
+    // from a live read
+    readonly property bool _live: (_action === "overlay" && delay > 0) || (pointer && frozenPointer === "")
     function _fire() {
         phase = "shooting";
         const s = _spec;
@@ -389,7 +400,7 @@ Singleton {
         const k = mon.scale;
         shotProc.meta = { label: labelOf(s) };
         shotProc.tmp = tmp;
-        shotProc.command = ["magick", frozen, "-crop", Math.round(s.w * k) + "x" + Math.round(s.h * k) + "+" + Math.round(s.x * k) + "+" + Math.round(s.y * k), "+repage", tmp];
+        shotProc.command = ["magick", pointer && frozenPointer !== "" ? frozenPointer : frozen, "-crop", Math.round(s.w * k) + "x" + Math.round(s.h * k) + "+" + Math.round(s.x * k) + "+" + Math.round(s.y * k), "+repage", tmp];
         shotProc.running = true;
     }
     Process {

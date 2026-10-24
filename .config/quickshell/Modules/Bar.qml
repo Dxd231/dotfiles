@@ -118,7 +118,9 @@ PanelWindow {
                     color: notifButton.n && notifButton.n.dnd && !notifButton.checked ? Colors.tertiary : notifButton.contentColor
                 }
                 Badge {
-                    visible: !!notifButton.n && notifButton.n.unread > 0 && !notifButton.n.dnd
+                    opacity: !!notifButton.n && notifButton.n.unread > 0 && !notifButton.n.dnd ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     text: notifButton.n ? (notifButton.n.unread > 99 ? "99+" : String(notifButton.n.unread)) : ""
                     x: bell.x + bell.width - 8
                     y: bell.y - 6
@@ -196,9 +198,9 @@ PanelWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 8
 
-                    StatBadge { icon: "memory"; level: stats.cpuLevel; tile: Colors.primary_container; glyph: Colors.on_primary_container; shapeRest: 5 }
+                    StatBadge { icon: "memory"; level: stats.cpuLevel; tile: Colors.primary_container; glyph: Colors.on_primary_container; shapeRest: "cookie4" }
                     PercentText { value: SystemStats.cpuPercent; level: stats.cpuLevel }
-                    StatBadge { icon: "memory_alt"; level: stats.memLevel; tile: Colors.tertiary_container; glyph: Colors.on_tertiary_container; shapeRest: 2 }
+                    StatBadge { icon: "memory_alt"; level: stats.memLevel; tile: Colors.tertiary_container; glyph: Colors.on_tertiary_container; shapeRest: "pentagon" }
                     Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: stats.memAbsolute ? gbText.implicitWidth : memPercent.implicitWidth
@@ -207,14 +209,18 @@ PanelWindow {
                         StyledText {
                             id: gbText
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: stats.memAbsolute
+                            opacity: stats.memAbsolute ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             role: "labelLarge"
                             color: stats.memLevel === 2 ? Colors.error : stats.contentColor
                             text: SystemStats.gb(SystemStats.memUsedKb) + " GB"
                         }
                         PercentText {
                             id: memPercent
-                            visible: !stats.memAbsolute
+                            opacity: stats.memAbsolute ? 0 : 1
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             value: SystemStats.memPercent
                             level: stats.memLevel
                         }
@@ -252,7 +258,9 @@ PanelWindow {
                     }
                     StyledText {
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: IdleInhibit.timed
+                        opacity: IdleInhibit.timed ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { Fade {} }
                         role: "labelLarge"
                         color: inhibitChip.contentColor
                         text: IdleInhibit.remainingText
@@ -275,8 +283,10 @@ PanelWindow {
                     anchors.centerIn: parent
                     width: 24
                     height: 24
-                    shapeRest: 7
-                    shapeActive: 4
+                    shapeRest: "star4"
+                    shapeActive: "sunny"
+                    // the user asked for this four-point star, so it stays thin at bar size
+                    allowThin: true
                     id: powerBadge
                     active: powerChip.hovered || powerChip.checked
                     // a reboot is pending: the shape keeps turning and morphing in the accent colour; the speed
@@ -286,7 +296,7 @@ PanelWindow {
                     Behavior on turnNow { Spring { speed: "slow" } }
                     spinSpeed: Math.max(0, turnNow)
                     spinning: (turn > 0 || turnNow > 0.5) && powerChip.visible
-                    cycle: Power.rebootPending ? [7, 4] : []
+                    cycle: Power.rebootPending ? ["star4", "sunny"] : []
                     cycleInterval: 2400
                     color: Power.rebootPending ? Colors.primary : Colors.error
                     Behavior on color { ColorFade {} }
@@ -305,13 +315,6 @@ PanelWindow {
                         interval: 160
                         onTriggered: powerBadge.badgeScale = 1
                     }
-                    Icon {
-                        anchors.centerIn: parent
-                        size: 13
-                        name: Power.rebootPending ? "restart_alt" : "power_settings_new"
-                        color: Power.rebootPending ? Colors.on_primary : Colors.on_error
-                        Behavior on color { ColorFade {} }
-                    }
                 }
             }
         }
@@ -325,7 +328,7 @@ PanelWindow {
         property color tile
         property color glyph
         anchors.verticalCenter: parent.verticalCenter
-        shapeActive: 4
+        shapeActive: "sunny"
         active: stats.checked
         // turns while the popup is open, and while usage is high (faster the higher it is). The speed eases
         // up and down on a spring, and the frame animation only runs while there is some left to turn

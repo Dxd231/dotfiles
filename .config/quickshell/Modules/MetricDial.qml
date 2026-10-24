@@ -13,7 +13,7 @@ Rectangle {
     property string subtitle
     property real percent
     property int level                    // 0 normal, 1 warning, 2 critical
-    property int badgeShape: 1
+    property var badgeShape: "cookie9"
     property bool waving: false
     property var details: []              // [label, value, severity]
     property var severityColors: (lvl, normal) => normal
@@ -58,7 +58,6 @@ Rectangle {
                     shape: card.badgeShape
                     fromShape: card.badgeShape
                     color: card.tone[0]
-                    Behavior on color { ColorFade {} }
                 }
                 Icon { anchors.centerIn: parent; name: card.icon; size: 22; color: card.tone[1] }
             }
@@ -92,6 +91,7 @@ Rectangle {
                 activeColor: card.tone[2]
                 trackColor: card.level >= 2 ? Colors.error_container : Colors.secondary_container
                 Behavior on activeColor { ColorFade {} }
+                Behavior on trackColor { ColorFade {} }
             }
             Row {
                 anchors.centerIn: parent
@@ -120,10 +120,15 @@ Rectangle {
             Repeater {
                 model: card.details
                 delegate: Rectangle {
+                    id: pill
                     required property var modelData
+                    required property int index
                     readonly property int sev: modelData[2] || 0
+                    Appear { delay: 120 + pill.index * 45; lift: 6 }
                     height: 30
-                    width: pillRow.implicitWidth + 24
+                    property real _w: pillRow.implicitWidth + 24
+                    Behavior on _w { Spring { speed: "fast" } }
+                    width: Math.max(0, _w)
                     radius: height / 2
                     color: sev ? card.severityColors(sev)[0] : Colors.surface_container_high
                     Behavior on color { ColorFade {} }
@@ -137,12 +142,12 @@ Rectangle {
                             color: sev ? card.severityColors(sev)[1] : Colors.on_surface_variant
                             text: modelData[0]
                         }
-                        StyledText {
+                        SwapText {
                             anchors.verticalCenter: parent.verticalCenter
                             role: "labelLarge"
                             emphasized: true
                             color: sev ? card.severityColors(sev)[1] : Colors.on_surface
-                            text: modelData[1]
+                            value: modelData[1]
                         }
                     }
                 }

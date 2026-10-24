@@ -77,8 +77,8 @@ ColumnLayout {
                 anchors.centerIn: parent
                 width: 84
                 height: 84
-                shapeRest: card.accent === "secondary" ? 5 : 1
-                shapeActive: 4
+                shapeRest: card.accent === "secondary" ? "cookie4" : "cookie9"
+                shapeActive: "sunny"
                 active: card.live
                 spinning: card.live && card.active
                 color: card.main
@@ -102,13 +102,15 @@ ColumnLayout {
                 elide: Text.ElideRight
                 text: card.title
             }
-            StyledText {
+            Collapse {
+                open: card.subtitle !== ""
                 Layout.fillWidth: true
-                visible: text !== ""
-                role: "bodyMedium"
-                color: Colors.on_surface_variant
-                wrapMode: Text.WordWrap
-                text: card.subtitle
+                StyledText {
+                    role: "bodyMedium"
+                    color: Colors.on_surface_variant
+                    wrapMode: Text.WordWrap
+                    text: card.subtitle
+                }
             }
             Flow {
                 Layout.fillWidth: true
@@ -164,35 +166,39 @@ ColumnLayout {
     }
 
     // ---- progress, and what is left ----
-    ColumnLayout {
+    Collapse {
+        open: card.progress !== null && card.progress !== undefined
         Layout.fillWidth: true
-        visible: card.progress !== null && card.progress !== undefined
-        spacing: 6
-        WavyProgress {
-            Layout.fillWidth: true
-            thickness: 8
-            value: card.progress ? card.progress : 0
-            waving: card.live && card.active
-            activeColor: card.main
-            trackColor: Colors.surface_container_highest
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 4
-            Layout.rightMargin: 4
-            StyledText {
+        ColumnLayout {
+            spacing: 6
+            WavyProgress {
                 Layout.fillWidth: true
-                role: "labelMedium"
-                color: Colors.on_surface_variant
-                elide: Text.ElideRight
-                text: card.progressText
+                thickness: 8
+                value: card.progress ? card.progress : 0
+                waving: card.live && card.active
+                activeColor: card.main
+                trackColor: Colors.surface_container_highest
             }
-            StyledText {
-                visible: card.eta !== ""
-                role: "labelMedium"
-                emphasized: true
-                color: card.main
-                text: card.eta
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                StyledText {
+                    Layout.fillWidth: true
+                    role: "labelMedium"
+                    color: Colors.on_surface_variant
+                    elide: Text.ElideRight
+                    text: card.progressText
+                }
+                Collapse {
+                    open: card.eta !== ""
+                    StyledText {
+                        role: "labelMedium"
+                        emphasized: true
+                        color: card.main
+                        text: card.eta
+                    }
+                }
             }
         }
     }
@@ -244,7 +250,9 @@ ColumnLayout {
         readonly property bool shown: card.recent.length > 0 && fit > 0
         StyledText {
             x: 4
-            visible: days.shown
+            opacity: days.shown ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             role: "labelMedium"
             color: Colors.on_surface_variant
             text: "Recent days"
@@ -253,7 +261,9 @@ ColumnLayout {
             y: 24
             width: parent.width
             spacing: 2
-            visible: days.shown
+            opacity: days.shown ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             Repeater {
                 model: Math.min(days.fit, card.recent.length)
                 delegate: Rectangle {
@@ -290,32 +300,36 @@ ColumnLayout {
     }
 
     // ---- why a number is what it is ----
-    Rectangle {
+    Collapse {
+        open: card.hint !== ""
         Layout.fillWidth: true
-        Layout.preferredHeight: hintText.implicitHeight + 24
-        visible: card.hint !== ""
-        radius: Motion.shapeMedium
-        color: Colors.surface_container
-        StyledText {
-            id: hintText
-            anchors.fill: parent
-            anchors.margins: 12
-            role: "bodySmall"
-            color: Colors.on_surface_variant
-            wrapMode: Text.WordWrap
-            text: card.hint
+        Rectangle {
+            implicitHeight: hintText.implicitHeight + 24
+            radius: Motion.shapeMedium
+            color: Colors.surface_container
+            StyledText {
+                id: hintText
+                anchors.fill: parent
+                anchors.margins: 12
+                role: "bodySmall"
+                color: Colors.on_surface_variant
+                wrapMode: Text.WordWrap
+                text: card.hint
+            }
         }
     }
 
-    Button {
+    Collapse {
+        open: card.actionText !== ""
         Layout.fillWidth: true
-        Layout.preferredHeight: 44
-        visible: card.actionText !== ""
-        icon: card.actionIcon
-        style: "tonal"
-        color: card.container
-        contentColor: card.textOnContainer
-        text: card.actionText
-        onClicked: card.action()
+        Button {
+            implicitHeight: 44
+            icon: card.actionIcon
+            style: "tonal"
+            color: card.container
+            contentColor: card.textOnContainer
+            text: card.actionText
+            onClicked: card.action()
+        }
     }
 }

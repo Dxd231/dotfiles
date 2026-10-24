@@ -36,8 +36,12 @@ Item {
     Rectangle {
         x: map.ox
         y: map.oy
-        width: map.mon.w * map.k
-        height: map.mon.h * map.k
+        width: Math.max(0, map.mon.w * map.k)
+        height: Math.max(0, map.mon.h * map.k)
+        Behavior on x { Spring { speed: "fast" } }
+        Behavior on y { Spring { speed: "fast" } }
+        Behavior on width { Spring { speed: "fast" } }
+        Behavior on height { Spring { speed: "fast" } }
         radius: map.corner
         color: map.screenColor
         Behavior on color { ColorFade {} }
@@ -47,10 +51,16 @@ Item {
         delegate: ClippingRectangle {
             id: cell
             required property var modelData
+            required property int index
+            Appear { delay: cell.index * 30 }
             x: map.ox + modelData.x * map.k
             y: map.oy + modelData.y * map.k
-            width: modelData.w * map.k
-            height: modelData.h * map.k
+            width: Math.max(0, modelData.w * map.k)
+            height: Math.max(0, modelData.h * map.k)
+            Behavior on x { Spring { speed: "fast" } }
+            Behavior on y { Spring { speed: "fast" } }
+            Behavior on width { Spring { speed: "fast" } }
+            Behavior on height { Spring { speed: "fast" } }
             radius: map.corner
             color: modelData.addr === map.selectedAddr ? Colors.primary : Qt.alpha(Colors.primary, 0.35)
             Behavior on color { ColorFade {} }

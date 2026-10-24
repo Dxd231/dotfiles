@@ -837,7 +837,9 @@ Item {
 
                             Column {
                                 anchors.centerIn: parent
-                                visible: card.isFetch && root.previewThumbUrl === ""
+                                opacity: (card.isFetch && root.previewThumbUrl === "") ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 spacing: 16
                                 LoadingIndicator {
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -866,7 +868,9 @@ Item {
                             // downloading overlay
                             Rectangle {
                                 anchors.fill: parent
-                                visible: card.isFetch && root.fetchInProgress
+                                opacity: (card.isFetch && root.fetchInProgress) ? 1 : 0
+                                visible: opacity > 0
+                                Behavior on opacity { Fade {} }
                                 color: Qt.alpha(Colors.surface_container_high, 0.85)
                                 Column {
                                     anchors.centerIn: parent
@@ -921,8 +925,8 @@ Item {
                             MorphShape {
                                 width: 44
                                 height: 44
-                                shape: 1
-                                fromShape: 1
+                                shape: "cookie9"
+                                fromShape: "cookie9"
                                 spin: root.spin * 3
                                 color: Colors.primary
                             }
@@ -934,7 +938,9 @@ Item {
                             anchors.right: parent.right
                             anchors.top: parent.top
                             anchors.margins: 19
-                            visible: card.isFetch && root.previewThumbUrl !== ""
+                            opacity: (card.isFetch && root.previewThumbUrl !== "") ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             height: 32
                             width: onlineRow.implicitWidth + 24
                             radius: Motion.shapeSmall
@@ -978,7 +984,9 @@ Item {
 
                 StyledText {
                     anchors.centerIn: parent
-                    visible: wallpaperModel.count === 0
+                    opacity: wallpaperModel.count === 0 ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     role: "titleMedium"
                     color: "white"
                     text: "No wallpapers found in " + root.wallpaperDir.replace("$HOME", "~")
@@ -995,7 +1003,9 @@ Item {
 
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: wallpaperModel.count > 0
+                    opacity: wallpaperModel.count > 0 ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { Fade {} }
                     spacing: 16
 
                     // source-color preference (matugen --prefer)

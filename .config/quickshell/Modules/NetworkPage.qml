@@ -22,7 +22,7 @@ DetailPage {
 
     ListSection {
         title: "Connected"
-        visible: !!page.cc.activeNetwork
+        shown: !!page.cc.activeNetwork
         Repeater {
             model: page.cc.activeNetwork ? [page.cc.activeNetwork] : []
             delegate: NetworkRow { cc: page.cc }
@@ -30,7 +30,7 @@ DetailPage {
     }
     ListSection {
         title: "Saved networks"
-        visible: page.cc.savedNetworks.length > 0
+        shown: page.cc.savedNetworks.length > 0
         Repeater {
             model: page.cc.savedNetworks
             delegate: NetworkRow { cc: page.cc; count: page.cc.savedNetworks.length }
@@ -38,7 +38,7 @@ DetailPage {
     }
     ListSection {
         title: "Available networks"
-        visible: page.cc.availableNetworks.length > 0
+        shown: page.cc.availableNetworks.length > 0
         Repeater {
             model: page.cc.availableNetworks
             delegate: NetworkRow { cc: page.cc; count: page.cc.availableNetworks.length }
@@ -46,21 +46,23 @@ DetailPage {
     }
 
     // nothing found yet
-    Item {
+    Collapse {
         width: parent.width
-        height: 160
-        visible: !page.cc.activeNetwork && page.cc.sortedNetworks.length === 0
-        ColumnLayout {
-            anchors.centerIn: parent
-            spacing: 12
-            LoadingIndicator {
-                Layout.alignment: Qt.AlignHCenter
-                contained: true
-            }
-            StyledText {
-                role: "bodyMedium"
-                color: Colors.on_surface_variant
-                text: "Searching for networks…"
+        open: !page.cc.activeNetwork && page.cc.sortedNetworks.length === 0
+        Item {
+            implicitHeight: 160
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 12
+                LoadingIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    contained: true
+                }
+                StyledText {
+                    role: "bodyMedium"
+                    color: Colors.on_surface_variant
+                    text: "Searching for networks…"
+                }
             }
         }
     }

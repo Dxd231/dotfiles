@@ -97,9 +97,13 @@ Singleton {
     }
 
     property bool _busy: false
+    // a refresh was asked for while one was in flight; run it once that one lands
+    property bool _again: false
     function refresh() {
-        if (_busy)
+        if (_busy) {
+            _again = true;
             return;
+        }
         _busy = true;
         nowMs = Date.now();
         // the notes themselves come back in one go; ids are the creation times
@@ -111,6 +115,7 @@ Singleton {
     }
     function _offline() {
         _busy = false;
+        _again = false;
         online = false;
     }
     function _gotIds(ids) {
@@ -158,6 +163,10 @@ Singleton {
             anki._busy = false;
             anki.online = true;
             anki.fresh = true;
+            if (anki._again) {
+                anki._again = false;
+                anki.refresh();
+            }
         }, anki._offline);
     }
 
@@ -250,6 +259,33 @@ Singleton {
         onTriggered: anki.refresh()
     }
 
+    // Mining adds a card and its audio/picture together, so a file landing in the media folder means a card
+    // was just made: refresh at once (debounced) instead of waiting for the next poll.
+    readonly property string mediaDir: Quickshell.env("HOME") + "/.local/share/Anki2/User 1/collection.media"
+    Timer {
+        id: mediaDebounce
+        interval: 900
+        onTriggered: anki.refresh()
+    }
+    Process {
+        id: mediaWatch
+        running: true
+        command: ["inotifywait", "-m", "-q", "-e", "close_write,moved_to", "--format", "%f", anki.mediaDir]
+        stdout: SplitParser {
+            onRead: line => {
+                if (!line.startsWith("_"))
+                    mediaDebounce.restart();
+            }
+        }
+        // inotifywait gone (folder missing, Anki profile not made yet): try again later
+        onExited: retry.start()
+    }
+    Timer {
+        id: retry
+        interval: 30000
+        onTriggered: mediaWatch.running = true
+    }
+
     // ---- acting on Anki ----
     // opens the review screen for the mining deck, starting Anki first if it isn't running
     function review() {
@@ -257,9 +293,18 @@ Singleton {
             call("guiDeckReview", {
                 name: deck
             });
+            focusAnki();
         } else {
             openAnki();
         }
+    }
+    function focusAnki() {
+        focuser.running = false;
+        focuser.running = true;
+    }
+    Process {
+        id: focuser
+        command: ["/usr/bin/hyprctl", "dispatch", 'hl.dsp.focus({ window = "class:anki" })']
     }
     function openAnki() {
         launcher.running = false;

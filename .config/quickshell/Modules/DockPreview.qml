@@ -28,7 +28,7 @@ PanelWindow {
     // ---- entrance: the header and then each row pop in, one after another ----
     property int stage: 0
     property real spin: 0
-    onVisibleChanged: if (!visible) stage = 0
+    onVisibleChanged: if (!visible) { stage = 0; _winW = _targetW; _winH = _targetH; }
     onIsOpenChanged: {
         if (isOpen) {
             stage = 0;
@@ -50,13 +50,7 @@ PanelWindow {
         onTriggered: win.spin = (win.spin + frameTime * 12) % 360
     }
 
-    // each workspace gets its own shape; special workspaces are the soft burst
-    readonly property var wsShapes: [5, 2, 4, 1, 0]
-    function wsShape(w) {
-        if (!w || !w.workspace) return 0
-        const id = Number(w.workspace.id)
-        return isNaN(id) || id <= 0 ? 0 : wsShapes[(id - 1) % wsShapes.length]
-    }
+    readonly property var wsKanji: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五"]
 
     function getWsId(w) {
         if (!w || !w.workspace) return 9999
@@ -142,8 +136,16 @@ PanelWindow {
     color: "transparent"
     anchors { bottom: true; left: true }
     margins.bottom: dockRoot.dockHeight + dockRoot.bottomMargin
-    implicitWidth: menu.width + 32
-    implicitHeight: menu.height + 24
+    // the window is sized to where the menu is going and never shrinks while it is up: resizing a layer
+    // surface on every frame of the menu's spring would make the whole thing shake
+    readonly property real _targetW: Math.max(300, Math.min(420, col.implicitWidth + 16))
+    readonly property real _targetH: col.implicitHeight + 16
+    property real _winW: _targetW
+    property real _winH: _targetH
+    on_TargetWChanged: if (_targetW > _winW || !visible) _winW = _targetW
+    on_TargetHChanged: if (_targetH > _winH || !visible) _winH = _targetH
+    implicitWidth: _winW + 32
+    implicitHeight: _winH + 24
     mask: Region { item: menu }
 
     HyprlandFocusGrab {
@@ -175,8 +177,13 @@ PanelWindow {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 4
-        width: Math.max(300, Math.min(420, col.implicitWidth + 16))
-        height: col.implicitHeight + 16
+        property real _w: win._targetW
+        property real _h: win._targetH
+        // the first size (while it is hidden) is taken as it is; after that it springs
+        Behavior on _w { enabled: win.isOpen; Spring { speed: "default" } }
+        Behavior on _h { enabled: win.isOpen; Spring { speed: "default" } }
+        width: Math.max(0, _w)
+        height: Math.max(0, _h)
         radius: Motion.shapeExtraLarge
         color: Colors.surface_container_low
         transformOrigin: Item.Bottom
@@ -212,8 +219,8 @@ PanelWindow {
                     scale: 0.5 + 0.5 * headerRow.appear
                     MorphShape {
                         anchors.fill: parent
-                        shape: 1
-                        fromShape: 1
+                        shape: "cookie9"
+                        fromShape: "cookie9"
                         spin: win.spin
                         color: Colors.primary_container
                     }
@@ -271,7 +278,8 @@ PanelWindow {
                         if (!modelData || !modelData.workspace)
                             return "";
                         const n = String(modelData.workspace.name || modelData.workspace.id || "");
-                        return n.startsWith("special:") ? "S" : n;
+                        if (n.startsWith("special:")) return "S";
+                        return win.wsKanji[Number(n) - 1] || n;
                     }
 
                     width: col.width
@@ -283,7 +291,9 @@ PanelWindow {
                     transform: Translate { y: (1 - item.appear) * 14 }
                     // segmented-menu item shape; the focused window matches the dock's focused-app highlight (secondary container)
                     restRadius: active ? Motion.shapeMedium : Motion.shapeExtraSmall
-                    bottomLeftRadius: lastItem && !active ? Motion.shapeMedium : radius
+                    property real _bl: lastItem && !active ? Motion.shapeMedium : radius
+                    Behavior on _bl { Spring {} }
+                    bottomLeftRadius: Math.max(0, _bl)
                     bottomRightRadius: bottomLeftRadius
                     color: active ? Colors.secondary_container : "transparent"
                     contentColor: active ? Colors.on_secondary_container : Colors.on_surface
@@ -296,28 +306,29 @@ PanelWindow {
                         anchors.rightMargin: 4
                         spacing: 12
 
-                        // workspace number, in the workspace's own shape
+                        // workspace number, as kanji
                         Item {
-                            visible: item.wsLabel !== ""
+                            opacity: item.wsLabel !== "" ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
                             implicitWidth: 32
                             implicitHeight: 32
-                            MorphShape {
-                                anchors.fill: parent
-                                shape: win.wsShape(item.modelData)
-                                fromShape: win.wsShape(item.modelData)
-                                spin: item.index % 2 ? -win.spin : win.spin
-                                color: item.active ? Colors.secondary : Colors.secondary_container
+                            Text {
+                                anchors.centerIn: parent
+                                anchors.verticalCenterOffset: -1
+                                text: item.wsLabel
+                                font.family: Typography.familyJp
+                                font.pixelSize: item.wsLabel.length > 1 ? 11 : 15
+                                font.weight: Font.Bold
+                                color: item.active ? Colors.on_secondary_container : Colors.on_surface
                                 Behavior on color { ColorFade {} }
                             }
-                            StyledText {
-                                anchors.centerIn: parent
-                                role: "labelMedium"
-                                emphasized: true
-                                color: item.active ? Colors.on_secondary : Colors.on_secondary_container
-                                text: item.wsLabel
-                            }
                         }
-                        Badge { visible: !!item.modelData && item.modelData.urgent }
+                        Badge {
+                            opacity: !!item.modelData && item.modelData.urgent ? 1 : 0
+                            visible: opacity > 0
+                            Behavior on opacity { Fade {} }
+                        }
                         StyledText {
                             Layout.fillWidth: true
                             role: "bodyLarge"

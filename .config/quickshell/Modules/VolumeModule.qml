@@ -86,8 +86,8 @@ BarChip {
 
         ShapeBadge {
             anchors.verticalCenter: parent.verticalCenter
-            shapeRest: 1
-            shapeActive: 4
+            shapeRest: "cookie4"
+            shapeActive: "clover4"
             active: mod.checked || mod.muted
             spinning: mod.checked
             color: mod.muted ? Colors.error_container : Colors.primary_container
@@ -109,15 +109,20 @@ BarChip {
             Behavior on opacity { Fade {} }
         }
 
-        StyledText {
+        Item {
             anchors.verticalCenter: parent.verticalCenter
             width: 36
-            horizontalAlignment: Text.AlignRight
-            role: "labelLarge"
-            color: mod.contentColor
-            text: Math.round(mod.volume * 100) + "%"
+            height: modPct.implicitHeight
             opacity: mod.showIndicator ? 1 : 0
             Behavior on opacity { Fade {} }
+            RollingDigits {
+                id: modPct
+                anchors.right: parent.right
+                pixelSize: 14
+                weight: Font.Medium
+                color: mod.contentColor
+                text: Math.round(mod.volume * 100) + "%"
+            }
         }
     }
 }

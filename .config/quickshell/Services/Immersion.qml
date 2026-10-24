@@ -14,7 +14,7 @@ import qs.Services
 //
 // segment = { id, start, end, secs, path, title, dur, pos, alang, aname, slang }
 // entry   = { id, type: "reading", title, minutes, chars, day: "yyyy-MM-dd" }
-// kavita  = scripts/kavita_stats.py reads Kavita's own reading sessions (series, pages, start/end) into
+// kavita  = (history) scripts/kavita_stats.py read Kavita's reading sessions (series, pages, start/end) into
 //           kavita.json: one { work, volume, day, secs, pages, modified } per series and day
 // context = which of mpv / ttu / Kavita the user is "in": the last of them to be the focused window
 //           (matched by window class and title), so the panel can show the matching card
@@ -44,6 +44,9 @@ Singleton {
     property var hidden: []
     // series keys pinned to the front of the shelf, newest pin first
     property var pins: []
+    // cards and parts taken off the shelf: key -> their last activity when removed; using them again
+    // brings them back. The time they logged still counts.
+    property var shelved: ({})
     property var segments: []
 
     // ---- what the log says ----
@@ -53,6 +56,8 @@ Singleton {
     property var recent: []
     // one row per series, most recently watched first
     property var seriesList: []
+    // the same for the shelf, where anime only counts from folders under animeRoots
+    property var shelfList: []
     // anime thumbnails: episode directory -> an image found there (or in the series folder above it)
     property var animeCovers: ({})
     // folders whose anime all show in the shelf, watched or not
@@ -89,11 +94,23 @@ Singleton {
     readonly property bool hasTtu: ttuRows.length > 0 || ttuBooks.length > 0
 
     // ---- Kavita (manga) ----
+    // The manga reader (reader/, qs-manga) writes manga.json in the same shape as kavita.json, which is now
+    // frozen history from before the reader. Both feed these: rows are merged, and only the reader's series
+    // (they carry `vol`, the reader's volume id) make shelf cards. The names stay "kavita*" internally.
     property var kavitaRows: []
     property var kavitaSeries: []
     property string kavitaLatest: ""
     property real kavitaMod: 0
     property var kavitaActiveSeries: null
+    property var _oldRows: []
+    property var _oldSeries: []
+    property string _oldLatest: ""
+    property real _oldMod: 0
+    property var _newRows: []
+    property var _newSeries: []
+    property string _newLatest: ""
+    property real _newMod: 0
+    property var _newActive: null
     // newest counted manga save (set by rebuild) and its work
     property real kavitaNewest: 0
     property string kavitaWork: ""
@@ -125,7 +142,8 @@ Singleton {
             return segments.length > 0 ? "mpv" : "";
         return kavitaMod > t ? "kavita" : "ttu";
     }
-    readonly property string context: ctxKind !== "" ? ctxKind : fallbackKind
+    // the reader is a layer surface, not a window: while it is open that is where you are
+    readonly property string context: Manga.open ? "kavita" : (ctxKind !== "" ? ctxKind : fallbackKind)
     // class and title -> { kind, name } or null. The rules live here so they are easy to change.
     function classify(appId, title) {
         const a = String(appId || "").toLowerCase();
@@ -232,12 +250,16 @@ Singleton {
     readonly property var mangaSeries: {
         if (kavitaSeries.length === 0)
             return null;
+        const open = Manga.open ? Manga.openVol : -1;
+        const inReader = open >= 0 ? kavitaSeries.find(s => s.vol === open) : null;
+        if (inReader)
+            return inReader;
         const byName = context === "kavita" && ctxName
             ? kavitaSeries.find(s => s.name === ctxName || s.work === ctxName || ctxName.indexOf(s.work) === 0) : null;
         if (byName)
             return byName;
         const act = kavitaActiveSeries !== null ? kavitaSeries.find(s => s.id === kavitaActiveSeries) : null;
-        return act || kavitaSeries.slice().sort((a, b) => b.modified - a.modified)[0];
+        return act || kavitaSeries.slice().sort((a, b) => (b.vol !== undefined) - (a.vol !== undefined) || b.modified - a.modified)[0];
     }
     // time and pages in that manga's work today
     readonly property var mangaToday: {
@@ -257,6 +279,8 @@ Singleton {
 
     // Kavita's reader for a series (reopens at the saved page); falls back to the series page, then home
     function kavitaUrl(s) {
+        if (s && s.vol !== undefined)
+            return "";
         const base = "http://localhost:5000";
         if (!s || !s.library || !s.id)
             return base + "/";
@@ -309,6 +333,9 @@ Singleton {
     function partOf(s, id) {
         return s.parts[id] || (s.parts[id] = { id: id, secs: 0, last: 0, path: "", watchedEp: 0, eps: {}, disk: 0, first: "", label: "", kind: "" });
     }
+    function inAnimeRoots(path) {
+        return !!path && animeRoots.some(r => String(path).startsWith(r.replace(/\/+$/, "") + "/"));
+    }
     function partCards(s) {
         const cards = Object.keys(s.parts).map(id => {
             const p = s.parts[id];
@@ -322,9 +349,18 @@ Singleton {
                      title: al ? (al.native || al.romaji) : "", total: al && al.episodes ? al.episodes : 0,
                      progress: al && al.episodes && p.watchedEp > 0 ? Math.min(1, p.watchedEp / al.episodes) : null,
                      alId: al ? al.id : 0, related: al && al.related ? al.related : [], year: al && al.year ? al.year : 0,
-                     alCover: al ? al.cover : "", localCover: animeCovers[dirOf(path)] || "" };
+                     alCover: al ? al.cover : "", localCover: animeCovers[dirOf(path)] || "",
+                     inRoots: inAnimeRoots(p.path) || inAnimeRoots(p.first) };
         });
         return { key: s.key, name: s.name, counted: s.counted, parts: cards };
+    }
+    // a part's pin id: pins on parts and on whole cards share one list
+    function partId(p) { return p.key + "|" + p.season; }
+    // the part a multi-part card shows: the newest pinned one, else the one consumed last, else the fallback
+    function faceOf(parts, fallback) {
+        parts.forEach(p => { p.pinned = pins.indexOf(partId(p)) >= 0; });
+        const pinned = parts.filter(p => p.pinned).sort((a, b) => pins.indexOf(partId(a)) - pins.indexOf(partId(b)))[0];
+        return pinned || parts.filter(p => p.last > 0).sort((a, b) => b.last - a.last)[0] || fallback;
     }
     function cmpPart(a, b) {
         const rank = { season: 0, ova: 1, sp: 2, movie: 3 };
@@ -361,8 +397,8 @@ Singleton {
         const base = members[0];
         const parts = [].concat.apply([], members.map(m => m.parts)).sort(cmpPart);
         const seasons = parts.filter(p => p.partKind === "season");
-        // the card shows the part watched last, else the first season
-        const cur = parts.filter(p => p.last > 0).sort((a, b) => b.last - a.last)[0] || seasons[0] || parts[0];
+        // the card shows the pinned part, else the part watched last, else the first season
+        const cur = faceOf(parts, seasons[0] || parts[0]);
         const single = parts.length === 1;
         parts.forEach(p => { p.cover = single ? (p.localCover || p.alCover) : (p.alCover || p.localCover); });
         const lead = ((seasons[0] || parts[0]).cover) || "";
@@ -375,7 +411,7 @@ Singleton {
                  counted: members.some(m => m.counted), episodes: cur.episodes, last: last, path: cur.path,
                  season: cur.season, matchKey: cur.key, partKind: cur.partKind, partName: cur.name,
                  watchedEp: cur.watchedEp, watched: watched, title: cur.title, total: cur.total,
-                 progress: cur.progress, cover: cur.cover, partCount: parts.length, parts: parts };
+                 progress: cur.progress, cover: cur.cover, partCount: parts.length, parts: parts, face: cur };
     }
 
     function parsePath(path, title) {
@@ -619,7 +655,7 @@ Singleton {
             const info = kavitaSeries.find(x => x.id === r.sid) || ({});
             rows.push({ id: id, kind: "read", src: "kavita", day: r.day, key: key, title: r.work,
                         detail: [r.volume, r.pages + (r.pages === 1 ? " page" : " pages")].filter(t => t !== "").join(" · "),
-                        minutes: mins, chars: 0, pages: r.pages, counted: counted, reason: "Kavita", last: r.modified,
+                        minutes: mins, chars: 0, pages: r.pages, counted: counted, reason: r.sid >= 1000000 ? "Manga" : "Kavita", last: r.modified,
                         path: "", segIds: [id], cover: info.cover || "" });
             let m = mangaMap[key];
             if (!m) {
@@ -634,6 +670,7 @@ Singleton {
                 m.progress = info.progress === undefined ? null : info.progress;
                 m.cover = info.cover || m.cover;
                 m.url = kavitaUrl(info);
+                m.mangaVol = info.vol;
             }
         });
         kavitaNewest = kNewest;
@@ -658,7 +695,10 @@ Singleton {
             sr.year = f.year || 0;
         });
 
-        const sl = mergeShows(Object.keys(seriesMap).map(k => partCards(seriesMap[k])));
+        const shows = Object.keys(seriesMap).map(k => partCards(seriesMap[k]));
+        const sl = mergeShows(shows);
+        const shelf = mergeShows(shows.map(sh => Object.assign({}, sh, { parts: sh.parts.filter(p => p.inRoots) }))
+                                      .filter(sh => sh.parts.length > 0));
         // books and manga: every volume is a part, a work with several volumes is one card with a sub-shelf
         const volLabel = (v, extra) => v ? (extra ? "Extra " : "Vol ") + v : "";
         const workCard = (kind, group, ownKey, name, list) => {
@@ -669,13 +709,13 @@ Singleton {
                 const p = list[0];
                 return Object.assign({}, p, { key: p.ownKey, name: p.title, title: "", partKind: "", episodes: 0 });
             }
-            const cur = list.filter(p => p.last > 0).sort((a, b) => b.last - a.last)[0] || list[0];
-            const sum = f => list.reduce((t, p) => t + (p[f] || 0), 0);
             list.forEach(p => { p.key = (kind === "book" ? "ttuw:" : "kavitaw:") + group; });
+            const cur = faceOf(list, list[0]);
+            const sum = f => list.reduce((t, p) => t + (p[f] || 0), 0);
             return { key: (kind === "book" ? "ttuw:" : "kavitaw:") + group, kind: kind, name: name, title: "", minutes: sum("minutes"),
                      counted: list.some(p => p.counted), episodes: list.length, last: Math.max.apply(null, list.map(p => p.last)),
                      path: "", chars: sum("chars"), pages: sum("pages"), progress: cur.progress, cover: cur.cover, url: cur.url,
-                     partName: cur.name, partKind: "volume", partCount: list.length, parts: list, est: cur.est };
+                     partName: cur.name, partKind: "volume", partCount: list.length, parts: list, est: cur.est, face: cur };
         };
         const bookGroups = {};
         const bookMeta = {};
@@ -698,7 +738,9 @@ Singleton {
         });
         Object.keys(bookGroups).forEach(g => {
             const w = bookGroups[g];
-            sl.push(workCard("book", g, "", w.work, w.list));
+            const c = workCard("book", g, "", w.work, w.list);
+            sl.push(c);
+            shelf.push(c);
         });
         const sess = {};
         kavitaRows.forEach(r => {
@@ -711,12 +753,14 @@ Singleton {
         });
         const mangaGroups = {};
         kavitaSeries.forEach(si => {
+            if (si.vol === undefined)
+                return;
             const own = "kavita:" + si.work.toLowerCase();
             const x = sess[si.id] || { secs: 0, pages: 0, last: 0 };
             const g = si.group || si.work.toLowerCase();
             (mangaGroups[g] = mangaGroups[g] || { work: si.work, vol: 1e6, list: [] }).list.push(
                 { ownKey: own, season: String(si.id), title: si.name, name: si.volume || "", vol: si.volume ? Number(si.volume.replace(/\D+/g, "")) : 1e6,
-                  extra: false, cover: si.cover || "", progress: si.progress === undefined ? null : si.progress, url: kavitaUrl(si),
+                  extra: false, cover: si.cover || "", progress: si.progress === undefined ? null : si.progress, url: kavitaUrl(si), mangaVol: si.vol,
                   minutes: x.secs / 60, pages: x.pages, last: x.last, counted: overrides[own] !== false });
             const v = si.volume ? Number(si.volume.replace(/\D+/g, "")) : 1e6;
             if (v < mangaGroups[g].vol) {
@@ -726,11 +770,18 @@ Singleton {
         });
         Object.keys(mangaGroups).forEach(g => {
             const w = mangaGroups[g];
-            sl.push(workCard("manga", g, "", w.work, w.list));
+            const c = workCard("manga", g, "", w.work, w.list);
+            sl.push(c);
+            shelf.push(c);
         });
-        sl.forEach(c => { c.pinned = pins.indexOf(c.key) >= 0; });
-        sl.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)
-                          || (a.pinned ? pins.indexOf(a.key) - pins.indexOf(b.key) : b.last - a.last));
+        sl.concat(shelf).forEach(c => { c.pinned = pins.indexOf(c.key) >= 0; });
+        // watched pins, then the other pins, then watched unpinned, then the rest; watched ones in time order
+        const fresh = c => c.last > 0;
+        const tier = c => c.pinned ? (fresh(c) ? 0 : 1) : (fresh(c) ? 2 : 3);
+        const order = (a, b) => tier(a) - tier(b)
+                          || (tier(a) === 1 ? pins.indexOf(a.key) - pins.indexOf(b.key) : b.last - a.last);
+        sl.sort(order);
+        shelf.sort(order);
 
         // streaks: a day is kept once it reaches the goal (halved on a busy day); a busy or rest day that
         // falls short only pauses the run; today doesn't break the run while open
@@ -760,6 +811,7 @@ Singleton {
         days = dayMap;
         recent = rows;
         seriesList = sl;
+        shelfList = shelf;
         coverSoon.restart();
         streak = s;
         best = Math.max(bestRun, s);
@@ -780,6 +832,7 @@ Singleton {
         adapter.overrides = overrides;
         adapter.hidden = hidden;
         adapter.pins = pins;
+        adapter.shelved = shelved;
         adapter.goalDay = goalDay;
         adapter.pane = pane;
         store.writeAdapter();
@@ -788,6 +841,22 @@ Singleton {
         pins = pins.indexOf(key) >= 0 ? pins.filter(k => k !== key) : [key].concat(pins);
         _save();
         rebuild();
+    }
+    function onShelf(key, last) {
+        const at = shelved[key];
+        return at === undefined || (last || 0) > at;
+    }
+    function removeFromShelf(key, last, title) {
+        const o = Object.assign({}, shelved);
+        o[key] = last || 0;
+        shelved = o;
+        const wasPinned = pins.indexOf(key) >= 0;
+        if (wasPinned)
+            pins = pins.filter(k => k !== key);
+        _undo = { type: "shelf", key: key, pinned: wasPinned };
+        _save();
+        rebuild();
+        imm.undoable("Removed " + title + " from the shelf");
     }
     function setPane(kind) {
         pane = kind === "mpv" || kind === "ttu" || kind === "kavita" ? kind : "";
@@ -839,6 +908,13 @@ Singleton {
             entries = entries.concat([u.entry]);
         else if (u.type === "hide")
             hidden = hidden.filter(h => u.ids.indexOf(h) < 0);
+        else if (u.type === "shelf") {
+            const o = Object.assign({}, shelved);
+            delete o[u.key];
+            shelved = o;
+            if (u.pinned)
+                pins = [u.key].concat(pins);
+        }
         _save();
         rebuild();
     }
@@ -884,24 +960,40 @@ Singleton {
             rebuild();
         } catch (e) {}
     }
+    function _mergeManga() {
+        kavitaRows = _oldRows.concat(_newRows);
+        kavitaSeries = _newSeries.concat(_oldSeries);
+        kavitaLatest = _oldLatest > _newLatest ? _oldLatest : _newLatest;
+        kavitaMod = Math.max(_oldMod, _newMod);
+        kavitaActiveSeries = _newActive;
+        nowSec = Date.now() / 1000;
+        rebuild();
+    }
     function _parseKavita(text) {
         try {
             const o = JSON.parse(text);
-            kavitaRows = o.rows || [];
-            kavitaSeries = o.series || [];
-            kavitaLatest = o.latest || "";
-            kavitaMod = o.modified || 0;
-            kavitaActiveSeries = o.active ? o.activeSeries : null;
-            nowSec = Date.now() / 1000;
-            rebuild();
+            _oldRows = o.rows || [];
+            _oldSeries = o.series || [];
+            _oldLatest = o.latest || "";
+            _oldMod = o.modified || 0;
+            _mergeManga();
+        } catch (e) {}
+    }
+    function _parseManga(text) {
+        try {
+            const o = JSON.parse(text);
+            _newRows = o.rows || [];
+            _newSeries = o.series || [];
+            _newLatest = o.latest || "";
+            _newMod = o.modified || 0;
+            _newActive = o.active ? o.activeSeries : null;
+            _mergeManga();
         } catch (e) {}
     }
     // read ttu's stats and Kavita's sessions now
     function sync() {
         if (!ttuSync.running)
             ttuSync.running = true;
-        if (!kavitaSync.running)
-            kavitaSync.running = true;
     }
     function _parseLive(text) {
         try {
@@ -1005,9 +1097,13 @@ Singleton {
         id: ttuSync
         command: ["python3", "-I", Quickshell.shellDir + "/scripts/ttu_stats.py", "--out", imm.stateDir + "/immersion/ttu.json"]
     }
-    Process {
-        id: kavitaSync
-        command: ["python3", "-I", Quickshell.shellDir + "/scripts/kavita_stats.py", "--out", imm.stateDir + "/immersion/kavita.json"]
+    FileView {
+        id: mangaFile
+        path: imm.stateDir + "/immersion/manga.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: imm._parseManga(text())
     }
     FileView {
         id: kavitaFile
@@ -1067,6 +1163,7 @@ Singleton {
             imm.overrides = adapter.overrides || ({});
             imm.hidden = adapter.hidden || [];
             imm.pins = adapter.pins || [];
+            imm.shelved = adapter.shelved || ({});
             imm.goalDay = adapter.goalDay || "";
             imm.pane = adapter.pane || "";
             imm.rebuild();
@@ -1079,6 +1176,7 @@ Singleton {
             property var overrides: ({})
             property var hidden: []
             property var pins: []
+            property var shelved: ({})
             property string goalDay: ""
             property string pane: ""
         }

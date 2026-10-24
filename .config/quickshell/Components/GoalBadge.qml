@@ -16,16 +16,19 @@ Item {
     property color trackColor: Qt.alpha(arcColor, 0.22)
     property real thickness: 2.5
     property bool nudging: false
-    property var nudgeShapes: [5, 7, 1]
+    property var nudgeShapes: ["cookie4", "star4", "cookie9"]
 
-    property int shapeRest: 1
-    property int shapeActive: 7
+    property var shapeRest: "cookie9"
+    property var shapeActive: "star4"
     property bool active: false
     property bool spinning: false
     property real spinSpeed: 22
     property color color: Colors.primary_container
     property alias badgeScale: badge.badgeScale
     default property alias content: badge.content
+
+    Behavior on arcColor { ColorFade {} }
+    Behavior on overColor { ColorFade {} }
 
     implicitWidth: ring ? 30 : 24
     implicitHeight: ring ? 30 : 24

@@ -16,7 +16,7 @@ ShapeBadge {
     implicitWidth: 40
     implicitHeight: 40
     shapeRest: Tasks.shapeFor(task)
-    shapeActive: 4
+    shapeActive: "sunny"
     active: done
     spinning: done && visible
     color: done ? Tasks.accentFor(task) : Tasks.containerFor(task)

@@ -343,8 +343,8 @@ BarPopup {
                     MorphShape {
                         width: 42
                         height: 42
-                        shape: 0
-                        fromShape: 0
+                        shape: "softBurst"
+                        fromShape: "softBurst"
                         color: Colors.secondary_container
                         x: win.cellX(Math.max(0, win.todayIndex)) + (win.cell - width) / 2
                         y: win.cellY(Math.max(0, win.todayIndex)) + (win.cell - height) / 2
@@ -405,7 +405,6 @@ BarPopup {
                                 emphasized: day.isSelected || day.isToday
                                 color: day.contentColor
                                 text: day.modelData.date.getDate()
-                                Behavior on color { ColorFade {} }
                             }
                         }
                     }

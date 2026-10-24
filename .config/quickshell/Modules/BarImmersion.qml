@@ -105,8 +105,8 @@ BarChip {
         anchors.verticalCenter: parent.verticalCenter
         ring: false
         nudging: chip.nudge
-        shapeRest: 5
-        shapeActive: 4
+        shapeRest: "cookie4"
+        shapeActive: Immersion.overdrive ? "softBurst" : Immersion.goalMet ? "flower" : "sunny"
         active: chip.checked || chip.live
         // past the goal the badge races
         spinning: (chip.live || Immersion.overdrive) && chip.visible
@@ -133,7 +133,9 @@ BarChip {
     Item {
         x: 2 + badge.width + 4
         anchors.verticalCenter: parent.verticalCenter
-        width: chip.titleBlockW
+        property real _w: chip.titleBlockW
+        Behavior on _w { Spring {} }
+        width: Math.max(0, _w)
         height: 20
         clip: true
         opacity: chip.title !== "" ? 1 : 0
@@ -141,15 +143,17 @@ BarChip {
 
         Icon {
             id: pin
-            visible: chip.pinned
+            opacity: chip.pinned ? 0.7 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             anchors.verticalCenter: parent.verticalCenter
             size: 14
             name: "keep"
             color: chip.contentColor
-            opacity: 0.7
         }
         Marquee {
             x: chip.pinned ? 16 : 0
+            Behavior on x { Spring {} }
             anchors.verticalCenter: parent.verticalCenter
             width: chip.titleW
             centered: false

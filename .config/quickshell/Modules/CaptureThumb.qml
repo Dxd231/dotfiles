@@ -30,10 +30,11 @@ ScreencopyView {
     // windows that are scrolled out of the layout have no picture to show
     Icon {
         anchors.centerIn: parent
-        visible: !view.hasContent
+        opacity: view.hasContent ? 0 : 0.6
+        visible: opacity > 0
+        Behavior on opacity { Fade {} }
         size: Math.max(12, Math.min(32, Math.min(view.width, view.height) * 0.4))
         name: "web_asset"
         color: Colors.on_surface_variant
-        opacity: 0.6
     }
 }

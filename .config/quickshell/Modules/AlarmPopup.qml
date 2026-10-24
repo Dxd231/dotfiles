@@ -16,7 +16,9 @@ BarPopup {
     // same layer namespace as the calendar so Hyprland's existing layer rule styles it too
     WlrLayershell.namespace: "quickshell:calendar_popup"
     panelWidth: 340
-    spacing: 16
+    // the sections below are Collapses that carry their own 16px gap, so it opens and closes with them
+    spacing: 0
+    followBody: true
 
     // time of day being picked
     property int pickHour: 7
@@ -60,8 +62,8 @@ BarPopup {
             anchors.verticalCenter: parent.verticalCenter
             width: 80
             height: 80
-            shapeRest: 1
-            shapeActive: 4
+            shapeRest: "cookie4"
+            shapeActive: Alarm.ringing ? "boom" : "clover4"
             active: Alarm.active || Alarm.ringing
             spinning: Alarm.active || Alarm.ringing
             spinSpeed: Alarm.ringing ? 90 : 14
@@ -91,18 +93,37 @@ BarPopup {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 2
 
-            RollingDigits {
-                visible: Alarm.active
-                pixelSize: Typography.size("displaySmall")
-                text: Alarm.label
-                color: Colors.on_surface
-            }
-            StyledText {
-                visible: !Alarm.active
-                role: "displaySmall"
-                emphasized: true
-                color: Alarm.ringing ? Colors.error : Colors.on_surface_variant
-                text: Alarm.ringing ? "Time's up" : "No alarm"
+            // the countdown and "No alarm" share one line and cross-fade with a small slide, so the
+            // readout keeps its height instead of one squeezing shut while the other opens
+            Item {
+                width: parent.width
+                implicitHeight: Math.max(digits.implicitHeight, idleText.implicitHeight)
+
+                property real t: Alarm.active ? 1 : 0
+                Behavior on t { Spring { speed: "default"; expressive: false } }
+                readonly property real _t: Math.max(0, Math.min(1, t))
+
+                RollingDigits {
+                    id: digits
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: (1 - parent._t) * 10
+                    opacity: parent._t
+                    visible: opacity > 0.01
+                    pixelSize: Typography.size("displaySmall")
+                    text: Alarm.label
+                    color: Colors.on_surface
+                }
+                StyledText {
+                    id: idleText
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: -parent._t * 10
+                    opacity: 1 - parent._t
+                    visible: opacity > 0.01
+                    role: "displaySmall"
+                    emphasized: true
+                    color: Alarm.ringing ? Colors.error : Colors.on_surface_variant
+                    text: Alarm.ringing ? "Time's up" : "No alarm"
+                }
             }
             StyledText {
                 role: "titleSmall"
@@ -115,135 +136,151 @@ BarPopup {
     }
 
     // ---- ringing: stop / snooze ----
-    RowLayout {
-        visible: Alarm.ringing
+    Collapse {
+        open: Alarm.ringing
+        gap: 16
         Layout.fillWidth: true
-        spacing: 8
-        Button {
-            Layout.fillWidth: true
-            size: "m"
-            text: "Stop"
-            icon: "close"
-            color: Colors.error
-            contentColor: Colors.on_error
-            onClicked: Alarm.stop()
-        }
-        Button {
-            Layout.fillWidth: true
-            size: "m"
-            style: "tonal"
-            text: "+5 min"
-            icon: "timer"
-            onClicked: Alarm.snooze(5)
+        RowLayout {
+            spacing: 8
+            Button {
+                Layout.fillWidth: true
+                size: "m"
+                text: "Stop"
+                icon: "close"
+                color: Colors.error
+                contentColor: Colors.on_error
+                onClicked: Alarm.stop()
+            }
+            Button {
+                Layout.fillWidth: true
+                size: "m"
+                style: "tonal"
+                text: "+5 min"
+                icon: "timer"
+                onClicked: Alarm.snooze(5)
+            }
         }
     }
 
     // ---- countdown presets ----
-    ColumnLayout {
-        visible: !Alarm.ringing
+    Collapse {
+        open: !Alarm.ringing
+        gap: 16
         Layout.fillWidth: true
-        spacing: 8
+        ColumnLayout {
+            spacing: 0
 
-        StyledText {
-            role: "labelLarge"
-            color: Colors.on_surface_variant
-            text: "In"
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 6
-            Repeater {
-                model: [5, 10, 15, 30, 60]
-                delegate: Button {
-                    id: preset
-                    required property int modelData
-                    required property int index
-                    Layout.fillWidth: true
-                    size: "xs"
-                    style: "tonal"
-                    text: modelData >= 60 ? "1h" : String(modelData)
-                    // lit while the running countdown was started from this preset
-                    onClicked: Alarm.setIn(modelData)
-                    Appear { shown: win.isOpen; delay: 60 + preset.index * 35 }
+            StyledText {
+                role: "labelLarge"
+                color: Colors.on_surface_variant
+                text: "In"
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+                spacing: 6
+                Repeater {
+                    model: [5, 10, 15, 30, 60]
+                    delegate: Button {
+                        id: preset
+                        required property int modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        size: "xs"
+                        style: "tonal"
+                        text: modelData >= 60 ? "1h" : String(modelData)
+                        // lit while the running countdown was started from this preset
+                        onClicked: Alarm.setIn(modelData)
+                        Appear { shown: win.isOpen; delay: 60 + preset.index * 35 }
+                    }
                 }
             }
-        }
-        RowLayout {
-            visible: Alarm.active
-            Layout.fillWidth: true
-            spacing: 6
-            Button {
+            Collapse {
+                open: Alarm.active
+                gap: 8
                 Layout.fillWidth: true
-                size: "xs"
-                style: "tonal"
-                text: "−1 min"
-                onClicked: Alarm.add(-1)
-            }
-            Button {
-                Layout.fillWidth: true
-                size: "xs"
-                style: "tonal"
-                text: "+1 min"
-                onClicked: Alarm.add(1)
-            }
-            Button {
-                Layout.fillWidth: true
-                size: "xs"
-                style: "tonal"
-                text: "+5 min"
-                onClicked: Alarm.add(5)
+                RowLayout {
+                    spacing: 6
+                    Button {
+                        Layout.fillWidth: true
+                        size: "xs"
+                        style: "tonal"
+                        text: "−1 min"
+                        onClicked: Alarm.add(-1)
+                    }
+                    Button {
+                        Layout.fillWidth: true
+                        size: "xs"
+                        style: "tonal"
+                        text: "+1 min"
+                        onClicked: Alarm.add(1)
+                    }
+                    Button {
+                        Layout.fillWidth: true
+                        size: "xs"
+                        style: "tonal"
+                        text: "+5 min"
+                        onClicked: Alarm.add(5)
+                    }
+                }
             }
         }
     }
 
     // ---- time of day ----
-    ColumnLayout {
-        visible: !Alarm.ringing
+    Collapse {
+        open: !Alarm.ringing
+        gap: 16
         Layout.fillWidth: true
-        spacing: 8
-
-        StyledText {
-            role: "labelLarge"
-            color: Colors.on_surface_variant
-            text: "At"
-        }
-        RowLayout {
-            Layout.fillWidth: true
+        ColumnLayout {
             spacing: 8
 
-            Stepper {
-                Layout.fillWidth: true
-                value: win.pickHour
-                onStep: d => win.pickHour = (win.pickHour + d + 24) % 24
-            }
             StyledText {
-                role: "headlineSmall"
-                emphasized: true
+                role: "labelLarge"
                 color: Colors.on_surface_variant
-                text: ":"
+                text: "At"
             }
-            Stepper {
+            RowLayout {
                 Layout.fillWidth: true
-                value: win.pickMinute
-                onStep: d => win.pickMinute = (win.pickMinute + d * 5 + 60) % 60
-            }
-            Button {
-                size: "m"
-                icon: "check"
-                text: "Set"
-                onClicked: Alarm.setAt(String(win.pickHour).padStart(2, "0") + ":" + String(win.pickMinute).padStart(2, "0"))
+                spacing: 8
+
+                Stepper {
+                    Layout.fillWidth: true
+                    value: win.pickHour
+                    onStep: d => win.pickHour = (win.pickHour + d + 24) % 24
+                }
+                StyledText {
+                    role: "headlineSmall"
+                    emphasized: true
+                    color: Colors.on_surface_variant
+                    text: ":"
+                }
+                Stepper {
+                    Layout.fillWidth: true
+                    value: win.pickMinute
+                    onStep: d => win.pickMinute = (win.pickMinute + d * 5 + 60) % 60
+                }
+                Button {
+                    size: "m"
+                    icon: "check"
+                    text: "Set"
+                    onClicked: Alarm.setAt(String(win.pickHour).padStart(2, "0") + ":" + String(win.pickMinute).padStart(2, "0"))
+                }
             }
         }
     }
 
-    Button {
-        visible: Alarm.active
+    Collapse {
+        open: Alarm.active
+        gap: 16
         Layout.fillWidth: true
-        size: "s"
-        style: "text"
-        text: "Cancel alarm"
-        icon: "close"
-        onClicked: Alarm.cancel()
+        Button {
+            size: "s"
+            style: "text"
+            text: "Cancel alarm"
+            icon: "close"
+            onClicked: Alarm.cancel()
+        }
     }
 
     // a number with a step up / down: scroll or click the buttons

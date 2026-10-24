@@ -12,16 +12,24 @@ Item {
     property color shadowColor: Colors.shadow
 
     // [keyY, keyBlur, ambientY, ambientBlur, ambientSpread] per level 0..5
-    readonly property var _spec: [
+    readonly property var _levels: [
         [0, 0, 0, 0, 0],
         [1, 2, 1, 3, 1],
         [1, 2, 2, 6, 2],
         [1, 3, 4, 8, 3],
         [2, 3, 6, 10, 4],
         [4, 4, 8, 12, 6]
-    ][Math.max(0, Math.min(5, level))]
+    ]
+    // the level eases between steps, and the shadow blends the two rows it sits between
+    property real _lv: Math.max(0, Math.min(5, level))
+    Behavior on _lv { Fade {} }
+    readonly property var _spec: {
+        const lo = Math.floor(_lv), hi = Math.min(5, lo + 1), f = _lv - lo;
+        return _levels[lo].map((v, i) => v + (_levels[hi][i] - v) * f);
+    }
 
-    visible: level > 0
+    visible: _lv > 0.01
+    opacity: Math.min(1, _lv)
 
     RectangularShadow {
         anchors.fill: parent

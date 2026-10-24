@@ -40,7 +40,9 @@ Rectangle {
     }
 
     implicitHeight: 32
-    implicitWidth: pad * 2 + count * slot + (count - 1) * spacing
+    property real _w: pad * 2 + count * slot + (count - 1) * spacing
+    Behavior on _w { Spring {} }
+    implicitWidth: Math.max(0, _w)
     radius: 16
     color: Colors.surface_container_high
 
@@ -56,12 +58,14 @@ Rectangle {
     // the indicator is a turning cookie that takes a new shape (with overshoot) on every switch;
     // the stretch sits outside the shape's own turning so the outline never shears
     property int shapeCount: 0
-    property int shapeNow: 1
-    property int shapeFrom: 1
+    property var shapeNow: "cookie9"
+    property var shapeFrom: "cookie9"
     property real shapeMorph: 1
     property bool shapeSpring: true
     property real shapeSpin: 0
-    readonly property var shapes: [1, 4, 5, 2, 0]
+    // only shapes whose inner radius clears the scaled kanji while spinning (clover4, cookie4 and flower let its
+    // corners poke out through the valleys)
+    readonly property var shapes: ["cookie4", "sunny", "cookie9", "pentagon", "softBurst"]
     onActiveIndexChanged: {
         if (activeIndex < 0)
             return;
@@ -88,7 +92,9 @@ Rectangle {
         width: Math.max(4, ws.rightEdge - ws.leftEdge)
         height: 28
         anchors.verticalCenter: parent.verticalCenter
-        visible: ws.activeIndex >= 0
+        opacity: ws.activeIndex >= 0 ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { Fade {} }
 
         Item {
             width: 28
@@ -149,6 +155,8 @@ Rectangle {
 
                 Text {
                     anchors.centerIn: parent
+                    // the font's line box is taller below the ink, so the glyph sits ~1 px low otherwise
+                    anchors.verticalCenterOffset: -1
                     text: ws.kanji[slot.index] || slot.wsId
                     font.family: Typography.familyJp
                     font.pixelSize: slot.index >= 10 ? 11 : 15

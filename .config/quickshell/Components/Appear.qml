@@ -13,6 +13,8 @@ Item {
     property int delay: 0
     property real lift: 8
     property real from: 0.92
+    // created while its surroundings are already shown and settled (a card scrolling into a list): start at rest, no entrance
+    property bool instant: false
 
     property real t: 0
     property bool _animate: true
@@ -34,7 +36,15 @@ Item {
         else
             wait.stop();
     }
-    Component.onCompleted: _restart()
+    Component.onCompleted: {
+        if (instant && shown) {
+            _animate = false;
+            t = 1;
+            _animate = true;
+        } else {
+            _restart();
+        }
+    }
     Timer {
         id: wait
         interval: Math.max(1, appear.delay)

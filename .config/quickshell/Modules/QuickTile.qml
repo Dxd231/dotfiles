@@ -15,7 +15,7 @@ Clickable {
     property bool on: false
     property bool split: false
     // the shape its icon badge morphs to while on; spins only while the center is open
-    property int shapeOn: 4
+    property var shapeOn: "sunny"
     property bool live: false
     // entrance (driven by the card's stagger) and a swell on every toggle
     property real appear: 1
@@ -69,7 +69,7 @@ Clickable {
             // a cookie that morphs to the tile's own shape, and turns, while the tile is on
             ShapeBadge {
                 anchors.fill: parent
-                shapeRest: 1
+                shapeRest: "cookie9"
                 shapeActive: tile.shapeOn
                 active: tile.on
                 spinning: tile.on && tile.live
@@ -96,18 +96,21 @@ Clickable {
                 elide: Text.ElideRight
                 text: tile.title
             }
-            StyledText {
+            SwapText {
                 Layout.fillWidth: true
                 role: "bodySmall"
                 color: tile.on ? Colors.on_primary : Colors.on_surface_variant
-                opacity: tile.on ? 0.85 : 1
                 elide: Text.ElideRight
-                text: tile.subtitle
+                value: tile.subtitle
             }
         }
 
         Icon {
-            visible: tile.split
+            property real shownK: tile.split ? 1 : 0
+            Behavior on shownK { Spring { speed: "fast" } }
+            visible: shownK > 0.01
+            opacity: Math.min(1, shownK)
+            Layout.preferredWidth: 20 * Math.max(0, shownK)
             name: "chevron_right"
             size: 20
             color: tile.contentColor

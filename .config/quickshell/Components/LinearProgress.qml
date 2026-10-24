@@ -20,6 +20,9 @@ Item {
         Spring { expressive: false }
     }
 
+    Behavior on activeColor { ColorFade {} }
+    Behavior on trackColor { ColorFade {} }
+
     implicitWidth: 200
     implicitHeight: thickness
 
@@ -37,7 +40,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         anchors.right: parent.right
         height: progress.thickness
-        width: Math.max(0, progress.width - active.width - (active.visible ? 4 : 0))
+        width: Math.max(0, progress.width - active.width - Math.min(4, active.width))
         visible: width > height
         radius: height / 2
         color: progress.trackColor

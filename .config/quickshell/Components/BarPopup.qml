@@ -19,16 +19,23 @@ PanelWindow {
     property alias spacing: body.spacing
     property color panelColor: Colors.surface_container
     // springs the panel to a new height when its content changes size, instead of snapping
-    property bool animateHeight: false
+    property bool animateHeight: true
+    // for panels whose content already animates its own height (Collapse sections): the panel tracks the
+    // body exactly instead of springing a second time on top, which made it bounce and let text spill out
+    property bool followBody: false
     // the window is sized to where the panel is going, not to where it is: resizing a layer surface
     // on every frame of the spring makes the whole panel shake. Growing takes effect at once, shrinking
     // waits for the spring to settle; the headroom covers its overshoot.
     readonly property real _targetBody: body.implicitHeight + padding * 2
-    property real _windowBody: _targetBody + 32
+    // with followBody the body grows a little every frame and any resize while it shows makes the panel
+    // flicker, so the window keeps a lot of headroom, never shrinks while visible, and is trimmed once hidden
+    readonly property real _headroom: followBody ? 240 : 32
+    property real _windowBody: _targetBody + _headroom
     on_TargetBodyChanged: {
         if (!animateHeight || _targetBody + 32 > _windowBody)
-            _windowBody = _targetBody + 32;
+            _windowBody = _targetBody + _headroom;
     }
+    onVisibleChanged: if (!visible && followBody) _windowBody = _targetBody + _headroom
     property alias panel: panel
     default property alias content: body.data
 
@@ -99,7 +106,7 @@ PanelWindow {
         width: popup.panelWidth
         height: body.implicitHeight + popup.padding * 2
         Behavior on height {
-            enabled: popup.animateHeight && popup.isOpen
+            enabled: popup.animateHeight && popup.isOpen && !popup.followBody
             Spring {
                 speed: "default"
                 onRunningChanged: if (!running) popup._windowBody = popup._targetBody + 32

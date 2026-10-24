@@ -39,20 +39,25 @@ BarChip {
             anchors.verticalCenter: parent.verticalCenter
             width: 16
             height: 16
-            // the recording mark: a small shape that turns and drifts between shapes while it records
+            // the recording mark: a small boom that turns while it records
+            Item {
+                id: dotSlot
+                anchors.fill: parent
+                // the mark and the pause glyph trade places, rather than one popping over the other
+                opacity: Capture.recPaused ? 0 : 1
+                scale: Capture.recPaused ? 0.4 : 1
+                Behavior on opacity { Fade {} }
+                Behavior on scale { Spring { speed: "fast" } }
             ShapeBadge {
                 id: dot
                 anchors.centerIn: parent
                 width: 14
                 height: 14
-                shapeRest: 4
-                shapeActive: 4
+                shapeRest: "boom"
+                shapeActive: "boom"
                 color: Colors.error
-                visible: !Capture.recPaused
                 spinning: chip.on && !Capture.recPaused
                 spinSpeed: 40
-                cycle: [4, 5, 0]
-                cycleInterval: 1800
                 SequentialAnimation on opacity {
                     running: chip.on && !Capture.recPaused
                     loops: Animation.Infinite
@@ -60,9 +65,13 @@ BarChip {
                     NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
                 }
             }
+            }
             Icon {
                 anchors.centerIn: parent
-                visible: Capture.recPaused
+                opacity: Capture.recPaused ? 1 : 0
+                scale: Capture.recPaused ? 1 : 0.4
+                Behavior on opacity { Fade {} }
+                Behavior on scale { Spring { speed: "fast" } }
                 size: 16
                 name: "pause"
                 color: chip.contentColor
@@ -70,7 +79,10 @@ BarChip {
         }
         RollingDigits {
             anchors.verticalCenter: parent.verticalCenter
-            visible: !Capture.recStopping
+            opacity: Capture.recStopping ? 0 : 1
+            visible: opacity > 0
+            width: implicitWidth * Math.max(0, opacity)
+            Behavior on opacity { Fade {} }
             pixelSize: 14
             color: chip.contentColor
             text: chip.clock(Capture.elapsed)
@@ -78,7 +90,9 @@ BarChip {
         // between pressing stop and the file being finished
         StyledText {
             anchors.verticalCenter: parent.verticalCenter
-            visible: Capture.recStopping
+            opacity: Capture.recStopping ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             role: "labelLarge"
             emphasized: true
             color: chip.contentColor

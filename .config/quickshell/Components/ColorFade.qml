@@ -5,7 +5,8 @@ import qs
 ColorAnimation {
     property string speed: "fast" // fast | default | slow
 
-    duration: speed === "slow" ? Motion.expressiveSlowEffectsDuration : speed === "default" ? Motion.expressiveDefaultEffectsDuration : Motion.expressiveFastEffectsDuration
-    easing.type: Easing.BezierSpline
-    easing.bezierCurve: speed === "slow" ? Motion.expressiveSlowEffects : speed === "default" ? Motion.expressiveDefaultEffects : Motion.expressiveFastEffects
+    // the expressive effects curves are nearly a step (94% done at 31% of the time), which reads as a
+    // flash on colors; ease them in and out over a little longer instead
+    duration: (speed === "slow" ? Motion.expressiveSlowEffectsDuration : speed === "default" ? Motion.expressiveDefaultEffectsDuration : Motion.expressiveFastEffectsDuration) + 100
+    easing.type: Easing.InOutQuad
 }

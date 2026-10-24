@@ -80,8 +80,8 @@ Scope {
                     ShapeBadge {
                         Layout.preferredWidth: 44
                         Layout.preferredHeight: 44
-                        shapeRest: 1
-                        shapeActive: 4
+                        shapeRest: "cookie4"
+                        shapeActive: "clover4"
                         active: Session.restoring
                         spinning: root.shown
                         color: Colors.primary
@@ -115,17 +115,18 @@ Scope {
                     Layout.fillWidth: true
                     spacing: 2
                     Repeater {
-                        model: Session.items.slice(0, root.maxRows)
+                        model: ScriptModel { values: Session.items.slice(0, root.maxRows); objectProp: "key" }
                         delegate: RowLayout {
                             id: row
                             required property var modelData
+                            required property int index
                             Layout.fillWidth: true
                             spacing: 10
+                            Appear { delay: 40 + row.index * 30; lift: 6 }
                             Icon {
                                 name: row.modelData.done ? "check_circle" : "radio_button_unchecked"
                                 size: 18
                                 color: row.modelData.done ? Colors.primary : Colors.on_surface_variant
-                                Behavior on color { ColorFade {} }
                             }
                             StyledText {
                                 Layout.fillWidth: true
@@ -143,11 +144,13 @@ Scope {
                             }
                         }
                     }
-                    StyledText {
-                        visible: Session.items.length > root.maxRows
-                        role: "bodySmall"
-                        color: Colors.on_surface_variant
-                        text: "+" + (Session.items.length - root.maxRows) + " more"
+                    Collapse {
+                        open: Session.items.length > root.maxRows
+                        StyledText {
+                            role: "bodySmall"
+                            color: Colors.on_surface_variant
+                            text: "+" + Math.max(0, Session.items.length - root.maxRows) + " more"
+                        }
                     }
                 }
 
@@ -161,11 +164,14 @@ Scope {
                         text: Session.restoring ? "Close" : "Not now"
                         onClicked: Session.restoring ? Session._finish() : Session.dismiss()
                     }
-                    Button {
-                        visible: !Session.restoring
-                        icon: "history"
-                        text: "Restore"
-                        onClicked: Session.restore()
+                    Collapse {
+                        horizontal: true
+                        open: !Session.restoring
+                        Button {
+                            icon: "history"
+                            text: "Restore"
+                            onClicked: Session.restore()
+                        }
                     }
                 }
             }

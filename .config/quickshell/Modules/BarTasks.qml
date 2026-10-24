@@ -87,8 +87,8 @@ BarChip {
         anchors.verticalCenter: parent.verticalCenter
         width: 24
         height: 24
-        shapeRest: chip.only ? Tasks.shapeFor(chip.only) : 1
-        shapeActive: 4
+        shapeRest: chip.only ? Tasks.shapeFor(chip.only) : "cookie9"
+        shapeActive: "sunny"
         active: chip.checked || chip.allDone
         spinning: active && chip.visible
         color: chip.allDone ? Colors.tertiary : chip.checked ? Colors.primary : (chip.only ? Tasks.containerFor(chip.only) : Colors.primary_container)
@@ -128,7 +128,9 @@ BarChip {
             x: 6
             anchors.verticalCenter: parent.verticalCenter
             width: Math.min(implicitWidth, 110)
-            visible: chip.showName
+            opacity: chip.showName ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             role: "labelLarge"
             elide: Text.ElideRight
             color: chip.contentColor
@@ -138,7 +140,9 @@ BarChip {
             id: count
             x: 8
             anchors.verticalCenter: parent.verticalCenter
-            visible: !chip.showName
+            opacity: chip.showName ? 0 : 1
+            visible: opacity > 0
+            Behavior on opacity { Fade {} }
             pixelSize: 14
             weight: Font.Bold
             color: chip.contentColor

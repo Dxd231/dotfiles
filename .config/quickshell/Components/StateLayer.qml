@@ -21,4 +21,5 @@ Rectangle {
     visible: opacity > 0
 
     Behavior on opacity { Fade {} }
+    Behavior on color { ColorFade {} }
 }
