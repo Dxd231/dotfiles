@@ -58,6 +58,7 @@ post_hook = 'pgrep -x spicetify > /dev/null || spicetify apply -n'
 [templates.quickshell]
 input_path = '~/.config/matugen/templates/quickshell.json'
 output_path = '~/.local/state/quickshell/colors.json'
+post_hook = '~/.config/quickshell/sddm/sync.sh || true'
 
 
 [templates.zathura]

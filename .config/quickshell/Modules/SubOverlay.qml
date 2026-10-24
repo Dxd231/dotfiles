@@ -430,13 +430,24 @@ Scope {
                             Repeater {
                                 model: row.modelData
 
-                                Item {
+                                LexWord {
                                     id: word
 
                                     required property var modelData
                                     required property int index
-                                    readonly property bool isWord: modelData.k === "word"
-                                    readonly property string status: Lexicon.statusOf(modelData)
+                                    tok: modelData
+                                    fontPx: win.fontPx
+                                    family: win.family
+                                    bold: Mpv.subBold
+                                    color: Mpv.subColor
+                                    pill: Qt.rgba(1, 1, 1, 0.18)
+                                    letterSpacing: Mpv.subSpacing * win.unit
+                                    outlinePx: win.borderPx
+                                    outlineColor: Mpv.subBorderColor
+                                    shadowPx: Mpv.subShadowOffset > 0 ? Mpv.subShadowOffset * Mpv.subScale * win.unit : 0
+                                    shadowColor: Mpv.subShadowColor
+                                    // the word the open card belongs to keeps its pill
+                                    active: root.popOpen && root.popFrom === "line" && root.popTok !== null && root.popTok.key === modelData.key
                                     function ctx() {
                                         const ts = row.modelData;
                                         const j = ts.map(t => t.s);
@@ -444,158 +455,9 @@ Scope {
                                                  flat: Mpv.subRaw.replace(/\s/g, ""), start: Mpv.subStart - Mpv.subDelay,
                                                  toks: ts, index: word.index };
                                     }
-                                    // the word the open card belongs to keeps its pill
-                                    readonly property bool active: root.popOpen && root.popFrom === "line" && root.popTok !== null && root.popTok.key === modelData.key
-                                    function anchorRect() {
-                                        const p = word.mapToItem(null, 0, 0);
-                                        const q = word.mapToItem(null, word.width, word.height);
-                                        return Qt.rect(p.x, p.y, q.x - p.x, q.y - p.y);
-                                    }
-                                    readonly property bool marked: isWord && (status === "unknown" || status === "learning")
-
-                                    // readings (Alt+f): room is kept over every word while they are on, so the line never jumps
-                                    readonly property string furi: Lexicon.furigana
-                                    readonly property real rubyH: furi !== "off" ? win.fontPx * 0.66 : 0
-                                    readonly property bool hasRuby: modelData.ruby !== undefined && (furi === "all" || (furi === "unknown" && marked))
-
-                                    implicitWidth: label.implicitWidth
-                                    implicitHeight: label.implicitHeight + rubyH
-
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        anchors.margins: -win.fontPx * 0.04
-                                        radius: win.fontPx * 0.18
-                                        color: Qt.rgba(1, 1, 1, 0.18)
-                                        opacity: (hover.hovered || word.active) && word.isWord ? 1 : 0
-                                        Behavior on opacity { NumberAnimation { duration: 90 } }
-                                    }
-                                    // mpv's shadow, then its outline (a ring of copies, as Qt's own outline is one pixel)
-                                    Text {
-                                        visible: Mpv.subShadowOffset > 0
-                                        x: Mpv.subShadowOffset * Mpv.subScale * win.unit
-                                        y: x + word.rubyH
-                                        text: label.text
-                                        color: Mpv.subShadowColor
-                                        font: label.font
-                                    }
-                                    Repeater {
-                                        model: win.borderPx > 0.3 ? 16 : 0
-
-                                        Text {
-                                            required property int index
-                                            x: Math.cos(index * Math.PI / 8) * win.borderPx
-                                            y: Math.sin(index * Math.PI / 8) * win.borderPx + word.rubyH
-                                            text: label.text
-                                            color: Mpv.subBorderColor
-                                            font: label.font
-                                        }
-                                    }
-                                    Row {
-                                        visible: word.hasRuby
-                                        y: 0
-                                        Repeater {
-                                            model: word.hasRuby ? word.modelData.ruby : []
-
-                                            Item {
-                                                id: seg
-
-                                                required property var modelData
-                                                width: base.implicitWidth
-                                                height: 1
-                                                Text {
-                                                    id: base
-                                                    visible: false
-                                                    text: seg.modelData[0]
-                                                    font: label.font
-                                                }
-                                                Text {
-                                                    visible: seg.modelData[1] !== ""
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    y: 0
-                                                    text: seg.modelData[1]
-                                                    color: Mpv.subColor
-                                                    style: win.borderPx > 0.3 ? Text.Outline : Text.Normal
-                                                    styleColor: Mpv.subBorderColor
-                                                    font.family: win.family
-                                                    font.bold: Mpv.subBold
-                                                    font.pixelSize: win.fontPx * 0.55
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Text {
-                                        id: label
-                                        y: word.rubyH
-                                        text: word.modelData.s
-                                        color: Mpv.subColor
-                                        font.family: win.family
-                                        font.bold: Mpv.subBold
-                                        font.pixelSize: win.fontPx
-                                        font.letterSpacing: Mpv.subSpacing * win.unit
-                                    }
-                                    // a leech (many lapses) gets a wavy underline, any other marked word a straight one
-                                    readonly property bool leech: status === "learning" && modelData.leech === true
-                                    readonly property bool due: status === "learning" && modelData.due === true
-                                    readonly property real ulH: Math.max(3, Math.round(win.fontPx * 0.075))
-                                    Rectangle {
-                                        opacity: word.marked && !word.leech ? 1 : 0
-                                        visible: opacity > 0
-                                        Behavior on opacity { Fade {} }
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        anchors.bottomMargin: -win.fontPx * 0.02
-                                        anchors.leftMargin: win.fontPx * 0.04
-                                        anchors.rightMargin: win.fontPx * 0.04
-                                        height: word.ulH
-                                        radius: height / 2
-                                        color: word.status === "learning" ? Colors.secondary : Colors.tertiary
-                                        Behavior on color { ColorFade {} }
-                                    }
-                                    WavyUnderline {
-                                        opacity: word.leech ? 1 : 0
-                                        visible: opacity > 0
-                                        Behavior on opacity { Fade {} }
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        anchors.bottomMargin: -win.fontPx * 0.02 - amplitude
-                                        anchors.leftMargin: win.fontPx * 0.04
-                                        anchors.rightMargin: win.fontPx * 0.04
-                                        thickness: word.ulH
-                                        amplitude: word.ulH * 0.5
-                                        wavelength: win.fontPx * 0.32
-                                        color: Colors.secondary
-                                    }
-                                    // due today: a dot at the top right, clear of the readings
-                                    Rectangle {
-                                        opacity: word.due ? 1 : 0
-                                        scale: word.due ? 1 : 0.3
-                                        visible: opacity > 0
-                                        Behavior on opacity { Fade {} }
-                                        Behavior on scale { Spring { speed: "fast" } }
-                                        x: parent.width - width * 0.6
-                                        y: word.rubyH - height * 0.3
-                                        width: Math.max(6, Math.round(win.fontPx * 0.13))
-                                        height: width
-                                        radius: width / 2
-                                        color: Colors.secondary
-                                    }
-                                    HoverHandler {
-                                        id: hover
-                                        enabled: word.isWord
-                                        cursorShape: Qt.PointingHandCursor
-                                        onHoveredChanged: {
-                                            if (hovered)
-                                                root.wordEnter(word.modelData, "line", word.anchorRect(), word.ctx(), word.anchorRect);
-                                            else
-                                                root.wordLeave(word.modelData);
-                                        }
-                                    }
-                                    TapHandler {
-                                        enabled: word.isWord
-                                        onTapped: root.wordClick(word.modelData, "line", word.anchorRect(), word.ctx(), word.anchorRect)
-                                    }
+                                    onPointerIn: rect => root.wordEnter(word.modelData, "line", rect, word.ctx(), word.whereRect)
+                                    onPointerOut: root.wordLeave(word.modelData)
+                                    onClicked: rect => root.wordClick(word.modelData, "line", rect, word.ctx(), word.whereRect)
                                 }
                             }
                         }

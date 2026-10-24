@@ -14,6 +14,12 @@ Item {
     property bool bold: true
     property color color: Colors.on_surface
     property color pill: Qt.alpha(Colors.on_surface, 0.16)
+    // the subtitles' mpv styling, all off by default: letter spacing, an outline ring and a shadow
+    property real letterSpacing: 0
+    property real outlinePx: 0
+    property color outlineColor: "black"
+    property real shadowPx: 0
+    property color shadowColor: "black"
     // the word an open card belongs to keeps its pill
     property bool active: false
     // false: punctuation and the like, drawn plain
@@ -49,6 +55,27 @@ Item {
         opacity: (hover.hovered || word.active) && word.isWord ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 90 } }
     }
+    // the shadow, then the outline (a ring of copies, as Qt's own outline is one pixel)
+    Text {
+        visible: word.shadowPx > 0
+        x: word.shadowPx
+        y: x + word.rubyH
+        text: label.text
+        color: word.shadowColor
+        font: label.font
+    }
+    Repeater {
+        model: word.outlinePx > 0.3 ? 16 : 0
+
+        Text {
+            required property int index
+            x: Math.cos(index * Math.PI / 8) * word.outlinePx
+            y: Math.sin(index * Math.PI / 8) * word.outlinePx + word.rubyH
+            text: label.text
+            color: word.outlineColor
+            font: label.font
+        }
+    }
     Row {
         visible: word.hasRuby
         y: 0
@@ -73,6 +100,8 @@ Item {
                     y: 0
                     text: seg.modelData[1]
                     color: word.color
+                    style: word.outlinePx > 0.3 ? Text.Outline : Text.Normal
+                    styleColor: word.outlineColor
                     font.family: word.family
                     font.bold: word.bold
                     font.pixelSize: word.fontPx * 0.55
@@ -88,6 +117,7 @@ Item {
         font.family: word.family
         font.bold: word.bold
         font.pixelSize: word.fontPx
+        font.letterSpacing: word.letterSpacing
     }
     Rectangle {
         opacity: word.marked && !word.leech ? 1 : 0

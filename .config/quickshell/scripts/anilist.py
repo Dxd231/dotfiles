@@ -16,6 +16,9 @@ A part is a season number ("1"), "ova", "sp" (never matched unless pinned) or "m
   anilist.py logout
   anilist.py push      stdin [{id, episode, total}]
   anilist.py client    stdin {clientId}               (remember the client id only)
+  anilist.py match_manga  stdin [{key, title}]        manga series, stored as "manga:<key>|1"
+  anilist.py push_manga   stdin [{id, volumes, total}]  volumes read -> progressVolumes
+  search / pin also take "type": "MANGA"
 """
 import json
 import difflib
@@ -100,6 +103,10 @@ MEDIA = """id idMal siteUrl format episodes title { romaji native english } cove
 SEARCH = "query($q:String){ Page(perPage:8){ media(search:$q, type:ANIME, sort:SEARCH_MATCH){ %s } } }" % MEDIA
 BY_ID = "query($id:Int){ Media(id:$id, type:ANIME){ %s } }" % MEDIA
 
+
+MEDIA_M = MEDIA + " volumes chapters"
+SEARCH_M = "query($q:String){ Page(perPage:8){ media(search:$q, type:MANGA, sort:SEARCH_MATCH){ %s } } }" % MEDIA_M
+BY_ID_M = "query($id:Int){ Media(id:$id, type:MANGA){ %s } }" % MEDIA_M
 
 LINKS = ("PREQUEL", "SEQUEL")
 
@@ -325,14 +332,121 @@ def do_match(items):
     save(FILE, s)
 
 
-def do_search(q):
-    data = gql(SEARCH, {"q": q})
+def manga_entry(m):
+    e = entry_of(m, 0)
+    e["episodes"] = None
+    e["volumes"] = m.get("volumes")
+    e["siteUrl"] = m.get("siteUrl") or "https://anilist.co/manga/%d" % m["id"]
+    return e
+
+
+def manga_queries(title):
+    """"東方茨歌仙 -Wild and Horned Hermit." -> the whole title, its Latin words, its Japanese part"""
+    clean = re.sub(r"\s+", " ", title).strip(" .")
+    latin = re.sub(r"[^\x00-\x7f]+", " ", clean)
+    latin = re.sub(r"[^A-Za-z0-9' ]+", " ", latin)
+    jp = re.sub(r"[A-Za-z0-9'\-. ]+", " ", clean)
+    out = []
+    for q in (clean, " ".join(latin.split()), " ".join(jp.split())):
+        if len(q) >= 2 and q not in out:
+            out.append(q)
+    # AniList's search wants near-exact words, so a title with one odd character also tries its first word
+    if len(out) <= 1:
+        for w in clean.split():
+            if len(w) >= 3 and w not in out:
+                out.append(w)
+                break
+    return out
+
+
+def manga_score(m, queries, rank):
+    t = m.get("title") or {}
+    names = [(t.get(x) or "").lower() for x in ("native", "romaji", "english") if t.get(x)]
+    sc = max([difflib.SequenceMatcher(None, q.lower(), n).ratio() for q in queries for n in names] or [0])
+    sc += {"MANGA": 0.15, "ONE_SHOT": 0.0}.get(m.get("format"), -0.3)
+    return sc - 0.02 * rank
+
+
+def resolve_manga(title, pinned):
+    if pinned:
+        data = gql(BY_ID_M, {"id": pinned})
+        return (data or {}).get("Media")
+    queries = manga_queries(title)
+    best, best_sc = None, 0.0
+    for q in queries:
+        data = gql(SEARCH_M, {"q": q})
+        for rank, m in enumerate(((data or {}).get("Page") or {}).get("media") or []):
+            sc = manga_score(m, queries, rank)
+            if sc > best_sc:
+                best, best_sc = m, sc
+    return best if best_sc >= 0.55 else None
+
+
+def do_match_manga(items):
+    s = state()
+    now = time.time()
+    try:
+        for it in items:
+            k = "manga:%s|1" % it["key"]
+            cur = s["matches"].get(k)
+            pinned = k in s["pins"]
+            if cur and not cur.get("miss"):
+                continue
+            if cur and cur.get("miss") and now - cur.get("at", 0) < MISS_RETRY and not pinned:
+                continue
+            if pinned and s["pins"][k] is None:
+                s["matches"][k] = {"miss": True, "at": now}
+                continue
+            m = resolve_manga(it.get("title") or "", s["pins"].get(k))
+            if m:
+                e = manga_entry(m)
+                fetch_cover(e)
+                s["matches"][k] = e
+            else:
+                s["matches"][k] = {"miss": True, "at": now}
+            save(FILE, s)
+    except RateLimited:
+        pass
+    save(FILE, s)
+
+
+def do_push_manga(items):
+    token = load(AUTH, {}).get("token")
+    if not token:
+        return
+    s = state()
+    try:
+        for it in items:
+            mid, vols, total = int(it["id"]), int(it["volumes"]), it.get("total")
+            pk = "m%d" % mid
+            if vols <= int(s["pushed"].get(pk, 0)):
+                continue
+            data = gql("query($id:Int){ Media(id:$id){ mediaListEntry { progressVolumes status } } }", {"id": mid}, token)
+            if data is None:
+                continue
+            cur = (data.get("Media") or {}).get("mediaListEntry") or {}
+            if cur.get("status") in ("COMPLETED", "REPEATING") or vols <= int(cur.get("progressVolumes") or 0):
+                s["pushed"][pk] = max(vols, int(cur.get("progressVolumes") or 0))
+                continue
+            status = "COMPLETED" if total and vols >= int(total) else "CURRENT"
+            r = gql("mutation($id:Int,$v:Int,$s:MediaListStatus){ SaveMediaListEntry(mediaId:$id, progressVolumes:$v, status:$s){ id } }",
+                    {"id": mid, "v": vols, "s": status}, token)
+            if r:
+                s["pushed"][pk] = vols
+    except RateLimited:
+        pass
+    save(FILE, s)
+
+
+def do_search(q, manga=False):
+    data = gql(SEARCH_M if manga else SEARCH, {"q": q})
     out = []
     for m in ((data or {}).get("Page") or {}).get("media") or []:
         t = m.get("title") or {}
         out.append({"id": m["id"], "romaji": t.get("romaji") or "", "native": t.get("native") or "",
                     "year": (m.get("startDate") or {}).get("year"), "format": m.get("format") or "",
-                    "episodes": m.get("episodes"), "cover": (m.get("coverImage") or {}).get("extraLarge") or ""})
+                    "episodes": m.get("episodes"), "volumes": m.get("volumes"),
+                    "cover": (m.get("coverImage") or {}).get("extraLarge") or ""})
     print(json.dumps(out, ensure_ascii=False))
 
 
@@ -343,6 +457,9 @@ def do_pin(a):
     s["pins"][k] = a.get("id")
     s["matches"].pop(k, None)
     save(FILE, s)
+    if a.get("type") == "MANGA":
+        do_match_manga([{"key": a["key"][len("manga:"):], "title": a.get("name") or ""}])
+        return
     do_match([{"key": a["key"], "name": a.get("name") or a["key"], "season": part}])
 
 
@@ -411,13 +528,17 @@ def main():
         if cmd == "match":
             do_match(arg or [])
         elif cmd == "search":
-            do_search((arg or {}).get("q") or "")
+            do_search((arg or {}).get("q") or "", (arg or {}).get("type") == "MANGA")
         elif cmd == "pin":
             do_pin(arg)
         elif cmd == "login":
             do_login(arg or {})
         elif cmd == "push":
             do_push(arg or [])
+        elif cmd == "match_manga":
+            do_match_manga(arg or [])
+        elif cmd == "push_manga":
+            do_push_manga(arg or [])
         elif cmd == "client":
             s = state()
             s["clientId"] = (arg or {}).get("clientId") or ""

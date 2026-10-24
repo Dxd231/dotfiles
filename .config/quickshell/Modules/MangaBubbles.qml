@@ -14,9 +14,12 @@ Item {
     property var blocks: []
     property real ow: 1
     property real oh: 1
+    property string path: ""             // the page's picture, for the card's panel
+    readonly property bool showHidden: Manga.reader ? Manga.reader.showHidden : false
+    onShowHiddenChanged: load()
 
     function load() {
-        Manga.request({ op: "ocr", vol: root.vol, idx: root.idx }, r => {
+        Manga.request({ op: "ocr", vol: root.vol, idx: root.idx, hidden: root.showHidden }, r => {
             if (r && r.blocks && r.w > 0) {
                 root.ow = r.w;
                 root.oh = r.h;
@@ -41,7 +44,19 @@ Item {
 
             required property var modelData
             required property int index
-            readonly property string key: root.vol + "|" + root.idx + "|" + index
+            readonly property string key: root.vol + "|" + root.idx + "|" + modelData.i
+            readonly property bool hiddenByUser: modelData.hidden === true
+            // what the card needs to know about this bubble and its page
+            function meta() {
+                return { vol: root.vol, idx: root.idx, i: modelData.i, order: modelData.order, block: modelData,
+                         edited: modelData.edited === true, ocr: modelData.ocr || modelData.text, hidden: hiddenByUser,
+                         blocks: root.blocks, w: root.ow, h: root.oh, path: root.path };
+            }
+            function rectIn() {
+                const p = b.mapToItem(null, 0, 0);
+                const q = b.mapToItem(null, b.width, b.height);
+                return Qt.rect(p.x, p.y, q.x - p.x, q.y - p.y);
+            }
             readonly property real pad: 4
             readonly property real sx: root.width / root.ow
             readonly property real sy: root.height / root.oh
@@ -53,8 +68,8 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 radius: Motion.shapeMedium
-                color: Colors.surface_container_highest
-                opacity: hover.hovered ? 0.4 : 0
+                color: b.hiddenByUser ? Colors.error_container : Colors.surface_container_highest
+                opacity: hover.hovered ? 0.4 : b.hiddenByUser ? 0.22 : 0
                 visible: opacity > 0.01
                 Behavior on opacity { Fade {} }
             }
@@ -64,12 +79,20 @@ Item {
                     const layer = Manga.reader ? Manga.reader.bubbles : null;
                     if (!layer)
                         return;
-                    if (hovered) {
-                        const p = b.mapToItem(null, 0, 0);
-                        const q = b.mapToItem(null, b.width, b.height);
-                        layer.enter(b.key, b.modelData.text, Qt.rect(p.x, p.y, q.x - p.x, q.y - p.y));
-                    } else
+                    if (hovered)
+                        layer.enter(b.key, b.modelData.text, b.rectIn(), b.meta());
+                    else
                         layer.leave(b.key);
+                }
+            }
+            // right-click: the card turns into the text editor
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                gesturePolicy: TapHandler.WithinBounds
+                onTapped: {
+                    const layer = Manga.reader ? Manga.reader.bubbles : null;
+                    if (layer)
+                        layer.edit(b.key, b.modelData.text, b.rectIn(), b.meta());
                 }
             }
         }

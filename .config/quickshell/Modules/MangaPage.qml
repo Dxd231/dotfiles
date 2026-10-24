@@ -60,6 +60,7 @@ Item {
         sourceComponent: MangaBubbles {
             vol: pg.vol
             idx: pg.info.i
+            path: pg.info.path || ""
         }
     }
 }

@@ -47,7 +47,8 @@ fn library(st: &State) -> Result<Value, String> {
         .prepare(
             "select s.id, s.key, s.title, v.id, v.number, v.title, v.name, v.pages, v.kind, v.path, v.mtime,
                     p.page, p.max_page, p.finished, p.updated, p.vol_id is not null,
-                    (select count(*) from ocr o where o.vol_id = v.id)
+                    (select count(*) from ocr o where o.vol_id = v.id),
+                    (select count(*) from bookmarks b where b.vol_id = v.id)
              from series s join volumes v on v.series_id = s.id and v.gone = 0
              left join progress p on p.vol_id = v.id
              order by s.title collate nocase, coalesce(v.number, 100000), v.name",
@@ -74,7 +75,7 @@ fn library(st: &State) -> Result<Value, String> {
             "id": v.id, "number": v.number, "title": v.title, "name": v.name, "pages": v.pages, "kind": v.kind,
             "page": r.get::<_, Option<i64>>(11).unwrap().unwrap_or(0), "max": r.get::<_, Option<i64>>(12).unwrap().unwrap_or(0),
             "finished": r.get::<_, Option<i64>>(13).unwrap().unwrap_or(0) != 0, "updated": r.get::<_, Option<f64>>(14).unwrap().unwrap_or(0.0),
-            "started": started, "cover": path_json(&cover), "ocr": r.get::<_, i64>(16).unwrap(),
+            "started": started, "cover": path_json(&cover), "ocr": r.get::<_, i64>(16).unwrap(), "bookmarks": r.get::<_, i64>(17).unwrap(),
         });
         if out.last().and_then(|s| s.get("id")).and_then(Value::as_i64) != Some(sid) {
             out.push(json!({ "id": sid, "key": r.get::<_, String>(1).unwrap(), "title": r.get::<_, String>(2).unwrap(), "volumes": [] }));
@@ -111,8 +112,18 @@ fn volume(st: &State, id: i64) -> Result<Value, String> {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_else(|| json!({}));
+    let series_prefs: Value = con
+        .query_row("select json from prefs where vol_id = ?1", params![-v.series_id], |r| r.get::<_, String>(0))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({}));
+    let bookmarks: Vec<i64> = con
+        .prepare("select idx from bookmarks where vol_id = ?1 order by idx")
+        .and_then(|mut q| q.query_map(params![id], |r| r.get(0)).map(|m| m.flatten().collect()))
+        .unwrap_or_default();
     let extracted = v.kind == "folder" || thumbs_done(st, &v);
     Ok(json!({
+        "seriesPrefs": series_prefs, "bookmarks": bookmarks,
         "vol": id, "title": v.title, "name": v.name, "series": series, "seriesId": v.series_id, "number": v.number, "kind": v.kind,
         "pages": pages, "extracted": extracted,
         "prev": prev.map(|p| json!({ "id": p.0, "title": p.1 })), "next": next.map(|p| json!({ "id": p.0, "title": p.1 })),
@@ -298,6 +309,23 @@ fn stats_of(rows: &[(i64, String, f64, i64)], today: &str, week_from: &str) -> V
     json!({ "today": one(t), "week": one(w), "total": one(all), "series": series })
 }
 
+fn bookmark(st: &State, req: &Value) -> Result<Value, String> {
+    let vol = num(req, "vol")?;
+    let idx = num(req, "idx")?;
+    let on = req.get("on").and_then(Value::as_bool).ok_or("missing on")?;
+    let con = st.db.lock().unwrap();
+    if on {
+        con.execute("insert or replace into bookmarks(vol_id, idx, at) values(?1, ?2, ?3)", params![vol, idx, now()]).map_err(|e| e.to_string())?;
+    } else {
+        con.execute("delete from bookmarks where vol_id = ?1 and idx = ?2", params![vol, idx]).map_err(|e| e.to_string())?;
+    }
+    let list: Vec<i64> = con
+        .prepare("select idx from bookmarks where vol_id = ?1 order by idx")
+        .and_then(|mut q| q.query_map(params![vol], |r| r.get(0)).map(|m| m.flatten().collect()))
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "bookmarks": list }))
+}
+
 fn prefs_set(st: &State, req: &Value) -> Result<Value, String> {
     let vol = num(req, "vol")?;
     let patch = req.get("prefs").and_then(Value::as_object).ok_or("missing prefs")?;
@@ -359,9 +387,12 @@ pub fn handle(op: &str, req: &Value, st: &Arc<State>) -> Result<Value, String> {
                 .unwrap_or_else(|| json!({}));
             Ok(json!({ "prefs": p }))
         }
+        "bookmark" => bookmark(st, req),
         "prefs_set" => prefs_set(st, req).map(|p| json!({ "prefs": p })),
         "import_kavita" => kavita::import(st, req),
         "ocr" => ocr::get(st, req),
+        "ocr_edit" => ocr::edit(st, req),
+        "ocr_texts" => ocr::texts(st, req),
         "ocr_status" => Ok(ocr::status(st)),
         "ocr_focus" => ocr::set_focus(st, req),
         "ocr_idle" => ocr::set_idle(st, req),
@@ -391,5 +422,52 @@ mod stats_tests {
         assert_eq!(v["week"]["pages"], 14);
         assert_eq!(v["total"]["secs"], 480.0);
         assert_eq!(v["series"][1]["week"], 0.0);
+    }
+}
+
+#[cfg(test)]
+mod phase7_tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::sync::{mpsc, Mutex};
+
+    fn state(name: &str) -> Arc<State> {
+        let dir = std::env::temp_dir().join(format!("qs-manga-p7-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = crate::config::Config {
+            roots: vec![], ignore: vec![], cache_gb: 1.0, db: dir.join("t.db"), cache: dir.join("cache"),
+            ocr_python: "python3".into(), ocr_worker: dir.join("none.py"),
+        };
+        let con = db::open(&cfg.db).unwrap();
+        con.execute("insert into series(id, key, title) values(7, 'k', 'S')", []).unwrap();
+        con.execute("insert into volumes(id, series_id, path, kind, name, pages) values(1, 7, ?1, 'folder', 'v', 3)", params![dir.join("vol").to_string_lossy()]).unwrap();
+        let (etx, _erx) = mpsc::channel::<()>();
+        Arc::new(State {
+            cfg, out: crate::proto::Out::new(), db: Mutex::new(con), scan_lock: Mutex::new(()), extracting: Mutex::new(HashSet::new()),
+            export: Mutex::new(etx), export_path: dir.join("manga.json"), ocr: crate::ocr::Ocr::new(false, false),
+        })
+    }
+
+    #[test]
+    fn bookmarks_round_trip_and_ride_on_the_volume() {
+        let st = state("bm");
+        let r = bookmark(&st, &json!({ "vol": 1, "idx": 5, "on": true })).unwrap();
+        bookmark(&st, &json!({ "vol": 1, "idx": 2, "on": true })).unwrap();
+        assert_eq!(r["bookmarks"], json!([5]));
+        assert_eq!(volume(&st, 1).unwrap()["bookmarks"], json!([2, 5]));
+        let r = bookmark(&st, &json!({ "vol": 1, "idx": 5, "on": false })).unwrap();
+        assert_eq!(r["bookmarks"], json!([2]));
+    }
+
+    #[test]
+    fn a_series_keeps_its_own_prefs_apart_from_the_global_ones() {
+        let st = state("sp");
+        prefs_set(&st, &json!({ "vol": 0, "prefs": { "rtl": true } })).unwrap();
+        prefs_set(&st, &json!({ "vol": -7, "prefs": { "rtl": false } })).unwrap();
+        let v = volume(&st, 1).unwrap();
+        assert_eq!(v["seriesPrefs"]["rtl"], json!(false));
+        let g = handle("prefs_get", &json!({ "vol": 0 }), &st).unwrap();
+        assert_eq!(g["prefs"]["rtl"], json!(true));
     }
 }

@@ -81,11 +81,16 @@ Scope {
     function searchTerm(s) {
         return s.showName ? (s.partKind === "season" ? s.showName : s.showName + " " + s.name) : s.name;
     }
+    // manga cards are matched by their reader series key, as "manga:<key>"
+    function isManga(s) { return !!s && kindOf(s) === "manga"; }
+    function alKey(s) { return isManga(s) ? AniList.mangaKey(String(s.key).replace(/^kavitaw:/, "")) : (s ? s.key : ""); }
+    function alSeason(s) { return isManga(s) ? 1 : (s ? s.season : 1); }
+    function alType(s) { return isManga(s) ? "MANGA" : "ANIME"; }
     function openFix(s) {
         target = s;
         menu = "";
         sheet = "fix";
-        AniList.search(searchTerm(s));
+        AniList.search(searchTerm(s), alType(s));
     }
 
     readonly property var items: Immersion.shelfList.filter(s => (filter === "all" || kindOf(s) === filter) && Immersion.onShelf(s.key, s.last))
@@ -543,9 +548,9 @@ Scope {
                     Repeater {
                         model: root.menuShown === "card" ? [
                             { id: "pin", text: root.targetPinned ? "Unpin" : "Pin", icon: "push_pin", on: root.pinKey !== "" },
-                            { id: "open", text: "Open on AniList", icon: "open_in_new", on: !!AniList.entryFor(root.target ? root.target.key : "", root.target ? root.target.season : 1) && root.kindOf(root.target) === "video" },
-                            { id: "fix", text: "Fix match…", icon: "edit", on: root.kindOf(root.target) === "video" },
-                            { id: "unlink", text: "Unlink", icon: "link_off", on: root.kindOf(root.target) === "video" },
+                            { id: "open", text: "Open on AniList", icon: "open_in_new", on: !!AniList.entryFor(root.alKey(root.target), root.alSeason(root.target)) && root.kindOf(root.target) !== "book" },
+                            { id: "fix", text: "Fix match…", icon: "edit", on: root.kindOf(root.target) !== "book" },
+                            { id: "unlink", text: "Unlink", icon: "link_off", on: root.kindOf(root.target) !== "book" },
                             { id: "remove", text: "Remove from shelf", icon: "delete", on: root.pinKey !== "" }
                         ] : root.menuShown === "account" ? [
                             { id: "sync", text: "Sync now", icon: "sync", on: true },
@@ -572,11 +577,11 @@ Scope {
                                 if (modelData.id === "pin")
                                     Immersion.togglePin(root.pinKey);
                                 else if (modelData.id === "open")
-                                    AniList.openEntry(t.key, t.season);
+                                    AniList.openEntry(root.alKey(t), root.alSeason(t));
                                 else if (modelData.id === "fix")
                                     root.openFix(t);
                                 else if (modelData.id === "unlink")
-                                    AniList.pin(t.key, t.season, null, root.searchTerm(t));
+                                    AniList.pin(root.alKey(t), root.alSeason(t), null, root.searchTerm(t), root.alType(t));
                                 else if (modelData.id === "remove") {
                                     const c = root.menuItem;
                                     const part = root.kindOf(c) === "video" ? root.partLabel(c) : c.name;
@@ -618,7 +623,7 @@ Scope {
                             Layout.fillWidth: true
                             role: "titleLarge"
                             emphasized: true
-                            text: root.lastSheet === "fix" ? "Pick the right anime" : "Connect AniList"
+                            text: root.lastSheet === "fix" ? (root.isManga(root.target) ? "Pick the right manga" : "Pick the right anime") : "Connect AniList"
                             color: Colors.on_surface
                         }
                     }
@@ -630,7 +635,7 @@ Scope {
                         label: "Search AniList"
                         leadingIcon: "search"
                         text: root.target ? root.searchTerm(root.target) : ""
-                        onAccepted: t => AniList.search(t)
+                        onAccepted: t => AniList.search(t, root.alType(root.target))
                     }
                     ListView {
                         Layout.fillWidth: true
@@ -650,7 +655,7 @@ Scope {
                             color: Colors.surface_container_high
                             contentColor: Colors.on_surface
                             onClicked: {
-                                AniList.pin(root.target.key, root.target.season, hit.modelData.id, root.searchTerm(root.target));
+                                AniList.pin(root.alKey(root.target), root.alSeason(root.target), hit.modelData.id, root.searchTerm(root.target), root.alType(root.target));
                                 root.sheet = "";
                             }
                             RowLayout {
@@ -686,7 +691,7 @@ Scope {
                                     StyledText {
                                         Layout.fillWidth: true
                                         role: "labelSmall"
-                                        text: [hit.modelData.year, hit.modelData.format, hit.modelData.episodes ? hit.modelData.episodes + " eps" : ""].filter(x => x).join("  ·  ")
+                                        text: [hit.modelData.year, hit.modelData.format, hit.modelData.episodes ? hit.modelData.episodes + " eps" : "", hit.modelData.volumes ? hit.modelData.volumes + " vols" : ""].filter(x => x).join("  ·  ")
                                         color: Colors.on_surface_variant
                                         elide: Text.ElideRight
                                     }

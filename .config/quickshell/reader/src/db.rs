@@ -26,6 +26,8 @@ create table if not exists ocr(
     vol_id integer not null, idx integer not null, w integer not null default 0, h integer not null default 0,
     blocks text not null, engine text not null, ver integer not null default 1, at real not null default 0,
     primary key(vol_id, idx));
+create table if not exists bookmarks(
+    vol_id integer not null, idx integer not null, at real not null default 0, primary key(vol_id, idx));
 create table if not exists meta(k text primary key, v text);
 ";
 

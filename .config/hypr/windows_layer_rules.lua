@@ -103,6 +103,11 @@ hl.window_rule({
 		class = "hyprland-share-picker",
 	},
 })
+
+hl.window_rule({
+	match = { title = ".*Private Browsing.*" },
+	no_screen_share = true,
+})
 -- =============================================================================
 -- Layer Rules
 -- =============================================================================
@@ -115,10 +120,17 @@ hl.layer_rule({
 })
 
 hl.layer_rule({
+	match = { namespace = "quickshell:manga" },
+	blur = false,
+	no_anim = true,
+})
+
+hl.layer_rule({
 	match = { namespace = "quickshell:thebar" },
 	blur = false,
 	ignore_alpha = 0.2,
 	blur_popups = true,
+	no_anim = true,
 })
 
 hl.layer_rule({
@@ -268,3 +280,23 @@ hl.layer_rule({
 	ignore_alpha = 0.3,
 	no_anim = true,
 })
+
+-- Remaining quickshell panels: no compositor animation, the shell animates them itself
+for _, ns in ipairs({
+	"quickshell:closing_apps",
+	"quickshell:closing_goodbye",
+	"quickshell:closing_tint",
+	"quickshell:copy_toast",
+	"quickshell:emoji_picker",
+	"quickshell:screen_frame",
+	"quickshell:session_restore",
+	"quickshell:shelf",
+	"quickshell:shelf_edge",
+	"quickshell:subs",
+	"quickshell:tray_menu_dismiss",
+}) do
+	hl.layer_rule({
+		match = { namespace = ns },
+		no_anim = true,
+	})
+end

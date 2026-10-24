@@ -23,13 +23,15 @@ Item {
                     n++;
         return n;
     }
+    property bool editing: false
+    readonly property var meta: shownCur && shownCur.meta ? shownCur.meta : null
     property string _hover: ""
     property var _cand: null
     property var _seg: ({})              // key -> rows, so a bubble seen again is instant
     readonly property bool cardHovered: cardHover.hovered
 
-    function enter(key, text, rect) {
-        if (Manga.reader && Manga.reader.libOpen)
+    function enter(key, text, rect, meta) {
+        if (editing || (Manga.reader && Manga.reader.libOpen))
             return;
         _hover = key;
         closeTimer.stop();
@@ -38,12 +40,12 @@ Item {
             openTimer.stop();
             return;
         }
-        _cand = { key: key, text: text, rect: rect };
+        _cand = { key: key, text: text, rect: rect, meta: meta };
         openTimer.interval = open ? 160 : 120;
         openTimer.restart();
     }
     function leave(key) {
-        if (_hover !== key)
+        if (editing || _hover !== key)
             return;
         _hover = "";
         openTimer.stop();
@@ -52,6 +54,7 @@ Item {
             closeTimer.restart();
     }
     function closeAll() {
+        editing = false;
         openTimer.stop();
         closeTimer.stop();
         _cand = null;
@@ -67,12 +70,12 @@ Item {
             root._cand = null;
             if (!c)
                 return;
-            const have = root._seg[c.key];
+            const have = root._seg[c.key + "|" + c.text];
             if (have)
                 root._commit(c, have);
             else
                 Lexicon.segmentText(c.text, rows => {
-                    root._seg[c.key] = rows;
+                    root._seg[c.key + "|" + c.text] = rows;
                     // the pointer may have moved on while the words were cut
                     if (root._hover === c.key)
                         root._commit(c, rows);
@@ -83,7 +86,7 @@ Item {
         id: closeTimer
         interval: 500
         onTriggered: {
-            if (root.cardHovered || root.popOpen || root._whover !== null || root._hover !== "")
+            if (root.editing || root.cardHovered || root.popOpen || root._whover !== null || root._hover !== "")
                 return;
             root.open = false;
         }
@@ -110,6 +113,95 @@ Item {
         NumberAnimation { target: content; property: "opacity"; to: 0; duration: 80 }
         ScriptAction { script: if (swap.apply) swap.apply() }
         NumberAnimation { target: content; property: "opacity"; to: 1; duration: 120 }
+    }
+
+    // ---- editing the bubble's text (right-click) ----
+    function edit(key, text, rect, meta) {
+        openTimer.stop();
+        closeTimer.stop();
+        closeWord(true);
+        _cand = null;
+        _hover = key;
+        const c = { key: key, text: text, rect: rect, meta: meta };
+        const have = _seg[key + "|" + text];
+        const go = rows => { root.bubbleN++; root.shownCur = c; root.rows = rows; root.open = true; root.editing = true; };
+        if (open && shownCur && shownCur.key === key)
+            editing = true;
+        else if (have)
+            go(have);
+        else
+            go([]);
+        if (!have)
+            Lexicon.segmentText(text, rows => { _seg[key + "|" + text] = rows; if (root.shownCur && root.shownCur.key === key && root.shownCur.text === text) root.rows = rows; });
+    }
+    function cancelEdit() {
+        editing = false;
+        parent.forceActiveFocus();
+        closeTimer.restart();
+    }
+    // the stored bubble changed: the card shows the new text and meta without waiting for the page to reload
+    function _changed(text, patch) {
+        const c = shownCur;
+        if (!c)
+            return;
+        const m = Object.assign({}, c.meta, patch);
+        root.shownCur = { key: c.key, text: text, rect: c.rect, meta: m };
+        const have = _seg[c.key + "|" + text];
+        if (have)
+            root.rows = have;
+        else
+            Lexicon.segmentText(text, rows => { _seg[c.key + "|" + text] = rows; if (root.shownCur && root.shownCur.key === c.key && root.shownCur.text === text) root.rows = rows; });
+    }
+    function saveEdit(text) {
+        const m = meta;
+        const t = text.trim();
+        if (!m || t === "")
+            return;
+        const same = t === m.ocr;
+        Manga.request({ op: "ocr_edit", vol: m.vol, idx: m.idx, i: m.i, text: same ? null : t });
+        _changed(t, { edited: !same });
+        cancelEdit();
+    }
+    function restoreEdit() {
+        const m = meta;
+        if (!m)
+            return;
+        Manga.request({ op: "ocr_edit", vol: m.vol, idx: m.idx, i: m.i, text: null });
+        _changed(m.ocr, { edited: false });
+        cancelEdit();
+    }
+    function toggleHidden() {
+        const m = meta;
+        if (!m)
+            return;
+        Manga.request({ op: "ocr_edit", vol: m.vol, idx: m.idx, i: m.i, hidden: !m.hidden });
+        _changed(shownCur.text, { hidden: !m.hidden });
+        editing = false;
+        parent.forceActiveFocus();
+        if (!m.hidden && !(Manga.reader && Manga.reader.showHidden))
+            closeAll();
+        else
+            closeTimer.restart();
+    }
+
+    // what mining needs from the page: the bubbles in reading order (hidden and empty ones left out), the one
+    // shown at `mline`, and where the picture comes from
+    function mangaCtx() {
+        const m = meta, c = shownCur;
+        if (!m || !c)
+            return {};
+        const list = m.blocks.filter(b => b.hidden !== true && b.text && b.text.trim() !== "").slice().sort((x, y) => x.order - y.order);
+        let line = list.findIndex(b => b.i === m.i);
+        const texts = list.map(b => b.i === m.i ? c.text : b.text);
+        const boxes = list.map(b => b.box);
+        if (line < 0) {
+            texts.push(c.text);
+            boxes.push(m.block.box);
+            line = texts.length - 1;
+        }
+        const v = Manga.reader && Manga.reader.vol ? Manga.reader.vol : null;
+        return { kind: "manga", vol: m.vol, idx: m.idx, bi: m.i, mlines: texts, mboxes: boxes, mline: line, mpath: m.path, mw: m.w, mh: m.h,
+                 mtitle: v ? v.series + " " + v.title : "", mpage: m.idx + 1 };
     }
 
     // ---- the word ----
@@ -223,6 +315,7 @@ Item {
     // keys of the study set (Alt+k, Alt+i, Alt+n, Alt+f), on the word under the pointer
     function known() { if (Lexicon.focusTok) Lexicon.mark(Lexicon.focusTok, "known"); }
     function ignore() { if (Lexicon.focusTok) Lexicon.mark(Lexicon.focusTok, "ignored"); }
+    function mine() { if (Lexicon.focusTok) Lexicon.mine(Lexicon.focusTok, Lexicon.focusCtx); }
     function name() { if (Lexicon.focusTok) Lexicon.setName(Lexicon.focusTok, Lexicon.focusTok.status === "name" ? 0 : 1); }
 
     // ---- the card beside the bubble ----
@@ -231,8 +324,8 @@ Item {
         readonly property var r: root.shownCur ? root.shownCur.rect : Qt.rect(0, 0, 0, 0)
         readonly property real fontPx: 26
         readonly property real textLen: root.shownCur ? root.shownCur.text.length : 0
-        width: Math.round(Math.max(280, Math.min(460, textLen * fontPx * 1.05 + 40)))
-        height: content.implicitHeight + 44
+        width: Math.round(Math.max(root.editing ? 380 : 280, Math.min(460, textLen * fontPx * 1.05 + 40)))
+        height: (root.editing ? editor.implicitHeight : content.implicitHeight) + 44
         readonly property real roomRight: root.width - (r.x + r.width) - 16
         readonly property real roomLeft: r.x - 16
         readonly property bool onRight: roomRight >= width + 12 || roomRight >= roomLeft
@@ -297,12 +390,103 @@ Item {
                     closeTimer.restart();
             }
         }
+        // edited label and the edit button, top right
+        Row {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 8
+            spacing: 6
+            opacity: root.open && !root.editing ? 1 : 0
+            visible: opacity > 0.01
+            Behavior on opacity { Fade {} }
+            InfoPill {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.meta !== null && (root.meta.edited || root.meta.hidden)
+                text: root.meta && root.meta.hidden ? "Hidden" : "Edited"
+                container: root.meta && root.meta.hidden ? Colors.error_container : Colors.secondary_container
+                content: root.meta && root.meta.hidden ? Colors.on_error_container : Colors.on_secondary_container
+            }
+            IconButton {
+                size: "xs"
+                icon: "edit"
+                onClicked: if (root.shownCur) root.edit(root.shownCur.key, root.shownCur.text, root.shownCur.rect, root.shownCur.meta)
+            }
+        }
+        Column {
+            id: editor
+            x: 18
+            y: 26
+            width: card.width - 36
+            spacing: 10
+            opacity: root.editing ? 1 : 0
+            visible: opacity > 0.01
+            Behavior on opacity { Fade {} }
+            Rectangle {
+                width: parent.width
+                height: Math.max(84, field.contentHeight + 24)
+                radius: Motion.shapeMedium
+                color: Colors.surface_container_highest
+                Behavior on height { Spring { speed: "fast" } }
+                TextEdit {
+                    id: field
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    wrapMode: TextEdit.Wrap
+                    font.family: Typography.familyJp
+                    font.pixelSize: 22
+                    color: Colors.on_surface
+                    selectionColor: Colors.primary
+                    selectedTextColor: Colors.on_primary
+                    selectByMouse: true
+                    Connections {
+                        target: root
+                        function onEditingChanged() {
+                            if (root.editing) {
+                                field.text = root.shownCur ? root.shownCur.text : "";
+                                field.forceActiveFocus();
+                                field.cursorPosition = field.length;
+                            }
+                        }
+                    }
+                    Keys.onPressed: ev => {
+                        if ((ev.key === Qt.Key_Return || ev.key === Qt.Key_Enter) && (ev.modifiers & Qt.ControlModifier)) {
+                            root.saveEdit(field.text);
+                            ev.accepted = true;
+                        }
+                    }
+                }
+            }
+            Flow {
+                width: parent.width
+                spacing: 6
+                Button { size: "xs"; text: "Save"; icon: "check"; onClicked: root.saveEdit(field.text) }
+                Button { size: "xs"; style: "text"; text: "Cancel"; onClicked: root.cancelEdit() }
+                Button {
+                    size: "xs"
+                    style: "tonal"
+                    text: "Restore"
+                    icon: "undo"
+                    visible: root.meta !== null && root.meta.edited
+                    onClicked: root.restoreEdit()
+                }
+                Button {
+                    size: "xs"
+                    style: "tonal"
+                    text: root.meta && root.meta.hidden ? "Show bubble" : "Hide bubble"
+                    icon: root.meta && root.meta.hidden ? "visibility" : "visibility_off"
+                    onClicked: root.toggleHidden()
+                }
+            }
+        }
         Column {
             id: content
             x: 18
             y: 26
             width: card.width - 36
             spacing: 6
+            opacity: root.editing ? 0 : 1
+            visible: opacity > 0.01
+            Behavior on opacity { Fade {} }
             Repeater {
                 model: root.rows
 
@@ -325,8 +509,8 @@ Item {
                             active: root.popOpen && root.popTok !== null && root.popTok.key === modelData.key
                             function ctx() {
                                 const j = line.modelData.map(t => t.s);
-                                return { prefix: j.slice(0, index).join(""), suffix: j.slice(index + 1).join(""),
-                                         flat: root.shownCur ? root.shownCur.text : "", start: -1, toks: line.modelData, index: index };
+                                return Object.assign({ prefix: j.slice(0, index).join(""), suffix: j.slice(index + 1).join(""),
+                                         flat: root.shownCur ? root.shownCur.text : "", start: -1, toks: line.modelData, index: index }, root.mangaCtx());
                             }
                             onPointerIn: where => root.wordEnter(modelData, where, ctx())
                             onPointerOut: root.wordLeave(modelData)
@@ -351,18 +535,19 @@ Item {
         readonly property rect a: root.popAnchor
         readonly property real roomAbove: a.y - 20
         readonly property real roomBelow: root.height - (a.y + a.height) - 20
-        readonly property bool flip: roomAbove < 300 && roomBelow > roomAbove
+        // above the word when the whole card fits there, else on the roomier side
+        readonly property bool flip: height > roomAbove && roomBelow > roomAbove
 
-        canMine: false
+        canMine: true
         tok: root.popTok
         ctx: root.popCtx
         shown: root.popOpen
         pinned: root.popPinned
         below: flip
         width: 380
-        maxBodyH: Math.max(120, Math.min(420, (flip ? roomBelow : roomAbove) - 260))
+        maxBodyH: Math.max(120, Math.min(420, Math.max(roomAbove, roomBelow) - 260))
         x: Math.max(12, Math.min(a.x - width / 2 + a.width / 2, root.width - width - 12))
-        y: flip ? a.y + a.height + 8 : a.y - height - 8
+        y: Math.max(12, Math.min(root.height - height - 12, flip ? a.y + a.height + 8 : a.y - height - 8))
 
         onHoveredChanged: {
             if (hovered) {
@@ -378,6 +563,7 @@ Item {
                 root.popPinned = true;
         }
         onKanjiOpened: root.popPinned = true
+        onPicked: s => Lexicon.mark(popup.tok, s)
         onCloseRequested: root.closeWord()
         // another entry was chosen: the line is cut again; the simplest honest answer is to close
         onRetargetRequested: root.closeWord()

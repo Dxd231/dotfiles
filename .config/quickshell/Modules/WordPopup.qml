@@ -617,6 +617,7 @@ Item {
                     readonly property string st: pop.tok ? (Lexicon.mineState[pop.tok.term] || "") : ""
                     readonly property bool busy: st === "adding" || st === "finishing"
                     readonly property int lines: pop.tok ? (Lexicon.mineLines[pop.tok.term] || 1) : 1
+                    readonly property bool manga: pop.ctx !== null && pop.ctx !== undefined && pop.ctx.kind === "manga"
                     spacing: 8
 
                     Button {
@@ -625,8 +626,8 @@ Item {
                         style: (mineRow.st === "" && !pop.armed) || mineRow.st.startsWith("error") ? "filled" : "tonal"
                         icon: mineRow.st === "" && pop.armed ? "close" : mineRow.st === "" || mineRow.busy ? "add_card" : mineRow.st.startsWith("error") ? "refresh" : "check"
                         enabled: !mineRow.busy
-                        text: mineRow.st === "adding" ? "Adding…" : mineRow.st === "finishing" ? "Adding audio and picture…"
-                            : mineRow.st === "done" ? (mineRow.lines > 1 ? "Mined · " + mineRow.lines + " lines" : "Mined") : mineRow.st === "partial" ? "Added, no sentence audio"
+                        text: mineRow.st === "adding" ? "Adding…" : mineRow.st === "finishing" ? (mineRow.manga ? "Adding picture…" : "Adding audio and picture…")
+                            : mineRow.st === "done" ? (mineRow.lines > 1 ? "Mined · " + mineRow.lines + (mineRow.manga ? " bubbles" : " lines") : "Mined") : mineRow.st === "partial" ? (mineRow.manga ? "Added, no picture" : "Added, no sentence audio")
                             : mineRow.st === "dup" ? "Already in Anki"
                             : mineRow.st === "error:yomitan-offline" ? "Open LibreWolf, then retry"
                             : mineRow.st.startsWith("error") ? "Couldn't add, retry" : pop.armed ? "Cancel" : "Mine"

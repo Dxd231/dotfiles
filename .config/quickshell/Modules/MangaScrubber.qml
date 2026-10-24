@@ -14,6 +14,8 @@ Rectangle {
     property int total: 0
     property int page: 0
     property bool rtl: true
+    property var bookmarks: []
+    property int furthest: 0
     signal seek(int page)
 
     // the page under the handle while it is dragged
@@ -76,6 +78,48 @@ Rectangle {
             horizontalAlignment: Text.AlignRight
             Layout.minimumWidth: 28
         }
+    }
+
+    function _x(p) {
+        const f = p / Math.max(1, sb.total - 1);
+        return slider.x + 24 + slider.width * (sb.rtl ? 1 - f : f);
+    }
+
+    // bookmark ticks above the track; a click goes to the page
+    Repeater {
+        model: sb.bookmarks
+        delegate: Rectangle {
+            id: tick
+            required property int modelData
+            width: 6
+            height: 12
+            radius: Motion.shapeFull
+            color: Colors.primary
+            x: sb._x(modelData) - width / 2
+            y: 6
+            scale: 0
+            Component.onCompleted: scale = 1
+            Behavior on scale { Spring {} }
+            Behavior on x { Spring { speed: "fast" } }
+            MouseArea {
+                anchors.centerIn: parent
+                width: 20
+                height: 24
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sb.seek(tick.modelData)
+            }
+        }
+    }
+    // how far this volume has been read
+    Rectangle {
+        visible: sb.furthest > 0
+        width: 6
+        height: 6
+        radius: Motion.shapeFull
+        color: Colors.tertiary
+        x: sb._x(sb.furthest) - width / 2
+        y: sb.height - 12
+        Behavior on x { Spring { speed: "fast" } }
     }
 
     // page preview

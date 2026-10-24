@@ -541,7 +541,7 @@ PanelWindow {
         readonly property real roomAbove: a.y - 20
         readonly property real roomBelow: win.height - (a.y + a.height) - 20
         // a card that cannot fit above the word goes below it
-        readonly property bool flip: roomAbove < 300 && roomBelow > roomAbove
+        readonly property bool flip: height > roomAbove && roomBelow > roomAbove
 
         lookupOnly: true
         tok: win.popTok
@@ -550,9 +550,9 @@ PanelWindow {
         pinned: win.popPinned
         below: flip
         width: 380
-        maxBodyH: Math.max(120, Math.min(420, (flip ? roomBelow : roomAbove) - 260))
+        maxBodyH: Math.max(120, Math.min(420, Math.max(roomAbove, roomBelow) - 260))
         x: Math.max(12, Math.min(a.x - width / 2, win.width - width - 12))
-        y: flip ? a.y + a.height + 8 : a.y - height - 8
+        y: Math.max(12, Math.min(win.height - height - 12, flip ? a.y + a.height + 8 : a.y - height - 8))
 
         onHoveredChanged: {
             if (hovered)

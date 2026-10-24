@@ -255,7 +255,9 @@ Item {
             // whole cards only: perRow of them fill the row exactly, and scrolling snaps to a card
             readonly property int gap: 14
             readonly property int perRow: Math.max(6, Math.min(12, Math.round(width / 215)))
-            readonly property real cardW: (width - (perRow - 1) * gap) / perRow
+            // room at both ends of a row, so the first and last card can widen under the pointer without being clipped
+            readonly property int edge: 10
+            readonly property real cardW: (width - 2 * edge - (perRow - 1) * gap) / perRow
             readonly property real pitch: cardW + gap
             readonly property real coverW: cardW - 16
             readonly property real coverH: coverW * 1.42
@@ -283,7 +285,8 @@ Item {
 
                         RowLayout {
                             id: rowHead
-                            width: parent.width
+                            x: rowsView.edge
+                            width: parent.width - rowsView.edge
                             height: rowsView.headerH
                             spacing: 12
                             StyledText {
@@ -304,6 +307,15 @@ Item {
                                 visible: Manga.seriesWeek(row.modelData.id) > 0
                                 text: Manga.fmtTime(Manga.seriesWeek(row.modelData.id)) + " this week"
                             }
+                            Collapse {
+                                horizontal: true
+                                open: !!AniList.entryFor(AniList.mangaKey(row.modelData.key), 1)
+                                IconButton {
+                                    icon: "open_in_new"
+                                    size: "xs"
+                                    onClicked: AniList.openEntry(AniList.mangaKey(row.modelData.key), 1)
+                                }
+                            }
                             Item { Layout.fillWidth: true }
                         }
 
@@ -312,7 +324,9 @@ Item {
                             anchors.top: rowHead.bottom
                             anchors.left: parent.left
                             anchors.bottom: parent.bottom
-                            width: Math.min(parent.width, rowsView.perRow * rowsView.pitch - rowsView.gap)
+                            width: Math.min(parent.width, rowsView.perRow * rowsView.pitch - rowsView.gap + 2 * rowsView.edge)
+                            leftMargin: rowsView.edge
+                            rightMargin: rowsView.edge
                             orientation: ListView.Horizontal
                             spacing: rowsView.gap
                             clip: true
@@ -326,9 +340,9 @@ Item {
                                 epsilon: 0.3
                                 onValueChanged: strip.contentX = value
                             }
-                            // a horizontal ListView's content can start left of 0 (originX), so every stop is measured from it
-                            function minX() { return originX; }
-                            function maxX() { return originX + Math.max(0, contentWidth - width); }
+                            // a horizontal ListView's content can start left of 0 (originX, and its leftMargin), so every stop is measured from there
+                            function minX() { return originX - leftMargin; }
+                            function maxX() { return minX() + Math.max(0, contentWidth + leftMargin + rightMargin - width); }
                             function snap(x) { return Math.max(minX(), Math.min(maxX(), minX() + Math.round((x - minX()) / rowsView.pitch) * rowsView.pitch)); }
                             WheelHandler {
                                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
@@ -377,124 +391,200 @@ Item {
                                 function onPitchChanged() { if (!sx.moving) sx.jump(strip.snap(strip.contentX)); }
                             }
 
-                            delegate: Clickable {
-                                id: vc
+                            delegate: Item {
+                                id: cell
+
                                 required property var modelData
                                 required property int index
-                                readonly property bool fin: modelData.finished
-                                readonly property bool prog: modelData.started && !modelData.finished
-                                readonly property bool isNext: modelData.id === row.nextVol
-                                                                width: rowsView.cardW
+                                width: rowsView.cardW
                                 height: strip.height
-                                restRadius: Motion.shapeLarge
-                                color: prog ? Colors.secondary_container : Colors.surface_container
-                                onHoveredChanged: {
-                                    if (hovered)
-                                        lib.hoverVol = modelData.id;
-                                    else if (lib.hoverVol === modelData.id)
-                                        lib.hoverVol = -1;
-                                }
-                                onClicked: {
-                                    const p = cover.mapToItem(lib, 0, 0);
-                                    lib.pick(modelData.id, Qt.rect(p.x, p.y, cover.width, cover.height), coverImg.source);
-                                }
-                                Appear { shown: lib.shown; delay: 160 + Math.min(row.index, 6) * 60 + Math.min(vc.index, 10) * 25; lift: 10 }
+                                z: vc.hovered ? 2 : 0
 
-                                ClippingRectangle {
-                                    id: cover
-                                    x: 8
-                                    y: 8
-                                    width: rowsView.coverW
-                                    height: rowsView.coverH
-                                    radius: vc.hovered ? Motion.shapeLarge : Motion.shapeMedium
-                                    Behavior on radius { Spring { speed: "fast" } }
-                                    color: Colors.surface_container_high
-                                    opacity: vc.fin ? 0.55 : 1
-                                    Behavior on opacity { Fade {} }
-                                    scale: vc.hovered ? 1.04 : 1
-                                    Behavior on scale { Spring { speed: "fast" } }
-                                    Image {
-                                        id: coverImg
-                                        anchors.fill: parent
-                                        source: Manga.cover(vc.modelData.cover)
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
+                                Clickable {
+                                    id: vc
+
+                                    readonly property var modelData: cell.modelData
+                                    readonly property int index: cell.index
+                                    readonly property bool fin: modelData.finished
+                                    readonly property bool prog: modelData.started && !modelData.finished
+                                    readonly property bool isNext: modelData.id === row.nextVol
+                                    // the one volume Continue opens wears the strong container; NEXT a quieter one; every other card stays plain
+                                    readonly property bool isCurrent: lib.hero !== null && lib.hero.vol.id === modelData.id
+                                    // the card grows into the gap and the strip's end room; its cell keeps its size, so nothing else moves
+                                    property real grow: hovered ? 16 : 0
+                                    Behavior on grow { Spring { speed: "fast" } }
+                                    // the state layer's strength, followed by the notches behind the badges so they match the card
+                                    property real layerOpacity: pressed ? Motion.statePressed : hovered ? Motion.stateHover : 0
+                                    Behavior on layerOpacity { Fade {} }
+                                    readonly property color surfaceNow: Qt.tint(color, Qt.alpha(contentColor, layerOpacity))
+                                    x: -grow / 2
+                                    width: rowsView.cardW + Math.max(0, grow)
+                                    height: cell.height
+                                    restRadius: hovered ? Motion.shapeLarge : Motion.shapeExtraLarge
+                                    pressedRadius: Motion.shapeMedium
+                                    contentColor: isCurrent ? Colors.on_primary_container : isNext ? Colors.on_secondary_container : Colors.on_surface
+                                    color: isCurrent ? Colors.primary_container : isNext ? Colors.secondary_container : Colors.surface_container
+                                    onHoveredChanged: {
+                                        if (hovered)
+                                            lib.hoverVol = modelData.id;
+                                        else if (lib.hoverVol === modelData.id)
+                                            lib.hoverVol = -1;
                                     }
-                                    // reading progress along the bottom of the cover
+                                    onClicked: {
+                                        const p = cover.mapToItem(lib, 0, 0);
+                                        lib.pick(modelData.id, Qt.rect(p.x, p.y, cover.width, cover.height), coverImg.source);
+                                    }
+                                    Appear { shown: lib.shown; delay: 160 + Math.min(row.index, 6) * 60 + Math.min(vc.index, 10) * 25; lift: 10 }
+
+                                    // soft sleeve above, crisp edge toward the footer; both ease softer under the pointer
+                                    ClippingRectangle {
+                                        id: cover
+                                        x: 8
+                                        y: 8
+                                        width: vc.width - 16
+                                        height: rowsView.coverH
+                                        topLeftRadius: vc.hovered ? Motion.shapeMedium : Motion.shapeLargeIncreased
+                                        topRightRadius: topLeftRadius
+                                        bottomLeftRadius: vc.hovered ? Motion.shapeMedium : Motion.shapeSmall
+                                        bottomRightRadius: bottomLeftRadius
+                                        Behavior on topLeftRadius { Spring { speed: "fast" } }
+                                        Behavior on bottomLeftRadius { Spring { speed: "fast" } }
+                                        color: Colors.surface_container_high
+                                        opacity: vc.fin ? 0.55 : 1
+                                        Behavior on opacity { Fade {} }
+                                        Image {
+                                            id: coverImg
+                                            anchors.fill: parent
+                                            source: Manga.cover(vc.modelData.cover)
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                        }
+                                        // reading progress along the bottom of the cover
+                                        Rectangle {
+                                            anchors.left: parent.left
+                                            anchors.bottom: parent.bottom
+                                            height: 6
+                                            width: parent.width * lib.pct(vc.modelData)
+                                            visible: vc.prog
+                                            color: Colors.tertiary
+                                            Behavior on width { Spring { speed: "default" } }
+                                        }
+                                    }
+                                    // the footer: the volume, and its share once it is started
+                                    RowLayout {
+                                        anchors.left: cover.left
+                                        anchors.right: cover.right
+                                        anchors.top: cover.bottom
+                                        anchors.topMargin: 6
+                                        spacing: 6
+                                        StyledText {
+                                            Layout.fillWidth: true
+                                            role: "titleMedium"
+                                            emphasized: true
+                                            jp: true
+                                            elide: Text.ElideRight
+                                            color: vc.contentColor
+                                            text: vc.modelData.title
+                                        }
+                                        Rectangle {
+                                            id: pill
+                                            property real w: vc.prog ? pctText.implicitWidth + 18 : 0
+                                            Behavior on w { Spring { speed: "fast" } }
+                                            Layout.preferredWidth: Math.max(0, w)
+                                            Layout.preferredHeight: 24
+                                            radius: Motion.shapeFull
+                                            // legible against the card it sits on: dark on the strong container, tertiary container on the rest
+                                            color: vc.isCurrent ? Colors.surface_container : Colors.tertiary_container
+                                            Behavior on color { ColorFade {} }
+                                            opacity: vc.prog ? 1 : 0
+                                            Behavior on opacity { Fade {} }
+                                            visible: opacity > 0.01 || w > 0.5
+                                            SwapText {
+                                                id: pctText
+                                                anchors.centerIn: parent
+                                                role: "labelLarge"
+                                                emphasized: true
+                                                color: vc.isCurrent ? Colors.on_surface : Colors.on_tertiary_container
+                                                value: Math.round(lib.pct(vc.modelData) * 100) + "%"
+                                            }
+                                        }
+                                    }
+                                    // a notch of the card's own colour cut into the cover behind each top-right badge
                                     Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.bottom: parent.bottom
-                                        height: 6
-                                        width: parent.width * lib.pct(vc.modelData)
-                                        visible: vc.prog
+                                        anchors.centerIn: checkBadge
+                                        width: checkBadge.width + 8
+                                        height: width
+                                        radius: width / 2
+                                        z: 1
+                                        color: vc.surfaceNow
+                                        scale: checkBadge.badgeScale
+                                        visible: checkBadge.visible
+                                    }
+                                    Rectangle {
+                                        anchors.centerIn: progRing
+                                        width: progRing.width + 8
+                                        height: width
+                                        radius: width / 2
+                                        z: 1
+                                        color: vc.surfaceNow
+                                        opacity: progRing.opacity
+                                        visible: progRing.visible
+                                    }
+                                    // finished
+                                    ShapeBadge {
+                                        id: checkBadge
+                                        anchors { top: cover.top; right: cover.right; margins: 6 }
+                                        width: 28
+                                        height: 28
+                                        z: 2
+                                        badgeScale: vc.fin ? 1 : 0
+                                        visible: badgeScale > 0.02
+                                        shapeRest: "cookie9"
+                                        shapeActive: "sunny"
+                                        color: Colors.tertiary_container
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: "check"
+                                            size: 18
+                                            color: Colors.on_tertiary_container
+                                        }
+                                    }
+                                    // in progress
+                                    WavyRing {
+                                        id: progRing
+                                        anchors { top: cover.top; right: cover.right; margins: 6 }
+                                        width: 34
+                                        height: 34
+                                        z: 2
+                                        thickness: 4
+                                        amplitude: 1.2
+                                        waves: 8
+                                        gap: 20
+                                        value: lib.pct(vc.modelData)
+                                        waving: lib.shown && vc.prog
+                                        opacity: vc.prog ? 1 : 0
+                                        visible: opacity > 0.01
+                                        Behavior on opacity { Fade {} }
+                                    }
+                                    // the volume to read next
+                                    ShapeBadge {
+                                        anchors { top: cover.top; left: cover.left; margins: 6 }
+                                        width: 40
+                                        height: 40
+                                        z: 2
+                                        badgeScale: vc.isNext ? 1 : 0
+                                        visible: badgeScale > 0.02
+                                        spinning: vc.isNext && lib.shown
+                                        shapeRest: "softBurst"
+                                        shapeActive: "sunny"
                                         color: Colors.primary
-                                        Behavior on width { Spring { speed: "default" } }
-                                    }
-                                }
-                                StyledText {
-                                    anchors.left: cover.left
-                                    anchors.right: cover.right
-                                    anchors.top: cover.bottom
-                                    anchors.topMargin: 6
-                                    role: "labelLarge"
-                                    emphasized: true
-                                    jp: true
-                                    elide: Text.ElideRight
-                                    color: vc.prog ? Colors.on_secondary_container : Colors.on_surface
-                                    text: vc.modelData.title
-                                }
-                                // finished
-                                ShapeBadge {
-                                    anchors { top: cover.top; right: cover.right; margins: 6 }
-                                    width: 28
-                                    height: 28
-                                    z: 2
-                                    badgeScale: vc.fin ? 1 : 0
-                                    visible: badgeScale > 0.02
-                                    shapeRest: "cookie9"
-                                    shapeActive: "sunny"
-                                    color: Colors.tertiary_container
-                                    Icon {
-                                        anchors.centerIn: parent
-                                        name: "check"
-                                        size: 18
-                                        color: Colors.on_tertiary_container
-                                    }
-                                }
-                                // in progress
-                                WavyRing {
-                                    anchors { top: cover.top; right: cover.right; margins: 6 }
-                                    width: 34
-                                    height: 34
-                                    z: 2
-                                    thickness: 4
-                                    amplitude: 1.2
-                                    waves: 8
-                                    gap: 20
-                                    value: lib.pct(vc.modelData)
-                                    waving: lib.shown && vc.prog
-                                    opacity: vc.prog ? 1 : 0
-                                    visible: opacity > 0.01
-                                    Behavior on opacity { Fade {} }
-                                }
-                                // the volume to read next
-                                ShapeBadge {
-                                    anchors { top: cover.top; left: cover.left; margins: 6 }
-                                    width: 40
-                                    height: 40
-                                    z: 2
-                                    badgeScale: vc.isNext ? 1 : 0
-                                    visible: badgeScale > 0.02
-                                    spinning: vc.isNext && lib.shown
-                                    shapeRest: "softBurst"
-                                    shapeActive: "sunny"
-                                    color: Colors.primary
-                                    StyledText {
-                                        anchors.centerIn: parent
-                                        role: "labelSmall"
-                                        emphasized: true
-                                        color: Colors.on_primary
-                                        text: "NEXT"
+                                        StyledText {
+                                            anchors.centerIn: parent
+                                            role: "labelSmall"
+                                            emphasized: true
+                                            color: Colors.on_primary
+                                            text: "NEXT"
+                                        }
                                     }
                                 }
                             }

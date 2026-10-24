@@ -252,6 +252,12 @@ Singleton {
     property var _spanCache: ({})
     // the cue under the word and its neighbours (op span), cached per word and cue
     function spanOf(tok, ctx, done) {
+        // a manga bubble: the bubbles of its page, in reading order, stand in for the subtitle cues
+        if (tok && ctx && ctx.kind === "manga" && ctx.mline >= 0) {
+            const lo = Math.max(0, ctx.mline - 4), hi = Math.min(ctx.mlines.length - 1, ctx.mline + 4);
+            done({ line: ctx.mline, auto: [ctx.mline, ctx.mline], lines: ctx.mlines.slice(lo, hi + 1).map((t, k) => ({ i: lo + k, text: t })) });
+            return;
+        }
         const path = subPath();
         if (!tok || !ctx || ctx.start === undefined || ctx.start < 0 || path === "") {
             done(null);
@@ -273,7 +279,11 @@ Singleton {
     }
     // the user changed the lines: remembered for Mine, or, for a card already mined, written to the note after a pause
     property var _respanArgs: null
-    function spanKey(tok, ctx) { return tok.term + "|" + (ctx ? ctx.start : -1); }
+    function spanKey(tok, ctx) {
+        if (ctx && ctx.kind === "manga")
+            return tok.term + "|m" + ctx.vol + "|" + ctx.idx + "|" + ctx.bi;
+        return tok.term + "|" + (ctx ? ctx.start : -1);
+    }
     function setSpan(tok, ctx, span) {
         if (!tok || !tok.term)
             return;
@@ -343,6 +353,10 @@ Singleton {
         const job = _mineQ.shift();
         const tok = job.tok;
         const end = (st) => { lex._setMine(tok.term, st); lex._mineBusy = false; lex._mineNext(); };
+        if (job.ctx && job.ctx.kind === "manga") {
+            lex._mangaMine(job, end);
+            return;
+        }
         if (job.kind === "respan") {
             request({ op: "respan", noteId: lex.mineNote[tok.term], term: tok.term, reading: tok.reading || "", surface: tok.s,
                       prefix: job.ctx.prefix || "", body: tok.s, suffix: job.ctx.suffix || "", path: job.path,
@@ -378,6 +392,49 @@ Singleton {
                 lex.request({ op: "capture", noteId: r.noteId, path: job.path, video: job.video, span: r.span, line: r.line }, c => {
                     end(c.done ? "done" : "partial");
                     lex.sync();
+                });
+            }
+        });
+    }
+
+    // a word of a manga bubble: the sentence is the bubbles of the span (no video, so no start/path), the picture
+    // is the panel around them cut from the page. A span changed after mining rewrites the same note.
+    function _mangaMine(job, end) {
+        const tok = job.tok, ctx = job.ctx, respan = job.kind === "respan";
+        const sp = job.span || [ctx.mline, ctx.mline];
+        const a = Math.max(0, Math.min(ctx.mline, sp[0])), b = Math.min(ctx.mlines.length - 1, Math.max(ctx.mline, sp[1]));
+        const prefix = ctx.mlines.slice(a, ctx.mline).join("") + (ctx.prefix || "");
+        const suffix = (ctx.suffix || "") + ctx.mlines.slice(ctx.mline + 1, b + 1).join("");
+        const r = [1e9, 1e9, -1, -1];
+        for (let k = a; k <= b; k++) {
+            const bx = ctx.mboxes[k];
+            r[0] = Math.min(r[0], bx[0]); r[1] = Math.min(r[1], bx[1]); r[2] = Math.max(r[2], bx[2]); r[3] = Math.max(r[3], bx[3]);
+        }
+        const picture = (noteId, after) => request({ op: "capture_image", noteId: noteId, image: ctx.mpath, rect: r, pw: ctx.mw, ph: ctx.mh,
+                                                      title: ctx.mtitle, page: ctx.mpage }, c => after(c));
+        const lines = b - a + 1;
+        const keepLines = () => { const m = Object.assign({}, lex.mineLines); m[tok.term] = lines; lex.mineLines = m; };
+        request({ op: "mine", term: tok.term, reading: tok.reading || "", surface: tok.s, force: job.force,
+                  replace: respan ? (mineNote[tok.term] || 0) : job.replace, prefix: prefix, body: tok.s, suffix: suffix,
+                  path: "", start: -1 }, m => {
+            if (m.error) {
+                end(respan ? "partial" : "error:" + m.error.split(":")[0]);
+            } else if (m.dup) {
+                if (m.noteId) { const n = Object.assign({}, lex.mineNote); n[tok.term] = m.noteId; lex.mineNote = n; }
+                end("dup");
+            } else {
+                keepLines();
+                const n = Object.assign({}, lex.mineNote);
+                n[tok.term] = m.noteId;
+                lex.mineNote = n;
+                if (!respan) {
+                    lex._setMine(tok.term, "finishing");
+                    lex._override(tok.term, "learning");
+                }
+                picture(m.noteId, c => {
+                    end(c.done ? "done" : "partial");
+                    if (!respan)
+                        lex.sync();
                 });
             }
         });
@@ -479,6 +536,13 @@ Singleton {
         ocrKeep = true;
         ocrKeepTimer.restart();
         request({ op: "segment", lines: text.split("\n").map(s => s.trim()).filter(s => s !== "") }, r => done(r.error ? [] : r.lines));
+    }
+
+    // known / learning shares of some text (a manga volume's bubbles): { tokens, pct, learnPct, newWords }
+    function textStats(texts, done) {
+        ocrKeep = true;
+        ocrKeepTimer.restart();
+        request({ op: "text_stats", texts: texts }, done);
     }
 
     // the line on screen, cut into words

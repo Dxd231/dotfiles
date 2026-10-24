@@ -18,12 +18,14 @@ hl.bind(mod .. "+ period", hl.dsp.exec_cmd("qs ipc call emojipicker toggle"))
 hl.bind(mod .. "+ SHIFT + R", hl.dsp.exec_cmd("~/appkill.sh"))
 hl.bind(mod .. " + H", hl.dsp.exec_cmd("killall -s SIGUSR1 waifuland"))
 hl.bind(mod .. "+ W", hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call wallpaper toggle"))
-hl.bind(mod .. "+ M", hl.dsp.exec_cmd("qs ipc call mprispopup toggle"))
+hl.bind(mod .. "+ M", hl.dsp.exec_cmd("qs ipc call manga toggle"))
 hl.bind(mod .. "+ C", hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call controlcenter toggle"))
 hl.bind(mod .. "+ SHIFT + C", hl.dsp.exec_cmd("qs -p .config/quickshell/shell.qml ipc call notifications toggle"))
 hl.bind(mod .. " + Tab", hl.dsp.exec_cmd("snappy-switcher next"))
 hl.bind(mod .. " + SHIFT + Tab", hl.dsp.exec_cmd("snappy-switcher prev"))
 hl.bind("CTRL + ALT + Delete", hl.dsp.exec_cmd("qs ipc call powermenu toggle"))
+hl.bind("XF86PowerOff", hl.dsp.exec_cmd("qs ipc call powermenu toggle"))
+
 hl.bind(
 	mod .. " + E",
 	hl.dsp.exec_cmd(

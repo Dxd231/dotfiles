@@ -1349,6 +1349,40 @@ def capture(req):
     return out
 
 
+def capture_image(req):
+    """The picture of a manga card: the bubble(s) of the sentence with the panel around them, cut from the page
+    with ffmpeg. `rect` is [x0, y0, x1, y1] in page pixels, grown 1.5x about its centre and kept on the page; the
+    result is scaled down (never up) to subs2srs's snapshot height and put in the note's picture field."""
+    import hashlib
+    path = req["image"]
+    if not os.path.exists(path):
+        return {"error": "no-image"}
+    pw, ph = float(req.get("pw") or 0), float(req.get("ph") or 0)
+    x0, y0, x1, y1 = [float(v) for v in req["rect"]]
+    if pw <= 0 or ph <= 0:
+        raise RuntimeError("no page size")
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    w, h = max(80.0, (x1 - x0) * 1.5), max(80.0, (y1 - y0) * 1.5)
+    w, h = min(w, pw), min(h, ph)
+    x, y = min(max(0.0, cx - w / 2), pw - w), min(max(0.0, cy - h / 2), ph - h)
+    cw, ch = max(2, int(w) // 2 * 2), max(2, int(h) // 2 * 2)
+    opt = mpvacious_opt
+    th = min(int(opt("snapshot_height", "350")), ch)
+    tw = max(2, int(round(cw * th / ch)) // 2 * 2)
+    pname = "manga_%s.avif" % hashlib.sha1(("%s|%d|%d|%d|%d" % (path, x, y, cw, ch)).encode()).hexdigest()[:12]
+    ppath = os.path.join(MEDIA_TMP, pname)
+    os.makedirs(MEDIA_TMP, exist_ok=True)
+    _ffmpeg(["-i", path, "-frames:v", "1", "-vf", "crop=%d:%d:%d:%d,scale=%d:%d" % (cw, ch, int(x), int(y), tw, th),
+             "-c:v", "libaom-av1", "-still-picture", "1", "-crf", opt("snapshot_quality", "15"), "-cpu-used", "8", ppath])
+    anki("storeMediaFile", filename=pname, data=base64.b64encode(open(ppath, "rb").read()).decode())
+    os.remove(ppath)
+    fields = {opt("image_field", "Picture"): opt("image_template", '<img alt="snapshot" src="%s">').replace("%s", pname)}
+    if opt("miscinfo_enable", "no") == "yes" and req.get("title"):
+        fields[opt("miscinfo_field", "MiscInfo")] = req["title"] + (" p.%s" % req["page"] if req.get("page") else "")
+    anki("updateNoteFields", note={"id": req["noteId"], "fields": fields})
+    return {"done": True, "picture": pname}
+
+
 def handle(req):
     op = req.get("op")
     if op == "segment":
@@ -1403,6 +1437,9 @@ def handle(req):
     if op == "learning":
         words, marks = learning_list(req.get("path", ""))
         return {"words": words, "marks": marks}
+    if op == "text_stats":
+        texts = req.get("texts") or []
+        return _stats(texts, annotate(texts))
     if op == "parse_file":
         return parse_file(req["path"])
     if op == "transcript":
@@ -1418,6 +1455,8 @@ def handle(req):
         return {"ok": True}
     if op == "capture":
         return capture(req)
+    if op == "capture_image":
+        return capture_image(req)
     if op == "status":
         return {"yomitan": yom.alive(), "words": store.counts()}
     return {"error": "unknown op %r" % op}
@@ -1450,7 +1489,7 @@ def main():
         if req.get("quit"):
             break
         # slow ops run on a thread so a long parse_file never blocks hover lookups
-        if req.get("op") in ("parse_file", "transcript", "sync", "mine", "respan", "span", "capture"):
+        if req.get("op") in ("parse_file", "transcript", "sync", "mine", "respan", "span", "capture", "capture_image", "text_stats"):
             threading.Thread(target=run, args=(req,), daemon=True).start()
         else:
             run(req)

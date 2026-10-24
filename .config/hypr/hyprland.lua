@@ -28,7 +28,6 @@ hl.config({
 	cursor = {
 		no_hardware_cursors = 0,
 		no_warps = false,
-		warp_back_after_non_mouse_input = true,
 		inactive_timeout = 20,
 		sync_gsettings_theme = true,
 	},
@@ -67,8 +66,9 @@ hl.config({
 -- ==================
 hl.config({
 	decoration = {
-		rounding = 18,
-		rounding_power = 3.0,
+		-- M3 shapeLargeIncreased (Motion.qml); power 2 = the plain circular corner QML draws
+		rounding = 20,
+		rounding_power = 2.0,
 		dim_special = 0.2,
 		dim_inactive = false,
 		dim_strength = 0.3,
@@ -77,10 +77,11 @@ hl.config({
 		border_part_of_window = false,
 		shadow = {
 			enabled = true,
-			range = 10,
+			-- one-shadow fold of Elevation.qml level 3: key (y1, blur3, 30%) + ambient (y4, blur8, spread3, 15%)
+			range = 12,
 			render_power = 3,
-			offset = { 0, 0 },
-			color = "rgba(00000060)",
+			offset = { 0, 3 },
+			color = "rgba(00000059)",
 		},
 		blur = {
 			enabled = true,
@@ -96,68 +97,29 @@ hl.config({
 -- ANIMATTION
 -- =================
 
-hl.curve("smooth", { type = "spring", mass = 1, stiffness = 1000, dampening = 63.2 })
-
-hl.curve("easeOutBack", { type = "bezier", points = { { 0.5, 1 }, { 0.89, 1 } } })
-
-hl.curve("niri_spring", { type = "spring", mass = 1, stiffness = 1000, dampening = 63.2 })
+-- springs mirror quickshell/Motion.qml (M3 Expressive); dampening = 2 * ratio * sqrt(stiffness)
+hl.curve("m3FastSpatial", { type = "spring", mass = 1, stiffness = 800, dampening = 33.9 })
+hl.curve("m3DefaultSpatial", { type = "spring", mass = 1, stiffness = 380, dampening = 31.2 })
+hl.curve("m3SlowSpatial", { type = "spring", mass = 1, stiffness = 200, dampening = 22.6 })
+hl.curve("m3StdFast", { type = "spring", mass = 1, stiffness = 1400, dampening = 67.3 })
+hl.curve("m3StdDefault", { type = "spring", mass = 1, stiffness = 700, dampening = 47.6 })
 
 hl.curve("easeoutCubic", { type = "bezier", points = { { 0.33, 1 }, { 0.68, 1 } } })
 
-hl.curve("snappy", { type = "spring", mass = 1, stiffness = 900, dampening = 40.3 })
-
-hl.curve("easy", { type = "spring", mass = 1, stiffness = 800, dampening = 56.6 })
-
-hl.animation({
-	leaf = "windowsIn",
-	enabled = true,
-	speed = 1,
-	spring = "smooth",
-	style = "popin 50%",
-})
-hl.animation({
-	leaf = "windowsOut",
-	enabled = true,
-	speed = 1,
-	bezier = "easeOutBack",
-	style = "popin 10%",
-})
-hl.animation({
-	leaf = "workspaces",
-	enabled = true,
-	speed = 1,
-	spring = "niri_spring",
-	style = "slidevert",
-})
-hl.animation({ leaf = "border", enabled = true, speed = 3, bezier = "easeoutCubic" })
+hl.animation({ leaf = "windowsIn", enabled = true, speed = 1, spring = "m3DefaultSpatial", style = "popin 60%" })
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 1, spring = "m3StdFast", style = "popin 80%" })
+hl.animation({ leaf = "windowsMove", enabled = true, speed = 1, spring = "m3DefaultSpatial", style = "slide" })
+hl.animation({ leaf = "workspaces", enabled = true, speed = 1, spring = "m3DefaultSpatial", style = "slidevert" })
 hl.animation({
 	leaf = "specialWorkspace",
 	enabled = true,
 	speed = 1,
-	spring = "snappy",
+	spring = "m3FastSpatial",
 	style = "slidevert -100%",
 })
-hl.animation({
-	leaf = "windowsMove",
-	enabled = true,
-	speed = 4,
-	spring = "smooth",
-	style = "slide",
-})
-hl.animation({
-	leaf = "layers",
-	enabled = true,
-	speed = 4,
-	spring = "easy",
-	style = "slide",
-})
-hl.animation({
-	leaf = "layersOut",
-	enabled = true,
-	speed = 5,
-	spring = "easy",
-	style = "slide",
-})
+hl.animation({ leaf = "border", enabled = true, speed = 3, bezier = "easeoutCubic" })
+hl.animation({ leaf = "layers", enabled = true, speed = 1, spring = "m3FastSpatial", style = "slide" })
+hl.animation({ leaf = "layersOut", enabled = true, speed = 1, spring = "m3StdFast", style = "slide" })
 
 hl.config({
 	scrolling = {

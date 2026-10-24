@@ -53,7 +53,7 @@ Rectangle {
             StyledText {
                 role: "labelLarge"
                 color: Colors.on_surface_variant
-                text: card.next ? "Finished. Up next" : "Finished"
+                text: card.next ? (card.next.skipped ? "Finished. Next unread" : "Finished. Up next") : "Finished"
             }
             StyledText {
                 role: "headlineSmall"

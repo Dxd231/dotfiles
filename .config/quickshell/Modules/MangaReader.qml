@@ -29,6 +29,10 @@ PanelWindow {
     property bool loaded: false         // the saved page was applied: later changes are the reader's
     property string mode: "spread"      // spread | single | scroll
     property bool rtl: true
+    property bool rtlGlobal: true       // the direction for series that were never set
+    property bool rtlNote: false        // "this series" shows for a moment after D
+    property var bookmarks: []          // page indices marked in this volume
+    property int furthest: 0            // the furthest page read in this volume
     property int offset: 0
     property real widthPct: 0.5         // scroll mode: page width as a share of the screen
     property int page: 0
@@ -37,6 +41,51 @@ PanelWindow {
     property real extractFrac: -1       // 0..1 while an archive unpacks
     property int turns: 0               // page changes since the last tick
     property double lastInput: Date.now()
+    property bool showHidden: false     // bubbles the user hid are drawn faintly, so they can be shown again
+    // known share of the volume's recognised text: { pct, newWords, learnPct, tokens }, null until read
+    property var comp: null
+    readonly property string compText: comp && comp.tokens > 0 ? Math.round(comp.pct) + "% known · " + comp.newWords + " new" : ""
+    function refreshComp() {
+        const id = vol ? vol.vol : -1;
+        if (id < 0)
+            return;
+        Manga.request({ op: "ocr_texts", vol: id }, r => {
+            if (!r || !r.texts || r.texts.length === 0 || !vol || vol.vol !== id) {
+                if (vol && vol.vol === id)
+                    win.comp = null;
+                return;
+            }
+            Lexicon.textStats(r.texts, st => { if (vol && vol.vol === id && st && !st.error) win.comp = st; });
+        });
+    }
+    // unknown words on the page(s) on screen
+    property int hereNew: 0
+    function refreshHere() {
+        const id = vol ? vol.vol : -1;
+        if (id < 0 || libOpen)
+            return;
+        const near = mode === "scroll" ? [page - 1, page, page + 1].filter(p => p >= 0) : viewPages;
+        Manga.request({ op: "ocr_texts", vol: id, pages: near }, r => {
+            if (!r || !r.texts || r.texts.length === 0 || !vol || vol.vol !== id) {
+                if (vol && vol.vol === id)
+                    win.hereNew = 0;
+                return;
+            }
+            Lexicon.textStats(r.texts, st => { if (vol && vol.vol === id && st && !st.error) win.hereNew = st.newWords; });
+        });
+    }
+    Timer { id: hereTimer; interval: 400; onTriggered: win.refreshHere() }
+    onViewFirstChanged: hereTimer.restart()
+    onVolChanged: { comp = null; hereNew = 0; compTimer.restart(); hereTimer.restart(); }
+    Timer { id: compTimer; interval: 3000; onTriggered: win.refreshComp() }
+    Connections {
+        target: Lexicon
+        function onRevChanged() { if (win.vol) { compTimer.restart(); hereTimer.restart(); } }
+    }
+    Connections {
+        target: Manga
+        function onEvent(e) { if (e.event === "ocr" && win.vol && e.vol === win.vol.vol && !bubbleLayer.editing) { compTimer.restart(); hereTimer.restart(); } }
+    }
 
     readonly property var views: ML.views(pages, mode, offset)
     readonly property int viewIndex: mode === "scroll" ? page : ML.viewOf(views, page)
@@ -57,7 +106,7 @@ PanelWindow {
     screen: Quickshell.screens.find(s => s.name === screenName) ?? Quickshell.screens[0]
     WlrLayershell.namespace: "quickshell:manga"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: active ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: active ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     anchors { top: true; bottom: true; left: true; right: true }
     exclusiveZone: -1
     color: "transparent"
@@ -74,8 +123,11 @@ PanelWindow {
                 const p = r.prefs || {};
                 if (p.mode)
                     mode = p.mode;
-                if (p.rtl !== undefined)
-                    rtl = p.rtl;
+                if (p.rtl !== undefined) {
+                    rtlGlobal = p.rtl;
+                    if (!vol || !vol.seriesPrefs || vol.seriesPrefs.rtl === undefined)
+                        rtl = p.rtl;
+                }
                 if (p.widthPct)
                     widthPct = p.widthPct;
             });
@@ -106,6 +158,9 @@ PanelWindow {
         if (r.extracting === true || r.extracted === false)
             extractFrac = Math.max(0, extractFrac);
         if (fresh) {
+            rtl = r.seriesPrefs && r.seriesPrefs.rtl !== undefined ? r.seriesPrefs.rtl : rtlGlobal;
+            bookmarks = r.bookmarks || [];
+            furthest = r.progress ? r.progress.max : 0;
             offset = r.prefs && r.prefs.offset ? r.prefs.offset : 0;
             page = r.progress && !r.progress.finished ? Math.min(r.progress.page, Math.max(0, r.pages.length - 1)) : 0;
             resetZoom();
@@ -124,8 +179,8 @@ PanelWindow {
         });
     }
     function nextVolume() {
-        if (vol && vol.next)
-            openVolume(vol.next.id);
+        if (nextUnread)
+            openVolume(nextUnread.id);
         else
             openLibrary();
     }
@@ -150,6 +205,12 @@ PanelWindow {
                     win.openVolume(arg);
                 else
                     win.openLibrary();
+                break;
+            case "resume":
+                // back from the background: the same book and page, the page text read from here on
+                win.libOpen = false;
+                if (win.vol)
+                    Manga.ocrFocus(win.vol.vol, win.page);
                 break;
             case "next": win.next(); break;
             case "prev": win.prev(); break;
@@ -235,11 +296,68 @@ PanelWindow {
             Manga.request({ op: "prefs_set", vol: vol.vol, prefs: { offset: offset } });
     }
     function savePrefs() {
-        Manga.request({ op: "prefs_set", vol: 0, prefs: { mode: mode, rtl: rtl, widthPct: widthPct } });
+        Manga.request({ op: "prefs_set", vol: 0, prefs: { mode: mode, widthPct: widthPct } });
+    }
+    // the direction belongs to the series: another series keeps its own
+    function toggleRtl() {
+        rtl = !rtl;
+        rtlNote = true;
+        rtlNoteTimer.restart();
+        if (vol) {
+            Manga.request({ op: "prefs_set", vol: -vol.seriesId, prefs: { rtl: rtl } });
+            vol.seriesPrefs = { rtl: rtl };
+        } else {
+            rtlGlobal = rtl;
+            Manga.request({ op: "prefs_set", vol: 0, prefs: { rtl: rtl } });
+        }
+    }
+    Timer { id: rtlNoteTimer; interval: 2200; onTriggered: win.rtlNote = false }
+
+    // ---- bookmarks and the furthest page ----
+    readonly property int viewFirst: mode === "scroll" ? page : (views[viewIndex] || [page])[0]
+    readonly property var viewPages: mode === "scroll" ? [page] : (views[viewIndex] || [page])
+    readonly property bool viewBookmarked: viewPages.some(p => bookmarks.indexOf(p) >= 0)
+    readonly property bool behind: vol !== null && !libOpen && furthest > viewPages[viewPages.length - 1] + 1
+    function toggleBookmark() {
+        if (!vol || libOpen)
+            return;
+        const id = vol.vol;
+        const marked = viewPages.filter(p => bookmarks.indexOf(p) >= 0);
+        const todo = marked.length > 0 ? marked.map(p => ({ p: p, on: false })) : [{ p: viewFirst, on: true }];
+        todo.forEach(t => Manga.request({ op: "bookmark", vol: id, idx: t.p, on: t.on }, r => {
+            if (r && r.bookmarks && vol && vol.vol === id)
+                win.bookmarks = r.bookmarks;
+        }));
+    }
+    function nextBookmark() {
+        if (!vol || libOpen || bookmarks.length === 0)
+            return;
+        const after = bookmarks.filter(b => b > viewPages[viewPages.length - 1]);
+        goPage(after.length > 0 ? after[0] : bookmarks[0]);
+    }
+    function goFurthest() {
+        if (behind)
+            goPage(furthest);
+    }
+    // the volume to go on to: the next one that is not finished, else the first unfinished one left
+    readonly property var nextUnread: {
+        if (!vol)
+            return null;
+        const s = Manga.series.find(x => x.id === vol.seriesId);
+        if (!s)
+            return vol.next ? { id: vol.next.id, title: vol.next.title, cover: "", skipped: false } : null;
+        const at = s.volumes.findIndex(v => v.id === vol.vol);
+        const todo = v => !v.finished && v.id !== vol.vol;
+        const after = s.volumes.slice(at + 1).find(todo) || s.volumes.find(todo);
+        if (!after)
+            return null;
+        return { id: after.id, title: vol.next && vol.next.id === after.id ? vol.next.title : (after.title || after.name), cover: after.cover,
+                 skipped: !vol.next || vol.next.id !== after.id };
     }
 
     // a mode change or a late page-size update keeps the place
     onModeChanged: {
+        hereTimer.restart();
         if (mode === "scroll")
             Qt.callLater(() => { if (scrollLoader.item) scrollLoader.item.jumpTo(page, false); });
     }
@@ -284,6 +402,7 @@ PanelWindow {
         const lastOfView = mode === "scroll" ? page : (views[viewIndex] || [page])[views[viewIndex] ? views[viewIndex].length - 1 : 0];
         const done = mode === "scroll" ? page >= pages.length - 1 : viewIndex >= views.length - 1;
         Manga.request({ op: "progress", vol: vol.vol, page: lastOfView, finished: done });
+        furthest = Math.max(furthest, lastOfView);
         // the text of the pages ahead is read first
         Manga.ocrFocus(vol.vol, page);
     }
@@ -344,7 +463,9 @@ PanelWindow {
             const k = ev.key;
             let ok = true;
             if (k === Qt.Key_Escape) {
-                if (bubbleLayer.open || bubbleLayer.popOpen)
+                if (bubbleLayer.editing)
+                    bubbleLayer.cancelEdit();
+                else if (bubbleLayer.open || bubbleLayer.popOpen)
                     bubbleLayer.closeAll();
                 else if (win.zoom > 1.001)
                     win.resetZoom();
@@ -352,6 +473,8 @@ PanelWindow {
                     win.libOpen = false;
                 else
                     Manga.hide();
+            } else if (bubbleLayer.editing) {
+                ok = false;     // the text field takes the keys
             } else if (ev.modifiers & Qt.AltModifier) {
                 // the study keys of the subtitles, on the word under the pointer
                 if (k === Qt.Key_K)
@@ -360,6 +483,8 @@ PanelWindow {
                     bubbleLayer.ignore();
                 else if (k === Qt.Key_N)
                     bubbleLayer.name();
+                else if (k === Qt.Key_M)
+                    bubbleLayer.mine();
                 else if (k === Qt.Key_F)
                     Lexicon.cycleFurigana();
                 else
@@ -393,9 +518,14 @@ PanelWindow {
                 win.setMode(win.mode === "spread" ? "single" : win.mode === "single" ? "scroll" : "spread");
             } else if (k === Qt.Key_O) {
                 win.toggleOffset();
+            } else if (k === Qt.Key_B) {
+                win.toggleBookmark();
+            } else if (k === Qt.Key_G) {
+                win.nextBookmark();
+            } else if (k === Qt.Key_U) {
+                win.goFurthest();
             } else if (k === Qt.Key_D) {
-                win.rtl = !win.rtl;
-                win.savePrefs();
+                win.toggleRtl();
             } else if (k === Qt.Key_Plus || k === Qt.Key_Equal) {
                 win.zoomBy(1.25);
             } else if (k === Qt.Key_Minus) {
@@ -571,10 +701,10 @@ PanelWindow {
         MangaEndCard {
             anchors.centerIn: parent
             shown: win.endShown && !win.libOpen && win.vol !== null
-            next: win.vol ? win.vol.next : null
-            nextCover: win.vol && win.vol.next ? Manga.cover(win.nextCoverPath) : ""
+            next: win.nextUnread
+            nextCover: win.nextUnread ? Manga.cover(win.nextUnread.cover) : ""
             seriesTitle: win.vol ? win.vol.series : ""
-            onNextVolume: win.nextVolume()
+            onNextVolume: win.nextUnread ? win.openVolume(win.nextUnread.id) : win.openLibrary()
             onLibrary: win.openLibrary()
         }
 
@@ -633,6 +763,15 @@ PanelWindow {
                         elide: Text.ElideRight
                         Layout.maximumWidth: 360
                     }
+                    Collapse {
+                        horizontal: true
+                        open: win.compText !== ""
+                        InfoPill {
+                            text: win.compText + (win.hereNew > 0 ? " · " + win.hereNew + " here" : "")
+                            container: Colors.tertiary_container
+                            content: Colors.on_tertiary_container
+                        }
+                    }
                     Row {
                         spacing: 2
                         ConnectedButton { position: "first"; text: "Spread"; selected: win.mode === "spread"; onClicked: win.setMode("spread") }
@@ -647,9 +786,30 @@ PanelWindow {
                     }
                     Chip {
                         kind: "filter"
-                        text: win.rtl ? "Right to left" : "Left to right"
+                        text: "Hidden bubbles"
+                        selected: win.showHidden
+                        onClicked: win.showHidden = !win.showHidden
+                    }
+                    Chip {
+                        kind: "filter"
+                        text: (win.rtl ? "Right to left" : "Left to right") + (win.rtlNote ? " · this series" : "")
                         selected: win.rtl
-                        onClicked: { win.rtl = !win.rtl; win.savePrefs(); }
+                        onClicked: win.toggleRtl()
+                    }
+                    Collapse {
+                        horizontal: true
+                        open: win.behind
+                        Chip {
+                            icon: "skip_next"
+                            text: "Back to p." + (win.furthest + 1)
+                            onClicked: win.goFurthest()
+                        }
+                    }
+                    IconButton {
+                        icon: "bookmark"
+                        iconFilled: win.viewBookmarked
+                        style: win.viewBookmarked ? "tonal" : "standard"
+                        onClicked: win.toggleBookmark()
                     }
                     Collapse {
                         horizontal: true
@@ -677,6 +837,8 @@ PanelWindow {
                 total: win.pages.length
                 page: win.mode === "scroll" ? win.page : (win.views[win.viewIndex] || [win.page])[0]
                 rtl: win.rtl
+                bookmarks: win.bookmarks
+                furthest: win.furthest
                 onSeek: p => win.goPage(p)
             }
 

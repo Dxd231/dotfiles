@@ -25,6 +25,7 @@ Singleton {
     property bool searching: false
     property bool loginFailed: false
     property string _matchSig: ""
+    property string _mangaSig: ""
 
     function entryFor(key, season) {
         const m = matches[key + "|" + (season || 1)];
@@ -90,9 +91,16 @@ Singleton {
         });
         return out;
     }
+    // manga series from the reader's library
+    function _mangaItems() {
+        return Manga.series.map(x => ({ key: x.key, title: x.title }));
+    }
+    function mangaKey(key) { return "manga:" + key; }
     function rematch() {
         _matchSig = "";
+        _mangaSig = "";
         matchSoon.restart();
+        mangaSoon.restart();
     }
     function syncProgress() {
         if (!connected)
@@ -107,14 +115,25 @@ Singleton {
         });
         if (items.length > 0)
             pushProc.run(items);
+        // volumes finished in the reader
+        const vols = [];
+        Manga.series.forEach(x => {
+            const m = entryFor(mangaKey(x.key), 1);
+            // the highest volume finished: earlier ones count as read even when they were never marked
+            const n = x.volumes.reduce((t, v) => v.finished && v.number ? Math.max(t, v.number) : t, 0);
+            if (m && n > (pushed["m" + m.id] || 0))
+                vols.push({ id: m.id, volumes: n, total: m.volumes });
+        });
+        if (vols.length > 0)
+            pushMangaProc.run(vols);
     }
-    function search(q) {
+    function search(q, type) {
         searching = true;
         searchResults = [];
-        searchProc.run({ q: q });
+        searchProc.run({ q: q, type: type || "ANIME" });
     }
-    function pin(key, season, id, name) {
-        pinProc.run({ key: key, season: season, id: id, name: name });
+    function pin(key, season, id, name, type) {
+        pinProc.run({ key: key, season: season, id: id, name: name, type: type || "ANIME" });
     }
     function login(token, id) {
         loginFailed = false;
@@ -128,6 +147,8 @@ Singleton {
 
     Runner { id: matchProc; sub: "match" }
     Runner { id: pushProc; sub: "push" }
+    Runner { id: matchMangaProc; sub: "match_manga" }
+    Runner { id: pushMangaProc; sub: "push_manga" }
     Runner { id: pinProc; sub: "pin" }
     Runner { id: clientProc; sub: "client" }
     Runner { id: logoutProc; sub: "logout" }
@@ -163,6 +184,25 @@ Singleton {
         id: syncSoon
         interval: 2500
         onTriggered: al.syncProgress()
+    }
+    Timer {
+        id: mangaSoon
+        interval: 3000
+        onTriggered: {
+            const items = al._mangaItems();
+            const sig = JSON.stringify(items);
+            if (items.length === 0 || sig === al._mangaSig)
+                return;
+            al._mangaSig = sig;
+            matchMangaProc.run(items);
+        }
+    }
+    Connections {
+        target: Manga
+        function onSeriesChanged() {
+            mangaSoon.restart();
+            syncSoon.restart();
+        }
     }
     Connections {
         target: Immersion

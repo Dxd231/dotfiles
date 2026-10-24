@@ -265,10 +265,67 @@ fn load_done(st: &State) -> HashSet<(i64, i64)> {
 
 fn store(st: &State, vol: i64, idx: i64, w: i64, h: i64, blocks: &Value, engine: &str) {
     let con = st.db.lock().unwrap();
+    let mut blocks = blocks.clone();
+    let old: Option<String> = con.query_row("select blocks from ocr where vol_id = ?1 and idx = ?2", params![vol, idx], |r| r.get(0)).ok();
+    if let Some(old) = old.and_then(|o| serde_json::from_str::<Value>(&o).ok()) {
+        carry_edits(&old, &mut blocks);
+    }
     let _ = con.execute(
         "insert or replace into ocr(vol_id, idx, w, h, blocks, engine, ver, at) values(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![vol, idx, w, h, blocks.to_string(), engine, VER, chrono::Utc::now().timestamp_millis() as f64 / 1000.0],
     );
+}
+
+fn box_of(b: &Value) -> Option<[f64; 4]> {
+    let a = b.get("box")?.as_array()?;
+    Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?, a.get(2)?.as_f64()?, a.get(3)?.as_f64()?])
+}
+
+fn iou(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let w = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
+    let h = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
+    let inter = w * h;
+    let union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter;
+    if union <= 0.0 { 0.0 } else { inter / union }
+}
+
+/// A page read again keeps what the user changed: each edited or hidden block goes to the new block it overlaps most.
+pub fn carry_edits(old: &Value, new: &mut Value) {
+    let (Some(old), Some(new)) = (old.as_array(), new.as_array_mut()) else { return };
+    for o in old {
+        if o.get("edit").is_none() && o.get("hidden").is_none() {
+            continue;
+        }
+        let Some(ob) = box_of(o) else { continue };
+        let best = new
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| box_of(n).map(|nb| (i, iou(ob, nb))))
+            .filter(|(_, v)| *v >= 0.5)
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((i, _)) = best {
+            for k in ["edit", "hidden"] {
+                if let Some(v) = o.get(k) {
+                    new[i][k] = v.clone();
+                }
+            }
+        }
+    }
+}
+
+/// Manga order: top to bottom in three bands, right to left inside a band.
+pub fn reading_order(blocks: &[Value], page_h: f64) -> Vec<usize> {
+    let band = |b: &Value| -> i64 {
+        let Some(bx) = box_of(b) else { return 0 };
+        if page_h <= 0.0 { return 0 }
+        (((bx[1] + bx[3]) / 2.0) / (page_h / 3.0)).floor().clamp(0.0, 2.0) as i64
+    };
+    let mut idx: Vec<usize> = (0..blocks.len()).collect();
+    idx.sort_by(|&a, &b| {
+        let (ba, bb) = (box_of(&blocks[a]).unwrap_or([0.0; 4]), box_of(&blocks[b]).unwrap_or([0.0; 4]));
+        band(&blocks[a]).cmp(&band(&blocks[b])).then(bb[2].total_cmp(&ba[2])).then(ba[1].total_cmp(&bb[1]))
+    });
+    idx
 }
 
 fn idle_secs() -> u64 {
@@ -503,6 +560,7 @@ pub fn get(st: &State, req: &Value) -> Result<Value, String> {
     let vol = req.get("vol").and_then(Value::as_i64).ok_or("missing vol")?;
     let idx = req.get("idx").and_then(Value::as_i64).ok_or("missing idx")?;
     let all = req.get("all").and_then(Value::as_bool).unwrap_or(false);
+    let hidden = req.get("hidden").and_then(Value::as_bool).unwrap_or(false);
     let row = st
         .db
         .lock()
@@ -513,13 +571,106 @@ pub fn get(st: &State, req: &Value) -> Result<Value, String> {
     if engine == FAILED {
         return Ok(json!({ "failed": true, "blocks": [] }));
     }
-    let mut blocks: Value = serde_json::from_str(&blocks).unwrap_or_else(|_| json!([]));
-    if !all {
-        if let Some(a) = blocks.as_array_mut() {
-            a.retain(|b| b.get("drop").is_none_or(Value::is_null));
+    let blocks: Value = serde_json::from_str(&blocks).unwrap_or_else(|_| json!([]));
+    let list = blocks.as_array().cloned().unwrap_or_default();
+    let order = reading_order(&list, h as f64);
+    let mut rank = vec![0usize; list.len()];
+    for (r, &i) in order.iter().enumerate() {
+        rank[i] = r;
+    }
+    let mut hidden_count = 0;
+    let mut out = Vec::new();
+    for (i, mut b) in list.into_iter().enumerate() {
+        let user_hidden = b.get("hidden").and_then(Value::as_bool).unwrap_or(false);
+        let dropped = !b.get("drop").is_none_or(Value::is_null);
+        if user_hidden {
+            hidden_count += 1;
+        }
+        if !all && (dropped || (user_hidden && !hidden)) {
+            continue;
+        }
+        let o = b.as_object_mut().unwrap();
+        o.insert("i".into(), json!(i));
+        o.insert("order".into(), json!(rank[i]));
+        if let Some(e) = o.get("edit").and_then(Value::as_str).map(str::to_string) {
+            let orig = o.get("text").cloned().unwrap_or(json!(""));
+            o.insert("ocr".into(), orig);
+            o.insert("text".into(), json!(e));
+            o.insert("edited".into(), json!(true));
+        }
+        out.push(b);
+    }
+    Ok(json!({ "w": w, "h": h, "blocks": out, "hiddenCount": hidden_count }))
+}
+
+/// Change one block of a page: its text (`text: null` or the OCR text restores it) and/or whether it is hidden.
+pub fn edit(st: &State, req: &Value) -> Result<Value, String> {
+    let vol = req.get("vol").and_then(Value::as_i64).ok_or("missing vol")?;
+    let idx = req.get("idx").and_then(Value::as_i64).ok_or("missing idx")?;
+    let i = req.get("i").and_then(Value::as_u64).ok_or("missing i")? as usize;
+    {
+        let con = st.db.lock().unwrap();
+        let raw: String = con
+            .query_row("select blocks from ocr where vol_id = ?1 and idx = ?2", params![vol, idx], |r| r.get(0))
+            .map_err(|_| "page not read yet".to_string())?;
+        let mut blocks: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        let b = blocks.as_array_mut().and_then(|a| a.get_mut(i)).ok_or("no such block")?;
+        apply_edit(b, req);
+        con.execute("update ocr set blocks = ?3 where vol_id = ?1 and idx = ?2", params![vol, idx, blocks.to_string()]).map_err(|e| e.to_string())?;
+    }
+    st.out.event("ocr", json!({ "vol": vol, "idx": idx }));
+    Ok(json!({ "ok": true }))
+}
+
+pub fn apply_edit(b: &mut Value, req: &Value) {
+    let o = b.as_object_mut().unwrap();
+    if let Some(t) = req.get("text") {
+        match t.as_str().map(str::trim) {
+            Some(s) if !s.is_empty() && Some(s) != o.get("text").and_then(Value::as_str) => {
+                o.insert("edit".into(), json!(s));
+            }
+            _ => {
+                o.remove("edit");
+            }
         }
     }
-    Ok(json!({ "w": w, "h": h, "blocks": blocks }))
+    if let Some(h) = req.get("hidden").and_then(Value::as_bool) {
+        if h {
+            o.insert("hidden".into(), json!(true));
+        } else {
+            o.remove("hidden");
+        }
+    }
+}
+
+/// The kept text of every bubble of a volume, page by page in reading order, for the comprehension figures.
+pub fn texts(st: &State, req: &Value) -> Result<Value, String> {
+    let vol = req.get("vol").and_then(Value::as_i64).ok_or("missing vol")?;
+    let rows: Vec<(i64, i64, String)> = {
+        let con = st.db.lock().unwrap();
+        let mut q = con.prepare("select idx, h, blocks from ocr where vol_id = ?1 and engine != ?2 order by idx").map_err(|e| e.to_string())?;
+        let r = q.query_map(params![vol, FAILED], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(|e| e.to_string())?.flatten().collect();
+        r
+    };
+    let only: Option<Vec<i64>> = req.get("pages").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect());
+    let mut texts = Vec::new();
+    for (idx, h, raw) in &rows {
+        if only.as_ref().is_some_and(|o| !o.contains(idx)) {
+            continue;
+        }
+        let list = serde_json::from_str::<Value>(raw).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+        for i in reading_order(&list, *h as f64) {
+            let b = &list[i];
+            if !b.get("drop").is_none_or(Value::is_null) || b.get("hidden").and_then(Value::as_bool).unwrap_or(false) {
+                continue;
+            }
+            let t = b.get("edit").or_else(|| b.get("text")).and_then(Value::as_str).unwrap_or("").trim();
+            if !t.is_empty() {
+                texts.push(t.to_string());
+            }
+        }
+    }
+    Ok(json!({ "pages": rows.len(), "texts": texts }))
 }
 
 pub fn set_focus(st: &State, req: &Value) -> Result<Value, String> {
@@ -560,6 +711,36 @@ mod tests {
     }
     fn all_ready(_: i64) -> bool {
         true
+    }
+
+    #[test]
+    fn reading_order_is_top_band_then_right_to_left() {
+        let b = |x0: f64, y0: f64, x1: f64, y1: f64| json!({ "box": [x0, y0, x1, y1] });
+        // page 900 tall: bands of 300
+        let blocks = [b(10.0, 20.0, 100.0, 120.0), b(400.0, 30.0, 500.0, 130.0), b(200.0, 400.0, 300.0, 500.0), b(50.0, 700.0, 150.0, 800.0)];
+        assert_eq!(reading_order(&blocks, 900.0), vec![1, 0, 2, 3]);
+    }
+
+    #[test]
+    fn edits_follow_the_block_they_overlap_when_a_page_is_read_again() {
+        let old = json!([{ "box": [0, 0, 100, 100], "text": "a", "edit": "A" }, { "box": [200, 0, 300, 100], "text": "b", "hidden": true }]);
+        let mut new = json!([{ "box": [195, 5, 305, 105], "text": "b2" }, { "box": [2, 0, 98, 100], "text": "a2" }]);
+        carry_edits(&old, &mut new);
+        assert_eq!(new[0]["hidden"], json!(true));
+        assert_eq!(new[1]["edit"], json!("A"));
+        assert!(new[0].get("edit").is_none());
+    }
+
+    #[test]
+    fn apply_edit_sets_restores_and_hides() {
+        let mut b = json!({ "box": [0, 0, 1, 1], "text": "orig" });
+        apply_edit(&mut b, &json!({ "text": "fixed" }));
+        assert_eq!(b["edit"], json!("fixed"));
+        apply_edit(&mut b, &json!({ "hidden": true }));
+        assert_eq!(b["hidden"], json!(true));
+        assert_eq!(b["edit"], json!("fixed"));
+        apply_edit(&mut b, &json!({ "text": "orig", "hidden": false }));
+        assert!(b.get("edit").is_none() && b.get("hidden").is_none());
     }
 
     #[test]

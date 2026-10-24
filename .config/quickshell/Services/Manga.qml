@@ -75,6 +75,16 @@ Singleton {
         command("close", 0);
         open = false;
     }
+    // hide the reader into the background and bring it back where it was: the open book, page and zoom stay
+    function toggleHidden() {
+        if (open)
+            hide();
+        else if (reader && reader.vol) {
+            open = true;
+            command("resume", 0);
+        } else
+            show(-1);
+    }
     function ocrBackground(on) {
         request({ op: "ocr_bg", on: on }, r => { if (r.state) ocr = r; });
     }
@@ -246,7 +256,7 @@ Singleton {
         // the reader: open a volume (by id), or the library with no id
         function open(vol: int): void { manga.show(vol); }
         function library(): void { manga.show(-1); }
-        function toggle(): void { if (manga.open) manga.hide(); else manga.show(-1); }
+        function toggle(): void { manga.toggleHidden(); }
         function close(): void { manga.hide(); }
         function next(): void { manga.command("next", 0); }
         function prev(): void { manga.command("prev", 0); }
